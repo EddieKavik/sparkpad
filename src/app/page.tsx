@@ -25,6 +25,10 @@ export default function Home() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
 
+  // Delete account state
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+
   // Debug: log on each render
   console.log("Rendering Home, userName:", userName);
 
@@ -202,6 +206,50 @@ export default function Home() {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    setDeletingAccount(true);
+    try {
+      const userEmail = localStorage.getItem("user:username") || "";
+      if (!userEmail) throw new Error("User email not found in localStorage");
+      // Delete user password
+      await fetch(`http://localhost:3333/users?mode=volatile&key=${encodeURIComponent(userEmail)}`, { method: "DELETE" });
+      // Delete user name
+      await fetch(`http://localhost:3333/users?mode=volatile&key=${encodeURIComponent(userEmail + ':username')}`, { method: "DELETE" });
+      // Remove user from all projects
+      const res = await fetch("http://localhost:3333/projects?mode=volatile&key=projects");
+      if (res.ok) {
+        const projects = await res.json();
+        let changed = false;
+        const updatedProjects = Array.isArray(projects)
+          ? projects.map((p) => {
+            if (Array.isArray(p.members) && p.members.includes(userEmail)) {
+              changed = true;
+              return { ...p, members: p.members.filter((m: string) => m !== userEmail) };
+            }
+            return p;
+          })
+          : [];
+        if (changed) {
+          await fetch("http://localhost:3333/projects?mode=volatile&key=projects", {
+            method: "POST",
+            body: JSON.stringify(updatedProjects),
+          });
+        }
+      }
+      // Log out
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      localStorage.removeItem("user:username");
+      showNotification({ title: "Account Deleted", message: "Your account and data have been deleted.", color: "green" });
+      router.replace("/login");
+    } catch (err: any) {
+      showNotification({ title: "Error", message: err.message || "Failed to delete account.", color: "red" });
+    } finally {
+      setDeletingAccount(false);
+      setDeleteConfirmOpen(false);
+    }
+  };
+
   return (
     <Box style={{ minHeight: "100vh", background: "linear-gradient(135deg, #f8fafc 0%, #e0e7ff 100%)" }}>
       {/* Project Create Modal */}
@@ -248,9 +296,20 @@ export default function Home() {
           onChange={(e) => setConfirmPassword(e.currentTarget.value)}
           mb="md"
         />
-        <Button onClick={handleChangePassword} loading={changingPassword} fullWidth color="violet">
+        <Button onClick={handleChangePassword} loading={changingPassword} fullWidth color="violet" mb="md">
           Change Password
         </Button>
+        <Button color="red" variant="outline" fullWidth onClick={() => setDeleteConfirmOpen(true)} loading={deletingAccount}>
+          Delete Account
+        </Button>
+      </Modal>
+      {/* Delete confirmation modal */}
+      <Modal opened={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)} title="Confirm Account Deletion" centered>
+        <Text c="red" mb="md">Are you sure you want to permanently delete your account and all associated data? This action cannot be undone.</Text>
+        <Group grow>
+          <Button variant="default" onClick={() => setDeleteConfirmOpen(false)} disabled={deletingAccount}>Cancel</Button>
+          <Button color="red" onClick={handleDeleteAccount} loading={deletingAccount}>Delete</Button>
+        </Group>
       </Modal>
       <Paper
         shadow="xs"
