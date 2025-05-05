@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack, Modal, ActionIcon, rem, Menu, Avatar, Paper } from "@mantine/core";
 import { showNotification } from "@mantine/notifications";
 import { IconSettings, IconDots, IconTrash } from "@tabler/icons-react";
+import { IconRobot } from "@tabler/icons-react";
+import { getGeminiClient } from "@/utils/gemini";
 
 // Helper to get up to 3 initials from a name or email
 function getInitials(nameOrEmail: string) {
@@ -43,6 +45,8 @@ export default function ProjectViewPage() {
     const [editingRow, setEditingRow] = useState<{ docId: string; idx: number } | null>(null);
     const [editRowValue, setEditRowValue] = useState("");
     const [savingEdit, setSavingEdit] = useState(false);
+    // AI row transformation state
+    const [aiProcessing, setAiProcessing] = useState<{ docId: string; idx: number } | null>(null);
 
     useEffect(() => {
         const fetchProject = async () => {
@@ -248,6 +252,34 @@ export default function ProjectViewPage() {
         setEditRowValue("");
     };
 
+    // AI transform handler
+    const handleAiTransformRow = async (docId: string, idx: number, value: string) => {
+        setAiProcessing({ docId, idx });
+        try {
+            // Use Gemini to transform the text
+            const gemini = getGeminiClient();
+            const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const result = await model.generateContent(value);
+            const aiText = result.response.text().trim();
+            console.log("Gemini raw response:", result.response);
+            console.log("Gemini aiText:", aiText);
+            if (!aiText) throw new Error("No AI response");
+            const updatedRows = {
+                ...docRows,
+                [docId]: (docRows[docId] || []).map((row, i) => (i === idx ? aiText : row)),
+            };
+            setDocRows(updatedRows);
+            setEditingRow(null);
+            setEditRowValue("");
+            await saveDocRows(updatedRows);
+            showNotification({ title: "AI updated row", message: `Row: ${aiText}`, color: "green" });
+        } catch (err: any) {
+            showNotification({ title: "Error", message: err.message || "AI transformation failed.", color: "red" });
+        } finally {
+            setAiProcessing(null);
+        }
+    };
+
     if (loading) {
         return (
             <Center style={{ minHeight: 200 }}>
@@ -314,53 +346,69 @@ export default function ProjectViewPage() {
                             <Box>
                                 <Title order={4}>{tab.title}</Title>
                                 <Stack mt="md">
-                                    {(docRows[tab.id] || []).map((row, idx) => (
-                                        <Group key={idx} position="apart" align="center" style={{ position: "relative" }}>
-                                            {editingRow && editingRow.docId === tab.id && editingRow.idx === idx ? (
-                                                <>
-                                                    <TextInput
-                                                        value={editRowValue}
-                                                        onChange={e => setEditRowValue(e.currentTarget.value)}
-                                                        autoFocus
-                                                        style={{ flex: 1 }}
-                                                    />
-                                                    <Button size="xs" color="violet" onClick={handleSaveEditRow} loading={savingEdit}>
-                                                        Save
-                                                    </Button>
-                                                    <Button size="xs" variant="default" onClick={handleCancelEditRow} disabled={savingEdit}>
-                                                        Cancel
-                                                    </Button>
-                                                </>
-                                            ) : (
-                                                <Paper
-                                                    p="sm"
-                                                    withBorder
-                                                    radius="md"
-                                                    style={{ flex: 1, minWidth: 0, cursor: "pointer" }}
-                                                    onClick={() => handleStartEditRow(tab.id, idx, row)}
-                                                    title="Click to edit"
-                                                >
-                                                    {row}
-                                                </Paper>
-                                            )}
-                                            <Menu shadow="md" width={120} position="bottom-end" withinPortal>
-                                                <Menu.Target>
-                                                    <ActionIcon variant="subtle" color="gray" size={28} style={{ opacity: 0.7 }}>
-                                                        <IconDots size={18} />
-                                                    </ActionIcon>
-                                                </Menu.Target>
-                                                <Menu.Dropdown>
-                                                    <Menu.Item
-                                                        color="red"
-                                                        leftSection={<IconTrash size={16} />}
-                                                        onClick={() => handleDeleteRow(tab.id, idx)}
+                                    {(docRows[tab.id] || []).map((row, idx) => {
+                                        const isEditing = editingRow && editingRow.docId === tab.id && editingRow.idx === idx;
+                                        const isAI = aiProcessing && aiProcessing.docId === tab.id && aiProcessing.idx === idx;
+                                        return (
+                                            <Group key={idx} position="apart" align="center" style={{ position: "relative" }}>
+                                                {isEditing ? (
+                                                    <>
+                                                        <TextInput
+                                                            value={editRowValue}
+                                                            onChange={e => setEditRowValue(e.currentTarget.value)}
+                                                            autoFocus
+                                                            style={{ flex: 1 }}
+                                                            disabled={isAI}
+                                                        />
+                                                        <Button size="xs" color="violet" onClick={handleSaveEditRow} loading={savingEdit || isAI} disabled={isAI}>
+                                                            Save
+                                                        </Button>
+                                                        <Button size="xs" variant="default" onClick={handleCancelEditRow} disabled={savingEdit || isAI}>
+                                                            Cancel
+                                                        </Button>
+                                                        <ActionIcon
+                                                            size={28}
+                                                            color="blue"
+                                                            variant="light"
+                                                            onClick={() => handleAiTransformRow(tab.id, idx, editRowValue)}
+                                                            loading={isAI}
+                                                            disabled={isAI}
+                                                            title="Transform with AI"
+                                                        >
+                                                            <IconRobot size={18} />
+                                                        </ActionIcon>
+                                                    </>
+                                                ) : (
+                                                    <Paper
+                                                        p="sm"
+                                                        withBorder
+                                                        radius="md"
+                                                        style={{ flex: 1, minWidth: 0, cursor: "pointer" }}
+                                                        onClick={() => handleStartEditRow(tab.id, idx, row)}
+                                                        title="Click to edit"
                                                     >
-                                                        Delete
-                                                    </Menu.Item>
-                                                </Menu.Dropdown>
-                                            </Menu>
-                                        </Group>
-                                    ))}
+                                                        {row}
+                                                    </Paper>
+                                                )}
+                                                <Menu shadow="md" width={120} position="bottom-end" withinPortal>
+                                                    <Menu.Target>
+                                                        <ActionIcon variant="subtle" color="gray" size={28} style={{ opacity: 0.7 }}>
+                                                            <IconDots size={18} />
+                                                        </ActionIcon>
+                                                    </Menu.Target>
+                                                    <Menu.Dropdown>
+                                                        <Menu.Item
+                                                            color="red"
+                                                            leftSection={<IconTrash size={16} />}
+                                                            onClick={() => handleDeleteRow(tab.id, idx)}
+                                                        >
+                                                            Delete
+                                                        </Menu.Item>
+                                                    </Menu.Dropdown>
+                                                </Menu>
+                                            </Group>
+                                        );
+                                    })}
                                     {addingRowFor === tab.id ? (
                                         <Group>
                                             <TextInput
