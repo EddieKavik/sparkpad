@@ -13,8 +13,9 @@ import {
     rem,
 } from "@mantine/core";
 import { showNotification } from "@mantine/notifications";
-import { IconLogin2 } from "@tabler/icons-react";
+import { IconLogin2, IconBrandGoogle, IconBrandTwitter, IconBrandFacebook, IconBrandLinkedin } from "@tabler/icons-react";
 import { useRouter } from "next/navigation";
+import { signIn } from "next-auth/react";
 
 async function encryptPassword(password: string, saltB64: string): Promise<string> {
     // Decode base64 salt
@@ -127,6 +128,41 @@ export default function LoginPage() {
                         <Text c="dimmed" size="sm" ta="center">
                             Welcome back! Please enter your credentials.
                         </Text>
+                    </Stack>
+                    {/* Social login buttons */}
+                    <Stack gap="xs" mb="md">
+                        <Button
+                            leftSection={<IconBrandGoogle size={18} />}
+                            variant="default"
+                            fullWidth
+                            onClick={() => signIn("google")}
+                        >
+                            Continue with Google
+                        </Button>
+                        <Button
+                            leftSection={<IconBrandTwitter size={18} />}
+                            variant="default"
+                            fullWidth
+                            onClick={() => signIn("twitter")}
+                        >
+                            Continue with Twitter/X
+                        </Button>
+                        <Button
+                            leftSection={<IconBrandFacebook size={18} />}
+                            variant="default"
+                            fullWidth
+                            onClick={() => signIn("facebook")}
+                        >
+                            Continue with Facebook
+                        </Button>
+                        <Button
+                            leftSection={<IconBrandLinkedin size={18} />}
+                            variant="default"
+                            fullWidth
+                            onClick={() => signIn("linkedin")}
+                        >
+                            Continue with LinkedIn
+                        </Button>
                     </Stack>
                     <form onSubmit={handleSubmit}>
                         <Stack gap="md">
