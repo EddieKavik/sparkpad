@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Container, Group, Button, Title, Box, Paper, rem, Text, Modal, TextInput, Card, Stack, Loader } from "@mantine/core";
 import { showNotification } from "@mantine/notifications";
+import Link from "next/link";
 
 export default function Home() {
   const router = useRouter();
@@ -237,9 +238,11 @@ export default function Home() {
         ) : (
           <Stack mt="md">
             {projects.map((project, idx) => (
-              <Card key={project.id || idx} shadow="sm" p="md" radius="md" withBorder>
-                <Text fw={600}>{project.name || "Untitled Project"}</Text>
-              </Card>
+              <Link href={`/projects/${project.id}`} style={{ textDecoration: "none" }} key={project.id || idx}>
+                <Card shadow="sm" p="md" radius="md" withBorder style={{ cursor: "pointer", transition: "box-shadow 0.2s", marginBottom: 8 }}>
+                  <Text fw={600} c="violet.8">{project.name || "Untitled Project"}</Text>
+                </Card>
+              </Link>
             ))}
           </Stack>
         )}
