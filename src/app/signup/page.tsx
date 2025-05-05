@@ -88,6 +88,7 @@ export default function SignupPage() {
                 message: "Registration successful!",
                 color: "green",
             });
+            localStorage.setItem("user:username", email);
             setEmail("");
             setPassword("");
         } catch (err: any) {

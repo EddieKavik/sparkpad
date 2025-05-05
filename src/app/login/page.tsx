@@ -79,6 +79,7 @@ export default function LoginPage() {
             const user = { name: email.split("@")[0] };
             localStorage.setItem("token", token);
             localStorage.setItem("user", JSON.stringify(user));
+            localStorage.setItem("user:username", email);
             showNotification({
                 title: "Success",
                 message: "Login successful!",
