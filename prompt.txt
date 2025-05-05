@@ -1,0 +1,119 @@
+Okay Cursor, we are going to build the SparkPad web application. This application will be built with AI assistance, using the NextJS framework and the React library. The application will be deployed on Vercel.
+
+All data will be stored in Civil Memory running at http://localhost:3333. The repository for this project is https://github.com/tagmein/sparkpad.
+
+We will exclusively use the Mantine React components library (https://mantine.dev/) for our user interface elements and Tabler React Icons (https://docs.tabler.io/icons/libraries/react) for any icons needed.
+
+Our development process is incremental. For each task, you will generate the necessary code. After I review and confirm the code, you will provide the exact Git commands to: `git add -A`, `git commit -m "feat: [Short description of the completed task]"`, and `git push origin main`. Following the push, you will guide me to create a new Pull Request on GitHub for the 'main' branch with a descriptive title. We will proceed task by task, awaiting my confirmation before moving to the next.
+
+**Task 1: Set up a simple TypeScript NextJS template in the repository.**
+
+Generate the commands and code to set up a basic NextJS project with TypeScript in the local repository cloned from https://github.com/tagmein/sparkpad. Assume I am at the root of the repository. After setup and my confirmation, provide the Git commands for adding, committing, pushing, and PR creation.
+
+**Task 2: Create a sign-up screen.**
+
+Create a new page at `/signup` (or a suitable component) with:
+* Two Mantine `TextInput` components for email and password.
+* A Mantine `Button` for registration.
+* Form submission logic: capture email and password, encrypt the password using Node.js `crypto` (show encryption code, including salt if recommended), make an HTTP POST request to `http://localhost:3333/users` with `email` and `encryptedPassword`, and display success/error feedback using Mantine's `Notification`. After my confirmation, provide Git commands and PR guidance.
+
+**Task 3: Create a log-in screen.**
+
+Create a new page at `/login` (or a suitable component) with:
+* Two Mantine `TextInput` components for email and password.
+* A Mantine `Button` for login.
+* Form submission logic: capture email and password, make an HTTP POST request to `http://localhost:3333/login` with `email` and `password`. On success (assuming API returns a JSON with `token` and `user` {`name`}), store in `localStorage` and redirect to `/`. On failure, display an error using Mantine's `Notification`. After my confirmation, provide Git commands and PR guidance.
+
+**Task 4: Create a home screen.**
+
+Create a new page at `/`. It should:
+* Check for `token` and `user` in `localStorage`. If not present, redirect to `/login`.
+* If logged in, display a welcome message using Mantine's `Title` with the user's name from `localStorage`. After my confirmation, provide Git commands and PR guidance.
+
+**Task 5: Add a navigation bar with logout.**
+
+Modify the `/` page to include a Mantine `Header` at the top with:
+* A placeholder for the app title (left).
+* A Mantine `Button` labeled "Logout" (top right).
+* Logout functionality: on click, remove `token` and `user` from `localStorage` and redirect to `/login`. After my confirmation, provide Git commands and PR guidance.
+
+**Task 6: Add user's name to the navigation bar.**
+
+Modify the Mantine `Header` on the `/` page to display the logged-in user's name (from `localStorage`) to the left of the "Logout" button. Use Mantine components for layout. After my confirmation, provide Git commands and PR guidance.
+
+**Task 7: Implement an edit profile modal.**
+
+When the user clicks their name in the navigation bar, open a Mantine `Modal`. This modal should contain a Mantine `TextInput` pre-filled with the user's name (from `localStorage`) and a "Save" button. On save, make an HTTP PUT request to `http://localhost:3333/users/{userId}` (replace `{userId}` with the actual user ID from `localStorage`) to update the name. Display success/error feedback using Mantine's `Notification` and update the name in the navigation bar on success. After my confirmation, provide Git commands and PR guidance.
+
+**Task 8: Display and create projects.**
+
+On the `/` page, below the navigation, display a list of projects. Fetch these using an HTTP GET request to `http://localhost:3333/projects` on page load. Use Mantine components like `Card` or `List` to display them. Add a Mantine `Button` to trigger project creation. Clicking this button should open a Mantine `Modal` with a Mantine `TextInput` for the project name and a "Create" button. On create, make an HTTP POST request to `http://localhost:3333/projects` with the project name. After successful creation, refresh the project list. After my confirmation, provide Git commands and PR guidance.
+
+**Task 9: Create a project view page with tabs.**
+
+Create a new page accessible via a dynamic route, e.g., `/projects/[projectId]`, displaying information for a specific project. This page should use Mantine's `Tabs` component with three tabs: "Documents," "Templates," and "Members." The content of these tabs can be placeholders for now. After my confirmation, provide Git commands and PR guidance.
+
+**Task 10: Implement adding members to a project.**
+
+In the "Members" tab of the project view page, add:
+* A Mantine `TextInput` for entering another user's email.
+* A Mantine `Button` to "Add Member."
+* Logic: on button click, make an HTTP POST request to `http://localhost:3333/projects/{projectId}/members` with the entered email. Display success/error feedback (e.g., user not found, already a member).
+* Display a list of current project members fetched via an HTTP GET request to `http://localhost:3333/projects/{projectId}/members` when the tab loads. Use Mantine components for the list. After my confirmation, provide Git commands and PR guidance.
+
+**Task 11: Implement project renaming.**
+
+In the project view page, add a "settings" button (using Mantine's `Button` and a Tabler React icon) to the right of the tabs. Clicking it should open a Mantine `Modal` with a Mantine `TextInput` pre-filled with the current project name and a "Save" button. On save, make an HTTP PUT request to `http://localhost:3333/projects/{projectId}` with the new name. Update the displayed project name on success. After my confirmation, provide Git commands and PR guidance.
+
+**Task 12: Implement removing members from a project.**
+
+In the "Members" tab, next to each listed member, add a three-dots menu (using Mantine's `Menu` and a Tabler React icon). The menu should have a "Remove" option. On clicking "Remove" for a user, make an HTTP DELETE request to `http://localhost:3333/projects/{projectId}/members/{userId}` (replace `{userId}`). Update the member list on success. After my confirmation, provide Git commands and PR guidance.
+
+**Task 13: Add circle avatars with initials.**
+
+Implement a React component that takes a user's name and returns a circular avatar (using Mantine's `Avatar`) displaying the first 1-3 initials of the name. Use this component in the navigation bar and the members list. After my confirmation, provide Git commands and PR guidance.
+
+**Task 14: Add new document functionality.**
+
+In the "Documents" tab of the project view, add a Mantine `Button` labeled "Add Document." Clicking this button should use `window.open()` to open a new browser tab with a new route within our application (e.g., `/projects/{projectId}/documents/new`) and set the initial title of the new tab to "Untitled Document." After my confirmation, provide Git commands and PR guidance.
+
+**Task 15: Implement password change.**
+
+In the profile edit modal (Task 7), add Mantine `PasswordInput` components for "New Password" and "Confirm New Password" and a "Save Password" button. On clicking "Save Password," validate that the new passwords match. If they do, encrypt the new password and make an HTTP PUT request to `http://localhost:3333/users/{userId}/password` with the encrypted new password. Display success/error feedback. After my confirmation, provide Git commands and PR guidance.
+
+**Task 16: Add Google sign-in.**
+
+Integrate Google sign-in using a suitable React library (e.g., `@react-oauth/google`). Add a "Sign in with Google" button on the `/signup` and `/login` pages (using Mantine's `Button` and the Google icon from Tabler React Icons). Handle the Google sign-in flow, verify the ID token on the client-side and potentially send it to the backend (`/auth/google` endpoint on `http://localhost:3333`) to create or log in the user. Store the returned `token` and `user` in `localStorage` on success and redirect to `/`. After my confirmation, provide Git commands and PR guidance.
+
+**(Tasks 17-20: Add Twitter/X, Facebook, LinkedIn sign-in):** Follow the same pattern as Google sign-in, integrating the respective OAuth 2.0 flows and adding buttons with appropriate Tabler React icons. Assume API endpoints like `/auth/twitter`, `/auth/facebook`, `/auth/linkedin` on `http://localhost:3333`.
+
+**Task 21: Implement account deletion.**
+
+In the profile edit modal, add a prominent "Delete Account" button (using Mantine's `Button` with a destructive variant and a warning). On click, confirm the action with the user. If confirmed, make an HTTP DELETE request to `http://localhost:3333/users/{userId}` to permanently delete the account and all associated data. After successful deletion, clear `localStorage` and redirect to `/signup`. After my confirmation, provide Git commands and PR guidance.
+
+**Task 22: Add a new document row.**
+
+In the document view (which we'll need to build within the "Documents" tab later), add a way to add a new row. This could be a Mantine `Button` that adds a new element to a list. Each new row should initially contain a Mantine `TextInput` for text input and "Save" and "Cancel" Mantine `Button`s. On clicking "Save," make an HTTP POST request to `http://localhost:3333/documents/{documentId}/rows` with the text content. Upon successful save, the row should be displayed in the document immediately and persist after a refresh (we'll handle document loading later). After my confirmation, provide Git commands and PR guidance.
+
+**Task 23: Implement deleting a document row.**
+
+When hovering over a document row, a three-dots menu (Mantine `Menu` and Tabler React icon) should appear with a "Delete" option. Clicking "Delete" should make an HTTP DELETE request to `http://localhost:3333/documents/{documentId}/rows/{rowId}`. The row should be removed from the display immediately and persist after a refresh. After my confirmation, provide Git commands and PR guidance.
+
+**Task 24: Install and set up Gemini.**
+
+Install the `@google/genai` library using `npm install @google/genai`. Explain how to set up the `GEMINI_API_KEY` environment variable in our NextJS project (e.g., in `.env.local`). Provide a basic example of how to initialize the Gemini API within a NextJS API route or a client-side function (without making any specific AI calls yet). After my confirmation, provide Git commands and PR guidance.
+
+**Task 25: Implement editing a document row.**
+
+When a user clicks on a document row, it should go into edit mode. The static text should be replaced with a Mantine `TextInput` pre-filled with the row's content, along with "Save" and "Cancel" Mantine `Button`s. Clicking "Save" should make an HTTP PUT request to `http://localhost:3333/documents/{documentId}/rows/{rowId}` with the updated text. The row should update immediately and persist after a refresh. Clicking "Cancel" should revert the row to its static display. After my confirmation, provide Git commands and PR guidance.
+
+**Task 26: Implement AI text transformation.**
+
+In each document row (when not in edit mode), add an "AI" Mantine `Button` (potentially with a relevant Tabler React icon). When this button is clicked for a row:
+* Disable the `TextInput` in that row (if it exists).
+* Make an HTTP POST request to a new API endpoint in our NextJS application (e.g., `/api/ai/transform`). This request should send the current text of the row and your `GEMINI_API_KEY`.
+* In the API route, use the `@google/genai` library to send a prompt to the Gemini model (e.g., "Transform the following text: '[current text]'").
+* The API route should return the AI-generated text.
+* On the client-side, when the response is received, update the text content of the row. Re-enable the `TextInput` if it was disabled. After my confirmation, provide Git commands and PR guidance.
+
+Please confirm you understand these tasks and are ready to begin with Task 1
