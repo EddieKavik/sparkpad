@@ -1,0 +1,179 @@
+"use client";
+import { useState } from "react";
+import {
+    TextInput,
+    PasswordInput,
+    Button,
+    Box,
+    Title,
+    Paper,
+    Stack,
+    Text,
+    Center,
+    rem,
+} from "@mantine/core";
+import { showNotification } from "@mantine/notifications";
+import { IconLogin2 } from "@tabler/icons-react";
+import { useRouter } from "next/navigation";
+
+async function encryptPassword(password: string, saltB64: string): Promise<string> {
+    // Decode base64 salt
+    const salt = Uint8Array.from(atob(saltB64), c => c.charCodeAt(0));
+    const enc = new TextEncoder();
+    const passwordKey = await window.crypto.subtle.importKey(
+        "raw",
+        enc.encode(password),
+        { name: "PBKDF2" },
+        false,
+        ["deriveBits", "deriveKey"]
+    );
+    const derivedKey = await window.crypto.subtle.deriveKey(
+        {
+            name: "PBKDF2",
+            salt,
+            iterations: 100000,
+            hash: "SHA-256",
+        },
+        passwordKey,
+        { name: "AES-GCM", length: 256 },
+        true,
+        ["encrypt", "decrypt"]
+    );
+    const rawKey = await window.crypto.subtle.exportKey("raw", derivedKey);
+    const combined = new Uint8Array(salt.length + rawKey.byteLength);
+    combined.set(salt, 0);
+    combined.set(new Uint8Array(rawKey), salt.length);
+    return btoa(String.fromCharCode(...combined));
+}
+
+function extractSaltFromEncrypted(encrypted: string): string {
+    // The salt is the first 16 bytes (base64-encoded)
+    const bytes = Uint8Array.from(atob(encrypted), c => c.charCodeAt(0));
+    const salt = bytes.slice(0, 16);
+    return btoa(String.fromCharCode(...salt));
+}
+
+export default function LoginPage() {
+    const [email, setEmail] = useState("");
+    const [password, setPassword] = useState("");
+    const [loading, setLoading] = useState(false);
+    const router = useRouter();
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        try {
+            // Fetch encrypted password from Civil Memory
+            const res = await fetch(
+                "http://localhost:3333/users?mode=volatile&key=" + encodeURIComponent(email)
+            );
+            if (!res.ok) throw new Error("Invalid email or password");
+            const encryptedPassword = await res.text();
+            // Extract salt from stored encrypted password
+            const saltB64 = extractSaltFromEncrypted(encryptedPassword);
+            // Encrypt entered password with extracted salt
+            const encryptedInput = await encryptPassword(password, saltB64);
+            if (encryptedInput !== encryptedPassword) throw new Error("Invalid email or password");
+            // Simulate token and user object
+            const token = "dummy-token";
+            const user = { name: email.split("@")[0] };
+            localStorage.setItem("token", token);
+            localStorage.setItem("user", JSON.stringify(user));
+            showNotification({
+                title: "Success",
+                message: "Login successful!",
+                color: "green",
+            });
+            router.push("/");
+        } catch (err: any) {
+            showNotification({
+                title: "Error",
+                message: err.message || "Login failed.",
+                color: "red",
+            });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <Box
+            style={{
+                minHeight: "100vh",
+                background: "linear-gradient(135deg, #f8fafc 0%, #e0e7ff 100%)",
+                padding: rem(16),
+            }}
+        >
+            <Center style={{ minHeight: "100vh" }}>
+                <Paper
+                    shadow="xl"
+                    radius="lg"
+                    p="lg"
+                    withBorder
+                    style={{
+                        width: "100%",
+                        maxWidth: 400,
+                        minWidth: 0,
+                        background: "rgba(255,255,255,0.95)",
+                        border: "1px solid #e0e7ff",
+                    }}
+                >
+                    <Stack align="center" mb="md" gap="xs">
+                        <IconLogin2 size={40} color="#7950f2" />
+                        <Title order={2} style={{ fontWeight: 800, letterSpacing: -1, fontSize: rem(28) }}>
+                            Log In to SparkPad
+                        </Title>
+                        <Text c="dimmed" size="sm" ta="center">
+                            Welcome back! Please enter your credentials.
+                        </Text>
+                    </Stack>
+                    <form onSubmit={handleSubmit}>
+                        <Stack gap="md">
+                            <TextInput
+                                label="Email"
+                                placeholder="you@email.com"
+                                value={email}
+                                onChange={(e) => setEmail(e.currentTarget.value)}
+                                required
+                                autoComplete="email"
+                                size="md"
+                                radius="md"
+                                withAsterisk
+                                styles={{
+                                    input: { fontSize: rem(16) },
+                                    label: { fontWeight: 600 },
+                                }}
+                            />
+                            <PasswordInput
+                                label="Password"
+                                placeholder="Your password"
+                                value={password}
+                                onChange={(e) => setPassword(e.currentTarget.value)}
+                                required
+                                autoComplete="current-password"
+                                size="md"
+                                radius="md"
+                                withAsterisk
+                                styles={{
+                                    input: { fontSize: rem(16) },
+                                    label: { fontWeight: 600 },
+                                }}
+                            />
+                            <Button
+                                type="submit"
+                                loading={loading}
+                                size="md"
+                                radius="md"
+                                fullWidth
+                                gradient={{ from: "indigo", to: "violet", deg: 90 }}
+                                style={{ fontWeight: 700, fontSize: rem(16) }}
+                            >
+                                Log In
+                            </Button>
+                        </Stack>
+                    </form>
+                </Paper>
+            </Center>
+        </Box>
+    );
+} 

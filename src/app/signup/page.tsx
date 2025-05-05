@@ -54,14 +54,35 @@ export default function SignupPage() {
         setLoading(true);
         try {
             const encryptedPassword = await encryptPassword(password);
-            const res = await fetch(
+
+            // Store encrypted password
+            const passwordRes = await fetch(
                 "http://localhost:3333/users?mode=volatile&key=" + encodeURIComponent(email),
                 {
                     method: "POST",
                     body: encryptedPassword,
                 }
             );
-            if (!res.ok) throw new Error((await res.json()).message || "Registration failed");
+            const passwordResText = await passwordRes.text();
+            if (!passwordRes.ok) {
+                console.error("Password storage failed:", passwordRes.status, passwordResText);
+                throw new Error(`Failed to store password: ${passwordResText || passwordRes.status}`);
+            }
+
+            // Store username
+            const usernameRes = await fetch(
+                "http://localhost:3333/users?mode=volatile&key=" + encodeURIComponent(email + ':username'),
+                {
+                    method: "POST",
+                    body: email,
+                }
+            );
+            const usernameResText = await usernameRes.text();
+            if (!usernameRes.ok) {
+                console.error("Username storage failed:", usernameRes.status, usernameResText);
+                throw new Error(`Failed to store username: ${usernameResText || usernameRes.status}`);
+            }
+
             showNotification({
                 title: "Success",
                 message: "Registration successful!",
@@ -70,6 +91,7 @@ export default function SignupPage() {
             setEmail("");
             setPassword("");
         } catch (err: any) {
+            console.error("Sign-up error:", err);
             showNotification({
                 title: "Error",
                 message: err.message || "Registration failed.",
