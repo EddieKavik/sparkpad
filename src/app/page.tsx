@@ -1,16 +1,24 @@
 "use client";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Container, Group, Button, Title, Box, Paper, rem } from "@mantine/core";
+import { Container, Group, Button, Title, Box, Paper, rem, Text } from "@mantine/core";
 
 export default function Home() {
   const router = useRouter();
+  const [userName, setUserName] = useState<string | null>(null);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
     const user = localStorage.getItem("user");
     if (!token || !user) {
       router.replace("/login");
+    } else {
+      try {
+        const parsed = JSON.parse(user);
+        setUserName(parsed.name || null);
+      } catch {
+        setUserName(null);
+      }
     }
   }, [router]);
 
@@ -34,7 +42,14 @@ export default function Home() {
         }}
       >
         <Container size="lg" style={{ height: "100%" }}>
-          <div style={{ display: "flex", alignItems: "center", height: "100%" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              height: "100%",
+              justifyContent: "space-between",
+            }}
+          >
             <Title
               order={3}
               style={{
@@ -42,20 +57,36 @@ export default function Home() {
                 letterSpacing: -1,
                 fontSize: rem(24),
                 color: "#7950f2",
-                flex: 1,
               }}
             >
               SparkPad
             </Title>
-            <Button
-              variant="outline"
-              color="violet"
-              radius="md"
-              onClick={handleLogout}
-              style={{ marginLeft: "auto" }}
-            >
-              Logout
-            </Button>
+            <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
+              {userName && (
+                <Text
+                  size="md"
+                  fw={600}
+                  c="violet.8"
+                  style={{
+                    marginRight: 0,
+                    padding: "4px 16px",
+                    borderRadius: 8,
+                    background: "#f3f0ff",
+                    border: "1px solid #e5dbff",
+                  }}
+                >
+                  {userName}
+                </Text>
+              )}
+              <Button
+                variant="outline"
+                color="violet"
+                radius="md"
+                onClick={handleLogout}
+              >
+                Logout
+              </Button>
+            </div>
           </div>
         </Container>
       </Paper>
