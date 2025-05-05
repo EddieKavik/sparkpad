@@ -1,7 +1,7 @@
 "use client";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack, Modal, ActionIcon, rem, Menu, Avatar } from "@mantine/core";
+import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack, Modal, ActionIcon, rem, Menu, Avatar, Paper } from "@mantine/core";
 import { showNotification } from "@mantine/notifications";
 import { IconSettings, IconDots, IconTrash } from "@tabler/icons-react";
 
@@ -34,6 +34,11 @@ export default function ProjectViewPage() {
         { id: "default", title: "Documents" }
     ]);
     const [activeTab, setActiveTab] = useState("default");
+    // Document rows state
+    const [docRows, setDocRows] = useState<{ [docId: string]: string[] }>({});
+    const [addingRowFor, setAddingRowFor] = useState<string | null>(null);
+    const [newRowValue, setNewRowValue] = useState("");
+    const [savingRow, setSavingRow] = useState(false);
 
     useEffect(() => {
         const fetchProject = async () => {
@@ -57,6 +62,30 @@ export default function ProjectViewPage() {
         };
         fetchProject();
     }, [projectId]);
+
+    // Load document rows from Civil Memory on mount or when projectId changes
+    useEffect(() => {
+        const fetchDocRows = async () => {
+            if (!projectId) return;
+            try {
+                const res = await fetch(`http://localhost:3333/docs?mode=volatile&key=${projectId}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setDocRows(typeof data === "object" && data ? data : {});
+                }
+            } catch {}
+        };
+        fetchDocRows();
+    }, [projectId]);
+
+    // Save document rows to Civil Memory
+    const saveDocRows = async (updated: { [docId: string]: string[] }) => {
+        if (!projectId) return;
+        await fetch(`http://localhost:3333/docs?mode=volatile&key=${projectId}`, {
+            method: "POST",
+            body: JSON.stringify(updated),
+        });
+    };
 
     const handleAddMember = async () => {
         if (!project || !newMemberEmail) return;
@@ -156,6 +185,30 @@ export default function ProjectViewPage() {
         setActiveTab(newId);
     };
 
+    // Add row handlers
+    const handleAddRow = (docId: string) => {
+        setAddingRowFor(docId);
+        setNewRowValue("");
+    };
+    const handleSaveRow = async (docId: string) => {
+        if (!newRowValue.trim()) return;
+        setSavingRow(true);
+        const updated = {
+            ...docRows,
+            [docId]: [...(docRows[docId] || []), newRowValue.trim()],
+        };
+        setDocRows(updated);
+        setAddingRowFor(null);
+        setNewRowValue("");
+        await saveDocRows(updated);
+        setSavingRow(false);
+        showNotification({ title: "Row added", message: "Row saved to document.", color: "green" });
+    };
+    const handleCancelRow = () => {
+        setAddingRowFor(null);
+        setNewRowValue("");
+    };
+
     if (loading) {
         return (
             <Center style={{ minHeight: 200 }}>
@@ -221,7 +274,32 @@ export default function ProjectViewPage() {
                         <Tabs.Panel key={tab.id} value={tab.id} pt="md">
                             <Box>
                                 <Title order={4}>{tab.title}</Title>
-                                <Text c="dimmed">Document content coming soon!</Text>
+                                <Stack mt="md">
+                                    {(docRows[tab.id] || []).map((row, idx) => (
+                                        <Paper key={idx} p="sm" withBorder radius="md">{row}</Paper>
+                                    ))}
+                                    {addingRowFor === tab.id ? (
+                                        <Group>
+                                            <TextInput
+                                                value={newRowValue}
+                                                onChange={e => setNewRowValue(e.currentTarget.value)}
+                                                placeholder="Enter row text"
+                                                autoFocus
+                                                style={{ flex: 1 }}
+                                            />
+                                            <Button size="xs" color="violet" onClick={() => handleSaveRow(tab.id)} loading={savingRow}>
+                                                Save
+                                            </Button>
+                                            <Button size="xs" variant="default" onClick={handleCancelRow} disabled={savingRow}>
+                                                Cancel
+                                            </Button>
+                                        </Group>
+                                    ) : (
+                                        <Button size="xs" variant="light" color="violet" onClick={() => handleAddRow(tab.id)}>
+                                            + Add Row
+                                        </Button>
+                                    )}
+                                </Stack>
                             </Box>
                         </Tabs.Panel>
                     ))}
