@@ -1,9 +1,9 @@
 "use client";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack, Modal, ActionIcon, rem } from "@mantine/core";
+import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack, Modal, ActionIcon, rem, Menu } from "@mantine/core";
 import { showNotification } from "@mantine/notifications";
-import { IconSettings } from "@tabler/icons-react";
+import { IconSettings, IconDots, IconTrash } from "@tabler/icons-react";
 
 export default function ProjectViewPage() {
     const params = useParams();
@@ -100,6 +100,33 @@ export default function ProjectViewPage() {
         }
     };
 
+    const handleRemoveMember = async (emailToRemove: string) => {
+        if (!project) return;
+        if (!Array.isArray(project.members) || project.members.length <= 1) {
+            showNotification({ title: "Error", message: "A project must have at least one member.", color: "red" });
+            return;
+        }
+        try {
+            const res = await fetch("http://localhost:3333/projects?mode=volatile&key=projects");
+            if (!res.ok) throw new Error("Failed to fetch projects");
+            const projects = await res.json();
+            const idx = projects.findIndex((p) => String(p.id) === String(projectId));
+            if (idx === -1) throw new Error("Project not found");
+            const updatedProject = { ...projects[idx] };
+            updatedProject.members = updatedProject.members.filter((email: string) => email !== emailToRemove);
+            projects[idx] = updatedProject;
+            const saveRes = await fetch("http://localhost:3333/projects?mode=volatile&key=projects", {
+                method: "POST",
+                body: JSON.stringify(projects),
+            });
+            if (!saveRes.ok) throw new Error("Failed to remove member");
+            setProject(updatedProject);
+            showNotification({ title: "Success", message: "Member removed!", color: "green" });
+        } catch (err: any) {
+            showNotification({ title: "Error", message: err.message || "Failed to remove member", color: "red" });
+        }
+    };
+
     if (loading) {
         return (
             <Center style={{ minHeight: 200 }}>
@@ -157,7 +184,26 @@ export default function ProjectViewPage() {
                             <Title order={4} mb="xs">Members</Title>
                             {Array.isArray(project.members) && project.members.length > 0 ? (
                                 project.members.map((email: string, idx: number) => (
-                                    <Text key={email + idx} c="violet.8">{email}</Text>
+                                    <Group key={email + idx} justify="space-between" align="center" wrap="nowrap">
+                                        <Text c="violet.8">{email}</Text>
+                                        <Menu shadow="md" width={140} position="bottom-end">
+                                            <Menu.Target>
+                                                <ActionIcon variant="subtle" color="gray" size={28}>
+                                                    <IconDots size={18} />
+                                                </ActionIcon>
+                                            </Menu.Target>
+                                            <Menu.Dropdown>
+                                                <Menu.Item
+                                                    color="red"
+                                                    leftSection={<IconTrash size={16} />}
+                                                    onClick={() => handleRemoveMember(email)}
+                                                    disabled={project.members.length <= 1}
+                                                >
+                                                    Remove
+                                                </Menu.Item>
+                                            </Menu.Dropdown>
+                                        </Menu>
+                                    </Group>
                                 ))
                             ) : (
                                 <Text c="dimmed">No members yet.</Text>
