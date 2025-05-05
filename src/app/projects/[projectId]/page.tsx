@@ -209,6 +209,16 @@ export default function ProjectViewPage() {
         setNewRowValue("");
     };
 
+    const handleDeleteRow = async (docId: string, rowIdx: number) => {
+        const updatedRows = {
+            ...docRows,
+            [docId]: (docRows[docId] || []).filter((_, idx) => idx !== rowIdx),
+        };
+        setDocRows(updatedRows);
+        await saveDocRows(updatedRows);
+        showNotification({ title: "Row deleted", message: "Row removed from document.", color: "red" });
+    };
+
     if (loading) {
         return (
             <Center style={{ minHeight: 200 }}>
@@ -276,7 +286,27 @@ export default function ProjectViewPage() {
                                 <Title order={4}>{tab.title}</Title>
                                 <Stack mt="md">
                                     {(docRows[tab.id] || []).map((row, idx) => (
-                                        <Paper key={idx} p="sm" withBorder radius="md">{row}</Paper>
+                                        <Group key={idx} position="apart" align="center" style={{ position: "relative" }}>
+                                            <Paper p="sm" withBorder radius="md" style={{ flex: 1, minWidth: 0 }}>
+                                                {row}
+                                            </Paper>
+                                            <Menu shadow="md" width={120} position="bottom-end" withinPortal>
+                                                <Menu.Target>
+                                                    <ActionIcon variant="subtle" color="gray" size={28} style={{ opacity: 0.7 }}>
+                                                        <IconDots size={18} />
+                                                    </ActionIcon>
+                                                </Menu.Target>
+                                                <Menu.Dropdown>
+                                                    <Menu.Item
+                                                        color="red"
+                                                        leftSection={<IconTrash size={16} />}
+                                                        onClick={() => handleDeleteRow(tab.id, idx)}
+                                                    >
+                                                        Delete
+                                                    </Menu.Item>
+                                                </Menu.Dropdown>
+                                            </Menu>
+                                        </Group>
                                     ))}
                                     {addingRowFor === tab.id ? (
                                         <Group>
