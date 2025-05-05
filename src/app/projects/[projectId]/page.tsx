@@ -1,9 +1,23 @@
 "use client";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack, Modal, ActionIcon, rem, Menu } from "@mantine/core";
+import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack, Modal, ActionIcon, rem, Menu, Avatar } from "@mantine/core";
 import { showNotification } from "@mantine/notifications";
 import { IconSettings, IconDots, IconTrash } from "@tabler/icons-react";
+
+// Helper to get up to 3 initials from a name or email
+function getInitials(nameOrEmail: string) {
+    // If it's an email, use the part before @
+    let base = nameOrEmail;
+    if (nameOrEmail.includes("@")) {
+        base = nameOrEmail.split("@")[0];
+    }
+    // Split by space, dash, dot, or underscore
+    const parts = base.split(/\s+|\.|-|_/).filter(Boolean);
+    let initials = parts.map((p) => p[0]?.toUpperCase() || "").join("");
+    if (initials.length > 3) initials = initials.slice(0, 3);
+    return initials;
+}
 
 export default function ProjectViewPage() {
     const params = useParams();
@@ -15,6 +29,11 @@ export default function ProjectViewPage() {
     const [settingsOpened, setSettingsOpened] = useState(false);
     const [renameValue, setRenameValue] = useState("");
     const [renaming, setRenaming] = useState(false);
+    // Document tabs state
+    const [docTabs, setDocTabs] = useState([
+        { id: "default", title: "Documents" }
+    ]);
+    const [activeTab, setActiveTab] = useState("default");
 
     useEffect(() => {
         const fetchProject = async () => {
@@ -127,6 +146,16 @@ export default function ProjectViewPage() {
         }
     };
 
+    const handleAddDocument = () => {
+        // Generate a unique id for the new document tab
+        const newId = `doc-${Date.now()}`;
+        setDocTabs((tabs) => [
+            ...tabs,
+            { id: newId, title: "Untitled Document" }
+        ]);
+        setActiveTab(newId);
+    };
+
     if (loading) {
         return (
             <Center style={{ minHeight: 200 }}>
@@ -163,17 +192,39 @@ export default function ProjectViewPage() {
                 </Button>
             </Modal>
             <Group align="center" justify="space-between" mb="xs">
-                <Tabs defaultValue="documents" style={{ flex: 1 }}>
+                <Tabs value={activeTab} onChange={setActiveTab} style={{ flex: 1 }}>
                     <Tabs.List>
-                        <Tabs.Tab value="documents">Documents</Tabs.Tab>
+                        <Tabs.Tab value="default">Documents</Tabs.Tab>
                         <Tabs.Tab value="templates">Templates</Tabs.Tab>
                         <Tabs.Tab value="members">Members</Tabs.Tab>
+                        {docTabs.filter(tab => tab.id !== "default").map(tab => (
+                            <Tabs.Tab key={tab.id} value={tab.id}>{tab.title}</Tabs.Tab>
+                        ))}
+                        <ActionIcon
+                            variant="light"
+                            color="violet"
+                            size={28}
+                            ml={8}
+                            onClick={handleAddDocument}
+                            title="Add Document"
+                            style={{ marginLeft: rem(8) }}
+                        >
+                            +
+                        </ActionIcon>
                     </Tabs.List>
-                    <Tabs.Panel value="documents" pt="md">
+                    <Tabs.Panel value="default" pt="md">
                         <Box>
-                            <Text c="dimmed">Documents tab content coming soon!</Text>
+                            <Text c="dimmed">No document selected. Click + to add a new document.</Text>
                         </Box>
                     </Tabs.Panel>
+                    {docTabs.filter(tab => tab.id !== "default").map(tab => (
+                        <Tabs.Panel key={tab.id} value={tab.id} pt="md">
+                            <Box>
+                                <Title order={4}>{tab.title}</Title>
+                                <Text c="dimmed">Document content coming soon!</Text>
+                            </Box>
+                        </Tabs.Panel>
+                    ))}
                     <Tabs.Panel value="templates" pt="md">
                         <Box>
                             <Text c="dimmed">Templates tab content coming soon!</Text>
@@ -185,7 +236,12 @@ export default function ProjectViewPage() {
                             {Array.isArray(project.members) && project.members.length > 0 ? (
                                 project.members.map((email: string, idx: number) => (
                                     <Group key={email + idx} justify="space-between" align="center" wrap="nowrap">
-                                        <Text c="violet.8">{email}</Text>
+                                        <Group align="center" gap={8}>
+                                            <Avatar radius="xl" color="violet" size={32}>
+                                                {getInitials(email)}
+                                            </Avatar>
+                                            <Text c="violet.8">{email}</Text>
+                                        </Group>
                                         <Menu shadow="md" width={140} position="bottom-end">
                                             <Menu.Target>
                                                 <ActionIcon variant="subtle" color="gray" size={28}>

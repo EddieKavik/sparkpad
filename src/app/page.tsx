@@ -55,7 +55,6 @@ export default function Home() {
             project.members.includes(userEmail)
         )
         : [];
-      console.log("Fetched projects array (filtered):", filtered);
       setProjects(filtered);
     } catch (err) {
       setProjects([]);
@@ -127,10 +126,10 @@ export default function Home() {
           projectsArr = [];
         }
       }
-      // Add new project
-      const newProject = { id: Date.now(), name: newProjectName };
+      // Add new project with members array
+      const userEmail = localStorage.getItem("user:username") || "";
+      const newProject = { id: Date.now(), name: newProjectName, members: [userEmail] };
       const updatedProjects = [...projectsArr, newProject];
-      console.log("Saving projects array:", updatedProjects);
       // Store updated array
       const resSet = await fetch("http://localhost:3333/projects?mode=volatile&key=projects", {
         method: "POST",
