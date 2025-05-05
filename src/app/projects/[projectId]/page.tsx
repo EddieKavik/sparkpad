@@ -39,6 +39,10 @@ export default function ProjectViewPage() {
     const [addingRowFor, setAddingRowFor] = useState<string | null>(null);
     const [newRowValue, setNewRowValue] = useState("");
     const [savingRow, setSavingRow] = useState(false);
+    // Add after savingRow state
+    const [editingRow, setEditingRow] = useState<{ docId: string; idx: number } | null>(null);
+    const [editRowValue, setEditRowValue] = useState("");
+    const [savingEdit, setSavingEdit] = useState(false);
 
     useEffect(() => {
         const fetchProject = async () => {
@@ -219,6 +223,31 @@ export default function ProjectViewPage() {
         showNotification({ title: "Row deleted", message: "Row removed from document.", color: "red" });
     };
 
+    // Edit row handlers
+    const handleStartEditRow = (docId: string, idx: number, value: string) => {
+        setEditingRow({ docId, idx });
+        setEditRowValue(value);
+    };
+    const handleSaveEditRow = async () => {
+        if (!editingRow) return;
+        setSavingEdit(true);
+        const { docId, idx } = editingRow;
+        const updatedRows = {
+            ...docRows,
+            [docId]: (docRows[docId] || []).map((row, i) => (i === idx ? editRowValue : row)),
+        };
+        setDocRows(updatedRows);
+        setEditingRow(null);
+        setEditRowValue("");
+        await saveDocRows(updatedRows);
+        setSavingEdit(false);
+        showNotification({ title: "Row updated", message: "Row changes saved.", color: "green" });
+    };
+    const handleCancelEditRow = () => {
+        setEditingRow(null);
+        setEditRowValue("");
+    };
+
     if (loading) {
         return (
             <Center style={{ minHeight: 200 }}>
@@ -287,9 +316,33 @@ export default function ProjectViewPage() {
                                 <Stack mt="md">
                                     {(docRows[tab.id] || []).map((row, idx) => (
                                         <Group key={idx} position="apart" align="center" style={{ position: "relative" }}>
-                                            <Paper p="sm" withBorder radius="md" style={{ flex: 1, minWidth: 0 }}>
-                                                {row}
-                                            </Paper>
+                                            {editingRow && editingRow.docId === tab.id && editingRow.idx === idx ? (
+                                                <>
+                                                    <TextInput
+                                                        value={editRowValue}
+                                                        onChange={e => setEditRowValue(e.currentTarget.value)}
+                                                        autoFocus
+                                                        style={{ flex: 1 }}
+                                                    />
+                                                    <Button size="xs" color="violet" onClick={handleSaveEditRow} loading={savingEdit}>
+                                                        Save
+                                                    </Button>
+                                                    <Button size="xs" variant="default" onClick={handleCancelEditRow} disabled={savingEdit}>
+                                                        Cancel
+                                                    </Button>
+                                                </>
+                                            ) : (
+                                                <Paper
+                                                    p="sm"
+                                                    withBorder
+                                                    radius="md"
+                                                    style={{ flex: 1, minWidth: 0, cursor: "pointer" }}
+                                                    onClick={() => handleStartEditRow(tab.id, idx, row)}
+                                                    title="Click to edit"
+                                                >
+                                                    {row}
+                                                </Paper>
+                                            )}
                                             <Menu shadow="md" width={120} position="bottom-end" withinPortal>
                                                 <Menu.Target>
                                                     <ActionIcon variant="subtle" color="gray" size={28} style={{ opacity: 0.7 }}>
