@@ -1,8 +1,9 @@
 "use client";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack } from "@mantine/core";
+import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack, Modal, ActionIcon, rem } from "@mantine/core";
 import { showNotification } from "@mantine/notifications";
+import { IconSettings } from "@tabler/icons-react";
 
 export default function ProjectViewPage() {
     const params = useParams();
@@ -11,6 +12,9 @@ export default function ProjectViewPage() {
     const [loading, setLoading] = useState(true);
     const [newMemberEmail, setNewMemberEmail] = useState("");
     const [adding, setAdding] = useState(false);
+    const [settingsOpened, setSettingsOpened] = useState(false);
+    const [renameValue, setRenameValue] = useState("");
+    const [renaming, setRenaming] = useState(false);
 
     useEffect(() => {
         const fetchProject = async () => {
@@ -22,6 +26,7 @@ export default function ProjectViewPage() {
                 if (Array.isArray(data)) {
                     const found = data.find((p) => String(p.id) === String(projectId));
                     setProject(found || null);
+                    setRenameValue(found?.name || "");
                 } else {
                     setProject(null);
                 }
@@ -69,6 +74,32 @@ export default function ProjectViewPage() {
         }
     };
 
+    const handleRename = async () => {
+        if (!project || !renameValue) return;
+        setRenaming(true);
+        try {
+            const res = await fetch("http://localhost:3333/projects?mode=volatile&key=projects");
+            if (!res.ok) throw new Error("Failed to fetch projects");
+            const projects = await res.json();
+            const idx = projects.findIndex((p) => String(p.id) === String(projectId));
+            if (idx === -1) throw new Error("Project not found");
+            const updatedProject = { ...projects[idx], name: renameValue };
+            projects[idx] = updatedProject;
+            const saveRes = await fetch("http://localhost:3333/projects?mode=volatile&key=projects", {
+                method: "POST",
+                body: JSON.stringify(projects),
+            });
+            if (!saveRes.ok) throw new Error("Failed to rename project");
+            setProject(updatedProject);
+            setSettingsOpened(false);
+            showNotification({ title: "Success", message: "Project renamed!", color: "green" });
+        } catch (err: any) {
+            showNotification({ title: "Error", message: err.message || "Failed to rename project", color: "red" });
+        } finally {
+            setRenaming(false);
+        }
+    };
+
     if (loading) {
         return (
             <Center style={{ minHeight: 200 }}>
@@ -93,46 +124,69 @@ export default function ProjectViewPage() {
             <Title order={2} mb="lg">
                 Project: {project.name || projectId}
             </Title>
-            <Tabs defaultValue="documents">
-                <Tabs.List>
-                    <Tabs.Tab value="documents">Documents</Tabs.Tab>
-                    <Tabs.Tab value="templates">Templates</Tabs.Tab>
-                    <Tabs.Tab value="members">Members</Tabs.Tab>
-                </Tabs.List>
-                <Tabs.Panel value="documents" pt="md">
-                    <Box>
-                        <Text c="dimmed">Documents tab content coming soon!</Text>
-                    </Box>
-                </Tabs.Panel>
-                <Tabs.Panel value="templates" pt="md">
-                    <Box>
-                        <Text c="dimmed">Templates tab content coming soon!</Text>
-                    </Box>
-                </Tabs.Panel>
-                <Tabs.Panel value="members" pt="md">
-                    <Stack>
-                        <Title order={4} mb="xs">Members</Title>
-                        {Array.isArray(project.members) && project.members.length > 0 ? (
-                            project.members.map((email: string, idx: number) => (
-                                <Text key={email + idx} c="violet.8">{email}</Text>
-                            ))
-                        ) : (
-                            <Text c="dimmed">No members yet.</Text>
-                        )}
-                        <Group mt="md">
-                            <TextInput
-                                placeholder="Add member by email"
-                                value={newMemberEmail}
-                                onChange={(e) => setNewMemberEmail(e.currentTarget.value)}
-                                disabled={adding}
-                            />
-                            <Button onClick={handleAddMember} loading={adding} disabled={!newMemberEmail}>
-                                Add
-                            </Button>
-                        </Group>
-                    </Stack>
-                </Tabs.Panel>
-            </Tabs>
+            <Modal opened={settingsOpened} onClose={() => setSettingsOpened(false)} title="Rename Project" centered>
+                <TextInput
+                    label="Project Name"
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.currentTarget.value)}
+                    mb="md"
+                />
+                <Button onClick={handleRename} loading={renaming} fullWidth disabled={!renameValue}>
+                    Save
+                </Button>
+            </Modal>
+            <Group align="center" justify="space-between" mb="xs">
+                <Tabs defaultValue="documents" style={{ flex: 1 }}>
+                    <Tabs.List>
+                        <Tabs.Tab value="documents">Documents</Tabs.Tab>
+                        <Tabs.Tab value="templates">Templates</Tabs.Tab>
+                        <Tabs.Tab value="members">Members</Tabs.Tab>
+                    </Tabs.List>
+                    <Tabs.Panel value="documents" pt="md">
+                        <Box>
+                            <Text c="dimmed">Documents tab content coming soon!</Text>
+                        </Box>
+                    </Tabs.Panel>
+                    <Tabs.Panel value="templates" pt="md">
+                        <Box>
+                            <Text c="dimmed">Templates tab content coming soon!</Text>
+                        </Box>
+                    </Tabs.Panel>
+                    <Tabs.Panel value="members" pt="md">
+                        <Stack>
+                            <Title order={4} mb="xs">Members</Title>
+                            {Array.isArray(project.members) && project.members.length > 0 ? (
+                                project.members.map((email: string, idx: number) => (
+                                    <Text key={email + idx} c="violet.8">{email}</Text>
+                                ))
+                            ) : (
+                                <Text c="dimmed">No members yet.</Text>
+                            )}
+                            <Group mt="md">
+                                <TextInput
+                                    placeholder="Add member by email"
+                                    value={newMemberEmail}
+                                    onChange={(e) => setNewMemberEmail(e.currentTarget.value)}
+                                    disabled={adding}
+                                />
+                                <Button onClick={handleAddMember} loading={adding} disabled={!newMemberEmail}>
+                                    Add
+                                </Button>
+                            </Group>
+                        </Stack>
+                    </Tabs.Panel>
+                </Tabs>
+                <ActionIcon
+                    variant="light"
+                    color="gray"
+                    size={36}
+                    onClick={() => setSettingsOpened(true)}
+                    title="Project Settings"
+                    style={{ marginLeft: rem(12) }}
+                >
+                    <IconSettings size={22} />
+                </ActionIcon>
+            </Group>
         </Container>
     );
 } 
