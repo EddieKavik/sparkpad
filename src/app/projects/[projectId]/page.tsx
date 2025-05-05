@@ -1,13 +1,16 @@
 "use client";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Container, Title, Tabs, Box, Text, Loader, Center } from "@mantine/core";
+import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack } from "@mantine/core";
+import { showNotification } from "@mantine/notifications";
 
 export default function ProjectViewPage() {
     const params = useParams();
     const projectId = params?.projectId;
     const [project, setProject] = useState<any>(null);
     const [loading, setLoading] = useState(true);
+    const [newMemberEmail, setNewMemberEmail] = useState("");
+    const [adding, setAdding] = useState(false);
 
     useEffect(() => {
         const fetchProject = async () => {
@@ -30,6 +33,41 @@ export default function ProjectViewPage() {
         };
         fetchProject();
     }, [projectId]);
+
+    const handleAddMember = async () => {
+        if (!project || !newMemberEmail) return;
+        if (project.members && project.members.includes(newMemberEmail)) {
+            showNotification({ title: "Already a member", message: "This user is already a member.", color: "yellow" });
+            return;
+        }
+        setAdding(true);
+        try {
+            // Fetch all projects
+            const res = await fetch("http://localhost:3333/projects?mode=volatile&key=projects");
+            if (!res.ok) throw new Error("Failed to fetch projects");
+            const projects = await res.json();
+            // Find and update the project
+            const idx = projects.findIndex((p) => String(p.id) === String(projectId));
+            if (idx === -1) throw new Error("Project not found");
+            const updatedProject = { ...projects[idx] };
+            updatedProject.members = Array.isArray(updatedProject.members) ? updatedProject.members : [];
+            updatedProject.members.push(newMemberEmail);
+            projects[idx] = updatedProject;
+            // Save back
+            const saveRes = await fetch("http://localhost:3333/projects?mode=volatile&key=projects", {
+                method: "POST",
+                body: JSON.stringify(projects),
+            });
+            if (!saveRes.ok) throw new Error("Failed to add member");
+            setProject(updatedProject);
+            setNewMemberEmail("");
+            showNotification({ title: "Success", message: "Member added!", color: "green" });
+        } catch (err: any) {
+            showNotification({ title: "Error", message: err.message || "Failed to add member", color: "red" });
+        } finally {
+            setAdding(false);
+        }
+    };
 
     if (loading) {
         return (
@@ -72,9 +110,27 @@ export default function ProjectViewPage() {
                     </Box>
                 </Tabs.Panel>
                 <Tabs.Panel value="members" pt="md">
-                    <Box>
-                        <Text c="dimmed">Members tab content coming soon!</Text>
-                    </Box>
+                    <Stack>
+                        <Title order={4} mb="xs">Members</Title>
+                        {Array.isArray(project.members) && project.members.length > 0 ? (
+                            project.members.map((email: string, idx: number) => (
+                                <Text key={email + idx} c="violet.8">{email}</Text>
+                            ))
+                        ) : (
+                            <Text c="dimmed">No members yet.</Text>
+                        )}
+                        <Group mt="md">
+                            <TextInput
+                                placeholder="Add member by email"
+                                value={newMemberEmail}
+                                onChange={(e) => setNewMemberEmail(e.currentTarget.value)}
+                                disabled={adding}
+                            />
+                            <Button onClick={handleAddMember} loading={adding} disabled={!newMemberEmail}>
+                                Add
+                            </Button>
+                        </Group>
+                    </Stack>
                 </Tabs.Panel>
             </Tabs>
         </Container>

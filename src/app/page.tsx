@@ -45,8 +45,18 @@ export default function Home() {
       const res = await fetch("http://localhost:3333/projects?mode=volatile&key=projects");
       if (!res.ok) throw new Error("Failed to fetch projects");
       const data = await res.json();
-      console.log("Fetched projects array:", data);
-      setProjects(Array.isArray(data) ? data : []);
+      const userEmail = localStorage.getItem("user:username");
+      // Only show projects where the user is a member
+      const filtered = Array.isArray(data)
+        ? data.filter(
+          (project) =>
+            Array.isArray(project.members) &&
+            userEmail &&
+            project.members.includes(userEmail)
+        )
+        : [];
+      console.log("Fetched projects array (filtered):", filtered);
+      setProjects(filtered);
     } catch (err) {
       setProjects([]);
     } finally {
