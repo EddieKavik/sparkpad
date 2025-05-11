@@ -99,6 +99,9 @@ export default function ProjectViewPage() {
     const chatEndRef = useRef<HTMLDivElement>(null);
     const { theme } = useTheme();
     const styles = themeStyles[theme];
+    const [researchItems, setResearchItems] = useState([]);
+    const [researchLoading, setResearchLoading] = useState(false);
+    const [newResearch, setNewResearch] = useState({ title: '', type: 'web', content: '' });
 
     useEffect(() => {
         const user = localStorage.getItem("user");
@@ -562,6 +565,42 @@ export default function ProjectViewPage() {
         router.replace("/login");
     };
 
+    const fetchResearchItems = async () => {
+        if (!projectId) return;
+        setResearchLoading(true);
+        try {
+            const res = await fetch(`/api/projects/${projectId}/research`);
+            if (res.ok) {
+                const data = await res.json();
+                setResearchItems(data);
+            }
+        } finally {
+            setResearchLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchResearchItems();
+        // eslint-disable-next-line
+    }, [projectId]);
+
+    const handleAddResearch = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newResearch.title.trim() || !newResearch.content.trim()) return;
+        const res = await fetch(`/api/projects/${projectId}/research`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ...newResearch,
+                createdBy: userName || 'anonymous',
+            }),
+        });
+        if (res.ok) {
+            setNewResearch({ title: '', type: 'web', content: '' });
+            fetchResearchItems();
+        }
+    };
+
     if (loading) {
         return (
             <Center style={{ minHeight: 200 }}>
@@ -613,138 +652,137 @@ export default function ProjectViewPage() {
                             Save
                         </Button>
                     </Modal>
-                    <Group align="center" justify="space-between" mb="xs">
-                        <Tabs value={activeTab} onChange={value => setActiveTab(value || "default")} style={{ flex: 1 }}
-                            styles={{
-                                tab: {
-                                    background: styles.tabBackground,
-                                    color: styles.secondaryTextColor,
-                                    borderRadius: 16,
-                                    fontWeight: 700,
-                                    marginRight: 8,
-                                    padding: '8px 20px',
-                                },
-                                list: {
-                                    background: styles.tabListBackground,
-                                    borderRadius: 20,
-                                    boxShadow: styles.cardShadow,
-                                    padding: 4,
-                                },
-                                panel: {
-                                    background: styles.tabPanelBackground,
-                                    borderRadius: 24,
-                                    color: styles.textColor,
-                                },
-                            }}
-                        >
-                            <Tabs.List>
-                                {docTabs.map(tab => (
-                                    <Tabs.Tab key={tab.id} value={tab.id}>{tab.title}</Tabs.Tab>
-                                ))}
-                                <Tabs.Tab value="templates">Templates</Tabs.Tab>
-                                <Tabs.Tab value="members">Members</Tabs.Tab>
-                                <Tabs.Tab value="chat">Chat</Tabs.Tab>
-                            </Tabs.List>
+                    <Tabs value={activeTab} onChange={value => setActiveTab(value || "default")} style={{ flex: 1 }}
+                        styles={{
+                            tab: {
+                                background: styles.tabBackground,
+                                color: styles.secondaryTextColor,
+                                borderRadius: 16,
+                                fontWeight: 700,
+                                marginRight: 8,
+                                padding: '8px 20px',
+                            },
+                            list: {
+                                background: styles.tabListBackground,
+                                borderRadius: 20,
+                                boxShadow: styles.cardShadow,
+                                padding: 4,
+                            },
+                            panel: {
+                                background: styles.tabPanelBackground,
+                                borderRadius: 24,
+                                color: styles.textColor,
+                            },
+                        }}
+                    >
+                        <Tabs.List>
                             {docTabs.map(tab => (
-                                <Tabs.Panel key={tab.id} value={tab.id}>
-                                    <Box>
-                                        <Title order={4}>{tab.title}</Title>
-                                        <Stack mt="md">
-                                            {(docRows[tab.id] || []).map((row, idx) => {
-                                                const isEditing = editingRow && editingRow.docId === tab.id && editingRow.idx === idx;
-                                                const isAI = aiProcessing && aiProcessing.docId === tab.id && aiProcessing.idx === idx;
-                                                return (
-                                                    <Group key={idx} justify="space-between" align="center" style={{ position: "relative" }}>
-                                                        {isEditing ? (
-                                                            <>
-                                                                <TextInput
-                                                                    value={editRowValue}
-                                                                    onChange={e => setEditRowValue(e.currentTarget.value)}
-                                                                    autoFocus
-                                                                    style={{ flex: 1 }}
-                                                                    disabled={!!isAI}
-                                                                />
-                                                                <Button size="xs" color={styles.accentColor} onClick={handleSaveEditRow} loading={savingEdit || !!isAI} disabled={!!isAI} style={{ background: styles.buttonGradient, color: '#fff', fontWeight: 700, borderRadius: 12 }}>
-                                                                    Save
-                                                                </Button>
-                                                                <Button size="xs" variant="default" onClick={handleCancelEditRow} disabled={savingEdit || !!isAI} style={{ background: styles.tabBackground, color: styles.secondaryTextColor, fontWeight: 600, borderRadius: 12 }}>
-                                                                    Cancel
-                                                                </Button>
-                                                                <ActionIcon
-                                                                    size={28}
-                                                                    color={styles.accentColor}
-                                                                    variant="light"
-                                                                    onClick={() => handleAiTransformRow(tab.id, idx, editRowValue)}
-                                                                    loading={!!isAI}
-                                                                    disabled={!!isAI}
-                                                                    title="Transform with AI"
-                                                                >
-                                                                    <IconRobot size={18} />
-                                                                </ActionIcon>
-                                                            </>
-                                                        ) : (
-                                                            <Paper
-                                                                p="sm"
-                                                                withBorder
-                                                                radius="md"
-                                                                style={{ flex: 1, minWidth: 0, cursor: "pointer", background: styles.tabBackground, color: styles.secondaryTextColor, border: styles.cardBorder }}
-                                                                onClick={() => handleStartEditRow(tab.id, idx, row)}
-                                                                title="Click to edit"
-                                                            >
-                                                                {row}
-                                                            </Paper>
-                                                        )}
-                                                        <Menu shadow="md" width={120} position="bottom-end" withinPortal>
-                                                            <Menu.Target>
-                                                                <ActionIcon variant="subtle" color="gray" size={28} style={{ opacity: 0.7 }}>
-                                                                    <IconDots size={18} />
-                                                                </ActionIcon>
-                                                            </Menu.Target>
-                                                            <Menu.Dropdown>
-                                                                <Menu.Item
-                                                                    color="red"
-                                                                    leftSection={<IconTrash size={16} />}
-                                                                    onClick={() => handleDeleteRow(tab.id, idx)}
-                                                                >
-                                                                    Delete
-                                                                </Menu.Item>
-                                                            </Menu.Dropdown>
-                                                        </Menu>
-                                                    </Group>
-                                                );
-                                            })}
-                                            {addingRowFor === tab.id ? (
-                                                <Group>
-                                                    <TextInput
-                                                        value={newRowValue}
-                                                        onChange={e => setNewRowValue(e.currentTarget.value)}
-                                                        placeholder="Enter row text"
-                                                        autoFocus
-                                                        style={{ flex: 1 }}
-                                                    />
-                                                    <Button size="xs" color={styles.accentColor} onClick={() => handleSaveRow(tab.id)} loading={savingRow} style={{ background: styles.buttonGradient, color: '#fff', fontWeight: 700, borderRadius: 12 }}>
-                                                        Save
-                                                    </Button>
-                                                    <Button size="xs" variant="default" onClick={handleCancelRow} disabled={savingRow} style={{ background: styles.tabBackground, color: styles.secondaryTextColor, fontWeight: 600, borderRadius: 12 }}>
-                                                        Cancel
-                                                    </Button>
-                                                </Group>
-                                            ) : (
-                                                <Button
-                                                    size="xs"
-                                                    variant="light"
-                                                    color={styles.accentColor}
-                                                    onClick={() => handleAddRow(tab.id)}
-                                                    style={{ background: styles.tabBackground, color: styles.secondaryTextColor, fontWeight: 600, borderRadius: 12 }}
-                                                >
-                                                    + Add Row
-                                                </Button>
-                                            )}
-                                        </Stack>
-                                    </Box>
-                                </Tabs.Panel>
+                                <Tabs.Tab key={tab.id} value={tab.id}>{tab.title}</Tabs.Tab>
                             ))}
-                        </Tabs>
+                            <Tabs.Tab value="templates">Templates</Tabs.Tab>
+                            <Tabs.Tab value="members">Members</Tabs.Tab>
+                            <Tabs.Tab value="chat">Chat</Tabs.Tab>
+                            <Tabs.Tab value="research">Research</Tabs.Tab>
+                        </Tabs.List>
+                        {docTabs.map(tab => (
+                            <Tabs.Panel key={tab.id} value={tab.id}>
+                                <Box>
+                                    <Title order={4}>{tab.title}</Title>
+                                    <Stack mt="md">
+                                        {(docRows[tab.id] || []).map((row, idx) => {
+                                            const isEditing = editingRow && editingRow.docId === tab.id && editingRow.idx === idx;
+                                            const isAI = aiProcessing && aiProcessing.docId === tab.id && aiProcessing.idx === idx;
+                                            return (
+                                                <Group key={idx} justify="space-between" align="center" style={{ position: "relative" }}>
+                                                    {isEditing ? (
+                                                        <>
+                                                            <TextInput
+                                                                value={editRowValue}
+                                                                onChange={e => setEditRowValue(e.currentTarget.value)}
+                                                                autoFocus
+                                                                style={{ flex: 1 }}
+                                                                disabled={!!isAI}
+                                                            />
+                                                            <Button size="xs" color={styles.accentColor} onClick={handleSaveEditRow} loading={savingEdit || !!isAI} disabled={!!isAI} style={{ background: styles.buttonGradient, color: '#fff', fontWeight: 700, borderRadius: 12 }}>
+                                                                Save
+                                                            </Button>
+                                                            <Button size="xs" variant="default" onClick={handleCancelEditRow} disabled={savingEdit || !!isAI} style={{ background: styles.tabBackground, color: styles.secondaryTextColor, fontWeight: 600, borderRadius: 12 }}>
+                                                                Cancel
+                                                            </Button>
+                                                            <ActionIcon
+                                                                size={28}
+                                                                color={styles.accentColor}
+                                                                variant="light"
+                                                                onClick={() => handleAiTransformRow(tab.id, idx, editRowValue)}
+                                                                loading={!!isAI}
+                                                                disabled={!!isAI}
+                                                                title="Transform with AI"
+                                                            >
+                                                                <IconRobot size={18} />
+                                                            </ActionIcon>
+                                                        </>
+                                                    ) : (
+                                                        <Paper
+                                                            p="sm"
+                                                            withBorder
+                                                            radius="md"
+                                                            style={{ flex: 1, minWidth: 0, cursor: "pointer", background: styles.tabBackground, color: styles.secondaryTextColor, border: styles.cardBorder }}
+                                                            onClick={() => handleStartEditRow(tab.id, idx, row)}
+                                                            title="Click to edit"
+                                                        >
+                                                            {row}
+                                                        </Paper>
+                                                    )}
+                                                    <Menu shadow="md" width={120} position="bottom-end" withinPortal>
+                                                        <Menu.Target>
+                                                            <ActionIcon variant="subtle" color="gray" size={28} style={{ opacity: 0.7 }}>
+                                                                <IconDots size={18} />
+                                                            </ActionIcon>
+                                                        </Menu.Target>
+                                                        <Menu.Dropdown>
+                                                            <Menu.Item
+                                                                color="red"
+                                                                leftSection={<IconTrash size={16} />}
+                                                                onClick={() => handleDeleteRow(tab.id, idx)}
+                                                            >
+                                                                Delete
+                                                            </Menu.Item>
+                                                        </Menu.Dropdown>
+                                                    </Menu>
+                                                </Group>
+                                            );
+                                        })}
+                                        {addingRowFor === tab.id ? (
+                                            <Group>
+                                                <TextInput
+                                                    value={newRowValue}
+                                                    onChange={e => setNewRowValue(e.currentTarget.value)}
+                                                    placeholder="Enter row text"
+                                                    autoFocus
+                                                    style={{ flex: 1 }}
+                                                />
+                                                <Button size="xs" color={styles.accentColor} onClick={() => handleSaveRow(tab.id)} loading={savingRow} style={{ background: styles.buttonGradient, color: '#fff', fontWeight: 700, borderRadius: 12 }}>
+                                                    Save
+                                                </Button>
+                                                <Button size="xs" variant="default" onClick={handleCancelRow} disabled={savingRow} style={{ background: styles.tabBackground, color: styles.secondaryTextColor, fontWeight: 600, borderRadius: 12 }}>
+                                                    Cancel
+                                                </Button>
+                                            </Group>
+                                        ) : (
+                                            <Button
+                                                size="xs"
+                                                variant="light"
+                                                color={styles.accentColor}
+                                                onClick={() => handleAddRow(tab.id)}
+                                                style={{ background: styles.tabBackground, color: styles.secondaryTextColor, fontWeight: 600, borderRadius: 12 }}
+                                            >
+                                                + Add Row
+                                            </Button>
+                                        )}
+                                    </Stack>
+                                </Box>
+                            </Tabs.Panel>
+                        ))}
                         <Tabs.Panel value="templates" pt="md">
                             <Box>
                                 <Text c="dimmed">Templates tab content coming soon!</Text>
@@ -856,7 +894,65 @@ export default function ProjectViewPage() {
                                 </Group>
                             </Box>
                         </Tabs.Panel>
-                    </Group>
+                        <Tabs.Panel value="research" pt="md">
+                            <Box style={{ maxWidth: 600, margin: '0 auto', padding: 24 }}>
+                                <Title order={3} mb="md">Research</Title>
+                                <form onSubmit={handleAddResearch} style={{ marginBottom: 32 }}>
+                                    <Group align="flex-end" gap="md">
+                                        <TextInput
+                                            label="Title"
+                                            value={newResearch.title}
+                                            onChange={e => setNewResearch(r => ({ ...r, title: e.target.value }))}
+                                            required
+                                            style={{ flex: 2 }}
+                                        />
+                                        <TextInput
+                                            label="Type"
+                                            value={newResearch.type}
+                                            onChange={e => setNewResearch(r => ({ ...r, type: e.target.value }))}
+                                            style={{ flex: 1 }}
+                                            placeholder="web, note, pdf, ..."
+                                        />
+                                        <TextInput
+                                            label="Content"
+                                            value={newResearch.content}
+                                            onChange={e => setNewResearch(r => ({ ...r, content: e.target.value }))}
+                                            required
+                                            style={{ flex: 3 }}
+                                        />
+                                        <Button type="submit" loading={researchLoading}>Add</Button>
+                                    </Group>
+                                </form>
+                                <Stack>
+                                    {researchLoading ? (
+                                        <Text>Loading research...</Text>
+                                    ) : researchItems.length === 0 ? (
+                                        <Text c="dimmed">No research items yet. Add your first one above!</Text>
+                                    ) : (
+                                        researchItems.map((item: any) => (
+                                            <Paper key={item.id} withBorder p="md" radius="md" style={{ background: styles.cardBackground, border: styles.cardBorder, color: styles.textColor }}>
+                                                <Group justify="space-between">
+                                                    <div>
+                                                        <Text fw={700}>{item.title}</Text>
+                                                        <Text size="sm" c={styles.secondaryTextColor}>{item.type}</Text>
+                                                    </div>
+                                                    <Text size="xs" c="dimmed">{new Date(item.createdAt).toLocaleString()}</Text>
+                                                </Group>
+                                                <Text mt="sm">{item.content}</Text>
+                                                {item.tags && item.tags.length > 0 && (
+                                                    <Group gap="xs" mt="xs">
+                                                        {item.tags.map((tag: string) => (
+                                                            <Paper key={tag} p="xs" radius="sm" style={{ background: styles.tabBackground, color: styles.secondaryTextColor }}>{tag}</Paper>
+                                                        ))}
+                                                    </Group>
+                                                )}
+                                            </Paper>
+                                        ))
+                                    )}
+                                </Stack>
+                            </Box>
+                        </Tabs.Panel>
+                    </Tabs>
                     <ActionIcon
                         variant="light"
                         color="gray"

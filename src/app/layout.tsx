@@ -28,10 +28,10 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <ThemeProvider>
-          <MantineProvider>
+        <MantineProvider>
             <Notifications />
-            {children}
-          </MantineProvider>
+          {children}
+        </MantineProvider>
         </ThemeProvider>
       </body>
     </html>
