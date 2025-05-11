@@ -1,9 +1,9 @@
 "use client";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
-import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack, Modal, ActionIcon, rem, Menu, Avatar, Paper } from "@mantine/core";
+import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack, Modal, ActionIcon, rem, Menu, Avatar, Paper, MultiSelect } from "@mantine/core";
 import { showNotification } from "@mantine/notifications";
-import { IconSettings, IconDots, IconTrash, IconArrowLeft, IconSend, IconFile, IconMoodSmile, IconRobot } from "@tabler/icons-react";
+import { IconSettings, IconDots, IconTrash, IconArrowLeft, IconSend, IconFile, IconMoodSmile, IconRobot, IconEdit, IconSparkles } from "@tabler/icons-react";
 import { getGeminiClient } from "@/utils/gemini";
 import { NavigationBar } from "@/components/NavigationBar";
 import { useTheme } from '@/contexts/ThemeContext';
@@ -102,6 +102,14 @@ export default function ProjectViewPage() {
     const [researchItems, setResearchItems] = useState([]);
     const [researchLoading, setResearchLoading] = useState(false);
     const [newResearch, setNewResearch] = useState({ title: '', type: 'web', content: '' });
+    const [editResearch, setEditResearch] = useState<any | null>(null);
+    const [editResearchLoading, setEditResearchLoading] = useState(false);
+    const [summarizingId, setSummarizingId] = useState<string | null>(null);
+    const [tagFilter, setTagFilter] = useState<string[]>([]);
+    const [newResearchFile, setNewResearchFile] = useState<File | null>(null);
+    const [editResearchFile, setEditResearchFile] = useState<File | null>(null);
+    const [commentInputs, setCommentInputs] = useState<{ [id: string]: string }>({});
+    const [commentLoading, setCommentLoading] = useState<{ [id: string]: boolean }>({});
 
     useEffect(() => {
         const user = localStorage.getItem("user");
@@ -584,21 +592,136 @@ export default function ProjectViewPage() {
         // eslint-disable-next-line
     }, [projectId]);
 
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, setFile: (f: File | null) => void) => {
+        const file = e.target.files?.[0] || null;
+        setFile(file);
+    };
+
     const handleAddResearch = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newResearch.title.trim() || !newResearch.content.trim()) return;
+        let fileUrl = undefined;
+        if (newResearchFile) {
+            fileUrl = await fileToDataUrl(newResearchFile);
+        }
         const res = await fetch(`/api/projects/${projectId}/research`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 ...newResearch,
+                fileUrl,
                 createdBy: userName || 'anonymous',
             }),
         });
         if (res.ok) {
-            setNewResearch({ title: '', type: 'web', content: '' });
+            setNewResearch({ title: '', type: 'web', content: '', tags: [] });
+            setNewResearchFile(null);
             fetchResearchItems();
         }
+    };
+
+    const handleEditResearch = (item: any) => setEditResearch(item);
+    const handleCancelEditResearch = () => setEditResearch(null);
+    const handleSaveEditResearch = async () => {
+        if (!editResearch) return;
+        setEditResearchLoading(true);
+        let fileUrl = editResearch.fileUrl;
+        if (editResearchFile) {
+            fileUrl = await fileToDataUrl(editResearchFile);
+        }
+        const res = await fetch(`/api/projects/${projectId}/research?id=${editResearch.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...editResearch, fileUrl }),
+        });
+        setEditResearchLoading(false);
+        if (res.ok) {
+            setEditResearch(null);
+            setEditResearchFile(null);
+            fetchResearchItems();
+            showNotification({ title: 'Updated', message: 'Research item updated.', color: 'green' });
+        }
+    };
+    const handleDeleteResearch = async (id: string) => {
+        if (!window.confirm('Delete this research item?')) return;
+        const res = await fetch(`/api/projects/${projectId}/research?id=${id}`, { method: 'DELETE' });
+        if (res.ok) {
+            fetchResearchItems();
+            showNotification({ title: 'Deleted', message: 'Research item deleted.', color: 'red' });
+        }
+    };
+
+    const handleSummarizeResearch = async (item: any) => {
+        setSummarizingId(item.id);
+        try {
+            const gemini = getGeminiClient();
+            const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const prompt = `Summarize the following research for a project team in 2-3 sentences.\n\nTitle: ${item.title}\nType: ${item.type}\nContent: ${item.content}`;
+            const result = await model.generateContent(prompt);
+            const summary = result.response.text().trim();
+            if (!summary) throw new Error("No summary generated");
+            // Save summary to item (send full item)
+            const res = await fetch(`/api/projects/${projectId}/research?id=${item.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...item, summary }),
+            });
+            if (res.ok) {
+                fetchResearchItems();
+                showNotification({ title: 'AI Summary Added', message: 'Summary generated and saved.', color: 'green' });
+            } else {
+                showNotification({ title: 'Error', message: 'Failed to save summary.', color: 'red' });
+            }
+        } catch (err: any) {
+            showNotification({ title: 'AI Error', message: err.message || 'Failed to generate summary.', color: 'red' });
+        } finally {
+            setSummarizingId(null);
+        }
+    };
+
+    // Helper to get all unique tags from researchItems
+    const allTags = Array.from(new Set(researchItems.flatMap((item: any) => item.tags || [])));
+
+    function fileToDataUrl(file: File): Promise<string> {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+    }
+
+    const handleAddComment = async (item: any) => {
+        const comment = (commentInputs[item.id] || '').trim();
+        if (!comment) return;
+        setCommentLoading(l => ({ ...l, [item.id]: true }));
+        const newComment = {
+            id: Date.now().toString(),
+            author: userName || 'anonymous',
+            content: comment,
+            createdAt: new Date().toISOString(),
+        };
+        const updatedComments = [...(item.annotations || []), newComment];
+        const res = await fetch(`/api/projects/${projectId}/research?id=${item.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...item, annotations: updatedComments }),
+        });
+        setCommentLoading(l => ({ ...l, [item.id]: false }));
+        if (res.ok) {
+            setCommentInputs(inputs => ({ ...inputs, [item.id]: '' }));
+            fetchResearchItems();
+        }
+    };
+
+    const handleDeleteComment = async (item: any, commentId: string) => {
+        const updatedComments = (item.annotations || []).filter((c: any) => c.id !== commentId);
+        const res = await fetch(`/api/projects/${projectId}/research?id=${item.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...item, annotations: updatedComments }),
+        });
+        if (res.ok) fetchResearchItems();
     };
 
     if (loading) {
@@ -920,36 +1043,175 @@ export default function ProjectViewPage() {
                                             required
                                             style={{ flex: 3 }}
                                         />
+                                        <MultiSelect
+                                            label="Tags"
+                                            data={allTags}
+                                            value={newResearch.tags || []}
+                                            onChange={tags => setNewResearch(r => ({ ...r, tags }))}
+                                            searchable
+                                            creatable
+                                            onCreate={query => {
+                                                const newTag = query.trim();
+                                                if (newTag && !allTags.includes(newTag)) {
+                                                    setNewResearch(r => ({ ...r, tags: [...(r.tags || []), newTag] }));
+                                                }
+                                                return newTag;
+                                            }}
+                                            style={{ flex: 2 }}
+                                        />
+                                        <input type="file" onChange={e => handleFileChange(e, setNewResearchFile)} style={{ flex: 2 }} />
                                         <Button type="submit" loading={researchLoading}>Add</Button>
                                     </Group>
                                 </form>
+                                <MultiSelect
+                                    label="Filter by tags"
+                                    data={allTags}
+                                    value={tagFilter}
+                                    onChange={setTagFilter}
+                                    placeholder="Select tags to filter"
+                                    clearable
+                                    style={{ marginBottom: 16 }}
+                                />
                                 <Stack>
                                     {researchLoading ? (
                                         <Text>Loading research...</Text>
-                                    ) : researchItems.length === 0 ? (
-                                        <Text c="dimmed">No research items yet. Add your first one above!</Text>
+                                    ) : researchItems.filter((item: any) => tagFilter.length === 0 || (item.tags || []).some((tag: string) => tagFilter.includes(tag))).length === 0 ? (
+                                        <Text c="dimmed">No research items match the selected tags.</Text>
                                     ) : (
-                                        researchItems.map((item: any) => (
+                                        researchItems.filter((item: any) => tagFilter.length === 0 || (item.tags || []).some((tag: string) => tagFilter.includes(tag))).map((item: any) => (
                                             <Paper key={item.id} withBorder p="md" radius="md" style={{ background: styles.cardBackground, border: styles.cardBorder, color: styles.textColor }}>
-                                                <Group justify="space-between">
-                                                    <div>
+                                                <Group justify="space-between" align="flex-start">
+                                                    <div style={{ flex: 1 }}>
                                                         <Text fw={700}>{item.title}</Text>
                                                         <Text size="sm" c={styles.secondaryTextColor}>{item.type}</Text>
+                                                        <Text mt="sm">{item.content}</Text>
+                                                        {item.summary && (
+                                                            <Paper
+                                                                p="sm"
+                                                                mt="sm"
+                                                                radius="md"
+                                                                style={{
+                                                                    background: theme === 'classic' ? '#f6f8fa' : 'rgba(35,43,77,0.12)',
+                                                                    color: styles.secondaryTextColor,
+                                                                    border: 'none',
+                                                                    boxShadow: 'none',
+                                                                    fontSize: 14,
+                                                                    marginTop: 8,
+                                                                    marginBottom: 0,
+                                                                }}
+                                                            >
+                                                                <Text size="xs" fw={600} mb={4} c={styles.secondaryTextColor} style={{ letterSpacing: 0.5 }}>
+                                                                    AI Summary:
+                                                                </Text>
+                                                                <Text size="sm" c={styles.secondaryTextColor} style={{ fontWeight: 400 }}>
+                                                                    {item.summary}
+                                                                </Text>
+                                                            </Paper>
+                                                        )}
+                                                        {item.tags && item.tags.length > 0 && (
+                                                            <Group gap="xs" mt="xs">
+                                                                {item.tags.map((tag: string) => (
+                                                                    <Paper key={tag} p="xs" radius="sm" style={{ background: styles.tabBackground, color: styles.secondaryTextColor }}>{tag}</Paper>
+                                                                ))}
+                                                            </Group>
+                                                        )}
+                                                        {item.fileUrl && (
+                                                            <Box mt={8} mb={4}>
+                                                                <a href={item.fileUrl} target="_blank" rel="noopener noreferrer" style={{ color: styles.accentColor, textDecoration: 'underline', fontSize: 14 }}>
+                                                                    View Attachment
+                                                                </a>
+                                                            </Box>
+                                                        )}
+                                                        {item.annotations && item.annotations.length > 0 && (
+                                                            <Stack mt={8} spacing={4}>
+                                                                {item.annotations.map((c: any) => (
+                                                                    <Group key={c.id} align="flex-start" gap={8}>
+                                                                        <Text size="xs" fw={600}>{c.author}</Text>
+                                                                        <Text size="xs" c="dimmed">{new Date(c.createdAt).toLocaleString()}</Text>
+                                                                        <Text size="sm" style={{ flex: 1 }}>{c.content}</Text>
+                                                                        {(c.author === userName || project?.createdBy === userName) && (
+                                                                            <ActionIcon size={18} color="red" variant="subtle" onClick={() => handleDeleteComment(item, c.id)}>
+                                                                                <IconTrash size={14} />
+                                                                            </ActionIcon>
+                                                                        )}
+                                                                    </Group>
+                                                                ))}
+                                                            </Stack>
+                                                        )}
+                                                        <Group mt={4} gap={4} align="flex-end">
+                                                            <TextInput
+                                                                placeholder="Add a comment..."
+                                                                value={commentInputs[item.id] || ''}
+                                                                onChange={e => setCommentInputs(inputs => ({ ...inputs, [item.id]: e.target.value }))}
+                                                                style={{ flex: 1 }}
+                                                                size="xs"
+                                                                disabled={commentLoading[item.id]}
+                                                            />
+                                                            <Button size="xs" onClick={() => handleAddComment(item)} loading={commentLoading[item.id]} disabled={!(commentInputs[item.id] || '').trim()}>
+                                                                Comment
+                                                            </Button>
+                                                        </Group>
                                                     </div>
-                                                    <Text size="xs" c="dimmed">{new Date(item.createdAt).toLocaleString()}</Text>
-                                                </Group>
-                                                <Text mt="sm">{item.content}</Text>
-                                                {item.tags && item.tags.length > 0 && (
-                                                    <Group gap="xs" mt="xs">
-                                                        {item.tags.map((tag: string) => (
-                                                            <Paper key={tag} p="xs" radius="sm" style={{ background: styles.tabBackground, color: styles.secondaryTextColor }}>{tag}</Paper>
-                                                        ))}
+                                                    <Group gap={4}>
+                                                        <ActionIcon variant="light" color={styles.accentColor} onClick={() => handleEditResearch(item)} title="Edit">
+                                                            <IconEdit size={18} />
+                                                        </ActionIcon>
+                                                        <ActionIcon variant="light" color="red" onClick={() => handleDeleteResearch(item.id)} title="Delete">
+                                                            <IconTrash size={18} />
+                                                        </ActionIcon>
+                                                        <ActionIcon variant="light" color="yellow" loading={summarizingId === item.id} onClick={() => handleSummarizeResearch(item)} title="Summarize with AI">
+                                                            <IconSparkles size={18} />
+                                                        </ActionIcon>
                                                     </Group>
-                                                )}
+                                                </Group>
+                                                <Text size="xs" c="dimmed" mt={8}>{new Date(item.createdAt).toLocaleString()}</Text>
                                             </Paper>
                                         ))
                                     )}
                                 </Stack>
+                                <Modal opened={!!editResearch} onClose={handleCancelEditResearch} title="Edit Research" centered>
+                                    {editResearch && (
+                                        <Stack>
+                                            <TextInput
+                                                label="Title"
+                                                value={editResearch.title}
+                                                onChange={e => setEditResearch((r: any) => ({ ...r, title: e.target.value }))}
+                                                required
+                                            />
+                                            <TextInput
+                                                label="Type"
+                                                value={editResearch.type}
+                                                onChange={e => setEditResearch((r: any) => ({ ...r, type: e.target.value }))}
+                                            />
+                                            <TextInput
+                                                label="Content"
+                                                value={editResearch.content}
+                                                onChange={e => setEditResearch((r: any) => ({ ...r, content: e.target.value }))}
+                                                required
+                                            />
+                                            <MultiSelect
+                                                label="Tags"
+                                                data={allTags}
+                                                value={editResearch.tags || []}
+                                                onChange={tags => setEditResearch((r: any) => ({ ...r, tags }))}
+                                                searchable
+                                                creatable
+                                                onCreate={query => {
+                                                    const newTag = query.trim();
+                                                    if (newTag && !allTags.includes(newTag)) {
+                                                        setEditResearch((r: any) => ({ ...r, tags: [...(r.tags || []), newTag] }));
+                                                    }
+                                                    return newTag;
+                                                }}
+                                            />
+                                            <input type="file" onChange={e => handleFileChange(e, setEditResearchFile)} />
+                                            <Group justify="flex-end">
+                                                <Button variant="default" onClick={handleCancelEditResearch}>Cancel</Button>
+                                                <Button onClick={handleSaveEditResearch} loading={editResearchLoading}>Save</Button>
+                                            </Group>
+                                        </Stack>
+                                    )}
+                                </Modal>
                             </Box>
                         </Tabs.Panel>
                     </Tabs>

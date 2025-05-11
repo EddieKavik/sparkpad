@@ -37,4 +37,34 @@ export async function POST(req: NextRequest, { params }: { params: { projectId: 
   if (!researchStore[projectId]) researchStore[projectId] = [];
   researchStore[projectId].push(newItem);
   return NextResponse.json(newItem, { status: 201 });
+}
+
+// PUT: /api/projects/[projectId]/research?id=RESEARCH_ID
+export async function PUT(req: NextRequest, { params }: { params: { projectId: string } }) {
+  const { projectId } = params;
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get('id');
+  if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+  const body = await req.json();
+  const items = researchStore[projectId] || [];
+  const idx = items.findIndex(item => item.id === id);
+  if (idx === -1) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  const updated = { ...items[idx], ...body };
+  items[idx] = updated;
+  researchStore[projectId] = items;
+  return NextResponse.json(updated);
+}
+
+// DELETE: /api/projects/[projectId]/research?id=RESEARCH_ID
+export async function DELETE(req: NextRequest, { params }: { params: { projectId: string } }) {
+  const { projectId } = params;
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get('id');
+  if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+  const items = researchStore[projectId] || [];
+  const idx = items.findIndex(item => item.id === id);
+  if (idx === -1) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  const deleted = items.splice(idx, 1)[0];
+  researchStore[projectId] = items;
+  return NextResponse.json(deleted);
 } 
