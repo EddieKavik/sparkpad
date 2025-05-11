@@ -5,12 +5,56 @@ import { Container, Group, Button, Title, Box, Text, Modal, TextInput, Card, Sta
 import { showNotification } from "@mantine/notifications";
 import Link from "next/link";
 import { NavigationBar } from "@/components/NavigationBar";
+import { ThemeSwitcher } from "@/components/ThemeSwitcher";
+import { useTheme } from "@/contexts/ThemeContext";
 import { IconRocket, IconUserPlus, IconBell, IconSearch, IconStar, IconRobot, IconUsersGroup, IconSparkles } from "@tabler/icons-react";
 import { Carousel } from '@mantine/carousel';
 import '@mantine/carousel/styles.css';
 
+// Theme-specific styles
+const themeStyles = {
+  futuristic: {
+    background: "linear-gradient(135deg, #181c2b 0%, #23243a 100%)",
+    cardBackground: "rgba(24,28,43,0.85)",
+    cardBorder: "1.5px solid #3a2e5d77",
+    textColor: "#fff",
+    secondaryTextColor: "#b0b7ff",
+    accentColor: "#7f5fff",
+    glowOverlay: {
+      background: 'radial-gradient(circle at 80% 20%, #3a2e5d44 0%, transparent 60%), radial-gradient(circle at 20% 80%, #232b4d44 0%, transparent 60%)',
+      filter: 'blur(48px)',
+    },
+    buttonGradient: { from: '#232b4d', to: '#3a2e5d', deg: 90 },
+    cardShadow: '0 8px 32px 0 #232b4d44',
+    modalBackground: 'rgba(24,28,43,0.95)',
+    inputBackground: 'rgba(35,43,77,0.3)',
+    inputBorder: '#3a2e5d77',
+    badgeColor: 'violet',
+  },
+  classic: {
+    background: "#f8f9fa",
+    cardBackground: "#fff",
+    cardBorder: "1px solid #e9ecef",
+    textColor: "#1a1b1e",
+    secondaryTextColor: "#868e96",
+    accentColor: "#228be6",
+    glowOverlay: {
+      background: 'none',
+      filter: 'none',
+    },
+    buttonGradient: { from: '#228be6', to: '#40c057', deg: 90 },
+    cardShadow: '0 2px 8px rgba(0,0,0,0.06)',
+    modalBackground: '#fff',
+    inputBackground: '#f1f3f5',
+    inputBorder: '#e9ecef',
+    badgeColor: 'blue',
+  },
+};
+
 export default function Home() {
   const router = useRouter();
+  const { theme } = useTheme();
+  const styles = themeStyles[theme];
   const [userName, setUserName] = useState<string | null>(null);
 
   // Projects state
@@ -149,10 +193,10 @@ export default function Home() {
       // Fetch current projects array
       const resGet = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`);
       if (!resGet.ok) throw new Error("Failed to fetch projects");
-      
+
       const projectsArr = await resGet.json();
       const projectIndex = projectsArr.findIndex((p: any) => p.id === inviteProjectId);
-      
+
       if (projectIndex === -1) {
         throw new Error("Project not found");
       }
@@ -160,7 +204,7 @@ export default function Home() {
       // Add new member if not already a member
       if (!projectsArr[projectIndex].members.includes(inviteEmail)) {
         projectsArr[projectIndex].members.push(inviteEmail);
-        
+
         // Update projects
         const resSet = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`, {
           method: "POST",
@@ -168,7 +212,7 @@ export default function Home() {
         });
 
         if (!resSet.ok) throw new Error("Failed to invite member");
-        
+
         showNotification({ title: "Success", message: "Member invited successfully!", color: "green" });
         setInviteModal(false);
         setInviteEmail("");
@@ -191,7 +235,7 @@ export default function Home() {
     }
 
     const query = searchQuery.toLowerCase();
-    const results = projects.filter(project => 
+    const results = projects.filter(project =>
       project.name.toLowerCase().includes(query) ||
       project.description.toLowerCase().includes(query) ||
       project.tags.some((tag: string) => tag.toLowerCase().includes(query))
@@ -220,17 +264,18 @@ export default function Home() {
   const teamMembers = Array.from(new Set(projects.flatMap(p => Array.isArray(p.members) ? p.members : []))).length;
 
   return (
-    <Box style={{ minHeight: "100vh", background: "linear-gradient(135deg, #181c2b 0%, #23243a 100%)", position: 'relative', overflow: 'hidden' }}>
-      {/* Futuristic Glow Overlay */}
+    <Box style={{ minHeight: "100vh", background: styles.background, position: 'relative', overflow: 'hidden' }}>
+      {/* Theme-specific Glow Overlay */}
       <div style={{
         position: 'absolute',
         top: 0, left: 0, right: 0, bottom: 0,
         pointerEvents: 'none',
         zIndex: 0,
-        background: 'radial-gradient(circle at 80% 20%, #3a2e5d44 0%, transparent 60%), radial-gradient(circle at 20% 80%, #232b4d44 0%, transparent 60%)',
-        filter: 'blur(48px)',
+        ...styles.glowOverlay,
       }} />
       <NavigationBar userName={userName} onLogout={handleLogout} />
+      <ThemeSwitcher />
+
       {/* Welcome Banner */}
       <Box style={{
         margin: '0 auto',
@@ -239,78 +284,143 @@ export default function Home() {
         maxWidth: 700,
         padding: 32,
         borderRadius: 32,
-        background: 'rgba(24,28,43,0.85)',
-        boxShadow: '0 8px 32px 0 #232b4d44',
-        border: '1.5px solid #3a2e5d77',
-        backdropFilter: 'blur(16px)',
+        background: styles.cardBackground,
+        boxShadow: styles.cardShadow,
+        backdropFilter: 'none',
         textAlign: 'center',
         position: 'relative',
         zIndex: 1
       }}>
         <Group justify="center" align="center" gap={8}>
-          <IconSparkles size={32} color="#7f5fff" />
-          <Title order={2} style={{ color: '#fff', fontWeight: 800, letterSpacing: 1 }}>Welcome{userName ? `, ${userName}` : ''} to SparkPad</Title>
+          <IconSparkles size={32} color={styles.accentColor} />
+          <Title order={2} style={{ color: styles.textColor, fontWeight: 800, letterSpacing: 1 }}>
+            Welcome{userName ? `, ${userName}` : ''} to SparkPad
+          </Title>
         </Group>
-        <Text mt="sm" c="#b0b7ff" size="lg" style={{ fontWeight: 500, letterSpacing: 0.5 }}>
-          Your futuristic AI workspace for collaborative innovation.
+        <Text mt="sm" c={styles.secondaryTextColor} size="lg" style={{ fontWeight: 500, letterSpacing: 0.5 }}>
+          Your {theme === 'futuristic' ? 'futuristic AI' : 'collaborative'} workspace for innovation.
         </Text>
       </Box>
+
       {/* Quick Actions */}
       <Group justify="center" gap={24} mb={32}>
-        <Button leftSection={<IconRocket size={18} />} variant="gradient" gradient={{ from: '#232b4d', to: '#3a2e5d', deg: 90 }} size="md" radius="xl" style={{ fontWeight: 700, boxShadow: '0 2px 16px #232b4d44', color: '#fff' }} onClick={() => setProjectModal(true)}>
+        <Button
+          leftSection={<IconRocket size={18} />}
+          variant="gradient"
+          gradient={styles.buttonGradient}
+          size="md"
+          radius="xl"
+          style={{
+            fontWeight: 700,
+            boxShadow: styles.cardShadow,
+            color: '#fff'
+          }}
+          onClick={() => setProjectModal(true)}
+        >
           New Project
         </Button>
-        <Button leftSection={<IconUserPlus size={18} />} variant="gradient" gradient={{ from: '#3a2e5d', to: '#232b4d', deg: 90 }} size="md" radius="xl" style={{ fontWeight: 700, boxShadow: '0 2px 16px #3a2e5d44', color: '#fff' }} onClick={() => setInviteModal(true)}>
+        <Button
+          leftSection={<IconUserPlus size={18} />}
+          variant="gradient"
+          gradient={styles.buttonGradient}
+          size="md"
+          radius="xl"
+          style={{
+            fontWeight: 700,
+            boxShadow: styles.cardShadow,
+            color: '#fff'
+          }}
+          onClick={() => setInviteModal(true)}
+        >
           Invite Member
         </Button>
-        <Button leftSection={<IconSearch size={18} />} variant="gradient" gradient={{ from: '#232b4d', to: '#181c2b', deg: 90 }} size="md" radius="xl" style={{ fontWeight: 700, boxShadow: '0 2px 16px #181c2b44', color: '#fff' }} onClick={() => setSearchModal(true)}>
+        <Button
+          leftSection={<IconSearch size={18} />}
+          variant="gradient"
+          gradient={styles.buttonGradient}
+          size="md"
+          radius="xl"
+          style={{
+            fontWeight: 700,
+            boxShadow: styles.cardShadow,
+            color: '#fff'
+          }}
+          onClick={() => setSearchModal(true)}
+        >
           Search Projects
         </Button>
       </Group>
+
       {/* Stats Cards */}
       <Group justify="center" gap={32} mb={40}>
-        <Box style={{ minWidth: 180, borderRadius: 24, background: 'rgba(35,43,77,0.18)', border: '1.5px solid #3a2e5d77', boxShadow: '0 2px 16px #232b4d22', padding: 24, textAlign: 'center', color: '#7f5fff', backdropFilter: 'blur(8px)' }}>
-          <IconRocket size={32} color="#7f5fff" />
-          <Title order={3} style={{ color: '#7f5fff', fontWeight: 700 }}>{totalProjects}</Title>
-          <Text size="sm" c="#b0b7ff">Total Projects</Text>
-        </Box>
-        <Box style={{ minWidth: 180, borderRadius: 24, background: 'rgba(58,46,93,0.18)', border: '1.5px solid #7f5fff77', boxShadow: '0 2px 16px #3a2e5d22', padding: 24, textAlign: 'center', color: '#b0b7ff', backdropFilter: 'blur(8px)' }}>
-          <IconBell size={32} color="#b0b7ff" />
-          <Title order={3} style={{ color: '#b0b7ff', fontWeight: 700 }}>{activeProjects}</Title>
-          <Text size="sm" c="#b0b7ff">Active Projects</Text>
-        </Box>
-        <Box style={{ minWidth: 180, borderRadius: 24, background: 'rgba(127,95,255,0.18)', border: '1.5px solid #7f5fff77', boxShadow: '0 2px 16px #7f5fff22', padding: 24, textAlign: 'center', color: '#fff7b0', backdropFilter: 'blur(8px)' }}>
-          <IconStar size={32} color="#fff7b0" />
-          <Title order={3} style={{ color: '#fff7b0', fontWeight: 700 }}>{completedProjects}</Title>
-          <Text size="sm" c="#fff7b0">Completed</Text>
-        </Box>
-        <Box style={{ minWidth: 180, borderRadius: 24, background: 'rgba(24,28,43,0.18)', border: '1.5px solid #3a2e5d77', boxShadow: '0 2px 16px #232b4d22', padding: 24, textAlign: 'center', color: '#b0fff7', backdropFilter: 'blur(8px)' }}>
-          <IconUsersGroup size={32} color="#b0fff7" />
-          <Title order={3} style={{ color: '#b0fff7', fontWeight: 700 }}>{teamMembers}</Title>
-          <Text size="sm" c="#b0fff7">Team Members</Text>
-        </Box>
+        {[
+          { icon: <IconRocket size={32} color={styles.accentColor} />, value: totalProjects, label: "Total Projects" },
+          { icon: <IconBell size={32} color={styles.accentColor} />, value: activeProjects, label: "Active Projects" },
+          { icon: <IconStar size={32} color={styles.accentColor} />, value: completedProjects, label: "Completed" },
+          { icon: <IconUsersGroup size={32} color={styles.accentColor} />, value: teamMembers, label: "Team Members" },
+        ].map((stat, index) => (
+          <Box
+            key={index}
+            style={{
+              minWidth: 180,
+              borderRadius: 24,
+              background: styles.cardBackground,
+              border: styles.cardBorder,
+              boxShadow: styles.cardShadow,
+              padding: 24,
+              textAlign: 'center',
+              color: styles.accentColor,
+              backdropFilter: 'none',
+            }}
+          >
+            {stat.icon}
+            <Title order={3} style={{ color: styles.accentColor, fontWeight: 700 }}>{stat.value}</Title>
+            <Text size="sm" c={styles.secondaryTextColor}>{stat.label}</Text>
+          </Box>
+        ))}
       </Group>
+
       {/* Recent Projects Carousel */}
       <Box mb={40} style={{ maxWidth: 900, margin: '0 auto', zIndex: 1, position: 'relative' }}>
-        <Title order={4} mb={16} style={{ color: '#fff', fontWeight: 700, letterSpacing: 1 }}>Recent Projects</Title>
+        <Title order={4} mb={16} style={{ color: styles.textColor, fontWeight: 700, letterSpacing: 1 }}>Recent Projects</Title>
         {projects.length === 0 ? (
-          <Text c="#b0b7ff" ta="center">No projects yet. Start your first project!</Text>
+          <Text c={styles.secondaryTextColor} ta="center">No projects yet. Start your first project!</Text>
         ) : (
           <Carousel slideSize="33.3333%" height={180} slideGap="md">
             {(projects.slice(-6).reverse() || []).map((project, idx) => (
               <Carousel.Slide key={project.id || idx}>
-                <Card shadow="md" p="lg" radius="lg" withBorder style={{ background: 'rgba(24,28,43,0.92)', border: '1.5px solid #3a2e5d44', color: '#fff', minHeight: 160, display: 'flex', flexDirection: 'column', justifyContent: 'center', cursor: 'pointer', transition: 'box-shadow 0.2s', boxShadow: '0 2px 16px #232b4d22' }}>
+                <Card shadow="md" p="lg" radius="lg" withBorder style={{
+                  background: styles.cardBackground,
+                  border: styles.cardBorder,
+                  color: styles.textColor,
+                  minHeight: 160,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  transition: 'box-shadow 0.2s',
+                  boxShadow: styles.cardShadow
+                }}>
                   <Group justify="space-between" align="center">
-                    <Text fw={700} size="lg" style={{ color: '#7f5fff' }}>{project.name || "Untitled Project"}</Text>
+                    <Text fw={700} size="lg" style={{ color: styles.accentColor }}>{project.name || "Untitled Project"}</Text>
                     <IconStar size={20} color="#fff7b0" style={{ filter: 'drop-shadow(0 0 6px #fff7b088)' }} />
                   </Group>
-                  <Text size="sm" c="#b0b7ff" mt={8} mb={8} lineClamp={2}>{project.description || "No description."}</Text>
+                  <Text size="sm" c={styles.secondaryTextColor} mt={8} mb={8} lineClamp={2}>{project.description || "No description."}</Text>
                   <Group gap={6} mt={8}>
                     {(project.tags || []).map((tag: string, i: number) => (
-                      <Badge key={i} color="violet" variant="light" size="xs">{tag}</Badge>
+                      <Badge key={i} color={styles.badgeColor} variant="light" size="xs">{tag}</Badge>
                     ))}
                   </Group>
-                  <Button mt={16} variant="gradient" gradient={{ from: '#232b4d', to: '#3a2e5d', deg: 90 }} size="xs" radius="xl" style={{ fontWeight: 700, color: '#fff' }} component={Link} href={`/projects/${project.id}`}>
+                  <Button mt={16}
+                    variant={theme === 'futuristic' ? 'gradient' : 'filled'}
+                    gradient={theme === 'futuristic' ? styles.buttonGradient : undefined}
+                    color={theme === 'classic' ? 'blue' : undefined}
+                    size="xs"
+                    radius="xl"
+                    style={{ fontWeight: 700, color: theme === 'classic' ? '#fff' : '#fff' }}
+                    component={Link}
+                    href={`/projects/${project.id}`}
+                  >
                     Open Project
                   </Button>
                 </Card>
@@ -320,17 +430,27 @@ export default function Home() {
         )}
       </Box>
       {/* Activity Feed */}
-      <Box mb={40} style={{ maxWidth: 700, margin: '0 auto', zIndex: 1, position: 'relative', background: 'rgba(24,28,43,0.85)', borderRadius: 24, border: '1.5px solid #3a2e5d44', boxShadow: '0 2px 16px #232b4d22', padding: 24 }}>
-        <Title order={4} mb={16} style={{ color: '#fff', fontWeight: 700, letterSpacing: 1 }}>Activity Feed</Title>
+      <Box mb={40} style={{
+        maxWidth: 700,
+        margin: '0 auto',
+        zIndex: 1,
+        position: 'relative',
+        background: styles.cardBackground,
+        borderRadius: 24,
+        border: styles.cardBorder,
+        boxShadow: styles.cardShadow,
+        padding: 24
+      }}>
+        <Title order={4} mb={16} style={{ color: styles.textColor, fontWeight: 700, letterSpacing: 1 }}>Activity Feed</Title>
         {activityFeed.length === 0 ? (
-          <Text c="#b0b7ff" ta="center">No recent activity.</Text>
+          <Text c={styles.secondaryTextColor} ta="center">No recent activity.</Text>
         ) : (
           <Stack gap={12}>
             {activityFeed.map((item, idx) => (
               <Group key={idx} gap={10} align="center">
                 {item.icon}
-                <Text size="sm" c="#b0b7ff">{item.message}</Text>
-                <Text size="xs" c="#7f5fff" ml="auto">{item.time}</Text>
+                <Text size="sm" c={styles.secondaryTextColor}>{item.message}</Text>
+                <Text size="xs" c={styles.accentColor} ml="auto">{item.time}</Text>
               </Group>
             ))}
           </Stack>
@@ -360,7 +480,7 @@ export default function Home() {
         <select
           value={newProjectStatus}
           onChange={e => setNewProjectStatus(e.target.value as 'active' | 'archived' | 'completed')}
-          style={{ width: '100%', marginBottom: 16, padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
+          style={{ width: '100%', marginBottom: 16, padding: 8, borderRadius: 4, border: styles.inputBorder }}
         >
           <option value="active">Active</option>
           <option value="archived">Archived</option>
@@ -378,9 +498,9 @@ export default function Home() {
         centered
         size="md"
         styles={{
-          title: { color: '#fff', fontWeight: 700 },
-          header: { background: 'rgba(24,28,43,0.95)' },
-          body: { background: 'rgba(24,28,43,0.95)' },
+          title: { color: styles.textColor, fontWeight: 700 },
+          header: { background: styles.modalBackground },
+          body: { background: styles.modalBackground },
         }}
       >
         <Stack>
@@ -390,19 +510,19 @@ export default function Home() {
             value={inviteEmail}
             onChange={(e) => setInviteEmail(e.target.value)}
             styles={{
-              label: { color: '#b0b7ff' },
-              input: { background: 'rgba(35,43,77,0.3)', borderColor: '#3a2e5d77', color: '#fff' },
+              label: { color: styles.secondaryTextColor },
+              input: { background: styles.inputBackground, borderColor: styles.inputBorder, color: styles.textColor },
             }}
           />
           <select
             value={inviteProjectId}
             onChange={(e) => setInviteProjectId(e.target.value)}
             style={{
-              background: 'rgba(35,43,77,0.3)',
-              border: '1px solid #3a2e5d77',
+              background: styles.inputBackground,
+              border: styles.inputBorder,
               borderRadius: '4px',
               padding: '8px 12px',
-              color: '#fff',
+              color: styles.textColor,
               width: '100%',
             }}
           >
@@ -432,9 +552,9 @@ export default function Home() {
         centered
         size="lg"
         styles={{
-          title: { color: '#fff', fontWeight: 700 },
-          header: { background: 'rgba(24,28,43,0.95)' },
-          body: { background: 'rgba(24,28,43,0.95)' },
+          title: { color: styles.textColor, fontWeight: 700 },
+          header: { background: styles.modalBackground },
+          body: { background: styles.modalBackground },
         }}
       >
         <Stack>
@@ -443,7 +563,7 @@ export default function Home() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             styles={{
-              input: { background: 'rgba(35,43,77,0.3)', borderColor: '#3a2e5d77', color: '#fff' },
+              input: { background: styles.inputBackground, borderColor: styles.inputBorder, color: styles.textColor },
             }}
           />
           <Box>
@@ -453,8 +573,8 @@ export default function Home() {
                   <Card
                     key={project.id}
                     style={{
-                      background: 'rgba(35,43,77,0.3)',
-                      border: '1px solid #3a2e5d77',
+                      background: styles.cardBackground,
+                      border: styles.cardBorder,
                       cursor: 'pointer',
                     }}
                     onClick={() => {
@@ -464,8 +584,8 @@ export default function Home() {
                   >
                     <Group justify="space-between">
                       <Box>
-                        <Text fw={700} c="#fff">{project.name}</Text>
-                        <Text size="sm" c="#b0b7ff">{project.description}</Text>
+                        <Text fw={700} c={styles.textColor}>{project.name}</Text>
+                        <Text size="sm" c={styles.secondaryTextColor}>{project.description}</Text>
                       </Box>
                       <Badge color={project.status === 'active' ? 'green' : project.status === 'completed' ? 'blue' : 'gray'}>
                         {project.status}
@@ -473,7 +593,7 @@ export default function Home() {
                     </Group>
                     <Group mt="xs" gap="xs">
                       {project.tags.map((tag: string) => (
-                        <Badge key={tag} variant="light" color="violet">
+                        <Badge key={tag} variant="light" color={styles.badgeColor}>
                           {tag}
                         </Badge>
                       ))}
@@ -482,7 +602,7 @@ export default function Home() {
                 ))}
               </Stack>
             ) : searchQuery ? (
-              <Text c="#b0b7ff" ta="center">No projects found</Text>
+              <Text c={styles.secondaryTextColor} ta="center">No projects found</Text>
             ) : null}
           </Box>
         </Stack>

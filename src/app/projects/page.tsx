@@ -5,6 +5,7 @@ import { Container, Title, Text, Button, Group, Card, Stack, TextInput, ActionIc
 import { IconPlus, IconDotsVertical, IconEdit, IconTrash, IconShare, IconUsers, IconCalendar, IconTag, IconSearch, IconFilter, IconSortAscending, IconSortDescending, IconChartBar, IconChartPie, IconChartLine } from "@tabler/icons-react";
 import { NavigationBar } from "@/components/NavigationBar";
 import { showNotification } from "@mantine/notifications";
+import { useTheme } from '@/contexts/ThemeContext';
 
 interface Project {
     id: string;
@@ -32,6 +33,40 @@ interface ProjectStats {
     mostActiveProjects: { name: string; activityCount: number }[];
 }
 
+// Theme-specific styles
+const themeStyles = {
+    futuristic: {
+        background: "linear-gradient(135deg, #181c2b 0%, #23243a 100%)",
+        overlay: {
+            background: 'radial-gradient(circle at 80% 20%, #3a2e5d44 0%, transparent 60%), radial-gradient(circle at 20% 80%, #232b4d44 0%, transparent 60%)',
+            filter: 'blur(48px)',
+        },
+        cardBackground: "rgba(24,28,43,0.85)",
+        cardBorder: "1.5px solid #3a2e5d77",
+        cardShadow: '0 8px 32px 0 #232b4d44',
+        textColor: "#fff",
+        secondaryTextColor: "#b0b7ff",
+        accentColor: "#7f5fff",
+        buttonGradient: { from: '#232b4d', to: '#3a2e5d', deg: 90 },
+        badgeColor: 'violet',
+    },
+    classic: {
+        background: "#f8f9fa",
+        overlay: {
+            background: 'none',
+            filter: 'none',
+        },
+        cardBackground: "#fff",
+        cardBorder: "1px solid #e9ecef",
+        cardShadow: '0 2px 8px rgba(0,0,0,0.06)',
+        textColor: "#1a1b1e",
+        secondaryTextColor: "#868e96",
+        accentColor: "#228be6",
+        buttonGradient: { from: '#228be6', to: '#40c057', deg: 90 },
+        badgeColor: 'blue',
+    },
+};
+
 export default function ProjectsPage() {
     const router = useRouter();
     const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
@@ -54,6 +89,8 @@ export default function ProjectsPage() {
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
     const [showStats, setShowStats] = useState(false);
     const [creatingProject, setCreatingProject] = useState(false);
+    const { theme } = useTheme();
+    const styles = themeStyles[theme];
 
     useEffect(() => {
         if (searchParams && searchParams.get('showStats') === '1') {
@@ -399,39 +436,39 @@ export default function ProjectsPage() {
     };
 
     return (
-        <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #181c2b 0%, #23243a 100%)', position: 'relative', overflow: 'hidden' }}>
-            {/* Futuristic Glow Overlay */}
+        <div style={{ minHeight: '100vh', background: styles.background, position: 'relative', overflow: 'hidden' }}>
+            {/* Theme-specific Glow Overlay */}
             <div style={{
                 position: 'absolute',
                 top: 0, left: 0, right: 0, bottom: 0,
                 pointerEvents: 'none',
                 zIndex: 0,
-                background: 'radial-gradient(circle at 80% 20%, #3a2e5d44 0%, transparent 60%), radial-gradient(circle at 20% 80%, #232b4d44 0%, transparent 60%)',
-                filter: 'blur(48px)',
+                ...styles.overlay,
             }} />
             <NavigationBar showBackButton />
             <Container size="lg" py="xl">
                 <Group justify="space-between" mb="xl">
                     <div>
-                        <Title order={2} style={{ color: '#fff', fontWeight: 800, letterSpacing: 1 }}>Projects</Title>
-                        <Text c="#b0b7ff" size="sm">Manage your projects and collaborate with your team</Text>
+                        <Title order={2} style={{ color: styles.textColor, fontWeight: 800, letterSpacing: 1 }}>Projects</Title>
+                        <Text c={styles.secondaryTextColor} size="sm">Manage your projects and collaborate with your team</Text>
                     </div>
                     <Group>
                         <Button
-                            variant="gradient"
-                            gradient={{ from: '#232b4d', to: '#3a2e5d', deg: 90 }}
-                            color="violet"
+                            variant={theme === 'futuristic' ? 'gradient' : 'filled'}
+                            gradient={theme === 'futuristic' ? styles.buttonGradient : undefined}
+                            color={theme === 'classic' ? 'blue' : undefined}
                             leftSection={<IconChartBar size={16} />}
                             onClick={() => setShowStats(!showStats)}
-                            style={{ borderWidth: 2, fontWeight: 700, color: '#fff', boxShadow: '0 2px 16px #232b4d44' }}
+                            style={{ borderWidth: 2, fontWeight: 700, color: '#fff', boxShadow: styles.cardShadow }}
                         >
                             {showStats ? 'Hide Statistics' : 'Show Statistics'}
                         </Button>
                         <Button
                             leftSection={<IconPlus size={16} />}
-                            variant="gradient"
-                            gradient={{ from: '#3a2e5d', to: '#232b4d', deg: 90 }}
-                            style={{ fontWeight: 700, color: '#fff', boxShadow: '0 2px 16px #3a2e5d44' }}
+                            variant={theme === 'futuristic' ? 'gradient' : 'filled'}
+                            gradient={theme === 'futuristic' ? styles.buttonGradient : undefined}
+                            color={theme === 'classic' ? 'blue' : undefined}
+                            style={{ fontWeight: 700, color: '#fff', boxShadow: styles.cardShadow }}
                             onClick={() => {
                                 setEditingProject(null);
                                 setNewProjectName("");
@@ -447,7 +484,7 @@ export default function ProjectsPage() {
                 </Group>
 
                 {showStats && (
-                    <Paper withBorder p="md" mb="xl" radius="md" style={{ background: 'rgba(24,28,43,0.85)', border: '1.5px solid #3a2e5d44', boxShadow: '0 2px 16px #232b4d22', color: '#fff' }}>
+                    <Paper withBorder p="md" mb="xl" radius="md" style={{ background: styles.cardBackground, border: styles.cardBorder, boxShadow: styles.cardShadow, color: styles.textColor }}>
                         <Stack>
                             <Group justify="space-between" align="center">
                                 <Title order={3}>Project Statistics</Title>
@@ -588,7 +625,7 @@ export default function ProjectsPage() {
                     </Paper>
                 )}
 
-                <Paper withBorder p="md" mb="xl" radius="md">
+                <Paper withBorder p="md" mb="xl" radius="md" style={{ background: styles.cardBackground, border: styles.cardBorder, boxShadow: styles.cardShadow }}>
                     <Stack>
                         <Group>
                             <Input
@@ -693,76 +730,71 @@ export default function ProjectsPage() {
                         gap: '1rem'
                     }}>
                         {(filteredAndSortedProjects || []).map((project) => (
-                            <Card key={project.id} withBorder shadow="md" radius="md" p="lg" style={{ background: 'rgba(24,28,43,0.92)', border: '1.5px solid #3a2e5d44', color: '#fff', minHeight: 180, display: 'flex', flexDirection: 'column', justifyContent: 'center', cursor: 'pointer', transition: 'box-shadow 0.2s', boxShadow: '0 2px 16px #232b4d22' }}>
+                            <Card key={project.id} withBorder shadow="md" radius="md" p="lg" style={{ 
+                                background: styles.cardBackground, 
+                                border: styles.cardBorder, 
+                                color: styles.textColor, 
+                                minHeight: 180, 
+                                display: 'flex', 
+                                flexDirection: 'column', 
+                                justifyContent: 'center', 
+                                cursor: 'pointer', 
+                                transition: 'box-shadow 0.2s', 
+                                boxShadow: styles.cardShadow 
+                            }}>
                                 <Group justify="space-between" mb="md">
                                     <div>
-                                        <Text fw={700} size="lg" style={{ color: '#7f5fff' }}>{project.name}</Text>
-                                        <Badge color="violet" size="sm" style={{ background: '#3a2e5d', color: '#fff', fontWeight: 600 }}>{project.status}</Badge>
+                                        <Text fw={700} size="lg" style={{ color: styles.accentColor }}>{project.name}</Text>
+                                        <Badge color={styles.badgeColor} size="sm" style={{ fontWeight: 600 }}>{project.status}</Badge>
                                     </div>
                                     <Menu shadow="md" width={200}>
                                         <Menu.Target>
-                                            <ActionIcon variant="subtle" color="gray" style={{ color: '#b0b7ff', background: 'rgba(35,43,77,0.18)' }}>
+                                            <ActionIcon variant="subtle" color={theme === 'futuristic' ? 'gray' : 'blue'} style={{ color: styles.secondaryTextColor, background: styles.cardBackground }}>
                                                 <IconDotsVertical size={16} />
                                             </ActionIcon>
                                         </Menu.Target>
-                                        <Menu.Dropdown>
-                                            <Menu.Item
-                                                leftSection={<IconEdit size={16} />}
-                                                onClick={() => handleEditProject(project)}
-                                            >
+                                        <Menu.Dropdown style={{ background: styles.cardBackground, border: styles.cardBorder, color: styles.textColor }}>
+                                            <Menu.Item leftSection={<IconEdit size={16} />} onClick={() => handleEditProject(project)}>
                                                 Edit
                                             </Menu.Item>
-                                            <Menu.Item
-                                                leftSection={<IconShare size={16} />}
-                                                onClick={() => {
-                                                    setEditingProject(project);
-                                                    setShareModalOpened(true);
-                                                }}
-                                            >
+                                            <Menu.Item leftSection={<IconShare size={16} />} onClick={() => { setEditingProject(project); setShareModalOpened(true); }}>
                                                 Share
                                             </Menu.Item>
-                                            <Menu.Item
-                                                leftSection={<IconTrash size={16} />}
-                                                color="red"
-                                                onClick={() => handleDeleteProject(project.id)}
-                                            >
+                                            <Menu.Item leftSection={<IconTrash size={16} />} color="red" onClick={() => handleDeleteProject(project.id)}>
                                                 Delete
                                             </Menu.Item>
                                         </Menu.Dropdown>
                                     </Menu>
                                 </Group>
-                                <Text size="sm" c="#b0b7ff" mb="md" lineClamp={2}>
-                                    {project.description}
-                                </Text>
+                                <Text size="sm" c={styles.secondaryTextColor} mb="md" lineClamp={2}>{project.description}</Text>
                                 <Group gap="xs" mb="md">
                                     {(project.tags || []).map((tag: string, index: number) => (
-                                        <Badge key={index} variant="light" color="violet" size="sm" style={{ background: '#232b4d', color: '#b0b7ff' }}>
-                                            {tag}
-                                        </Badge>
+                                        <Badge key={index} variant="light" color={styles.badgeColor} size="sm">{tag}</Badge>
                                     ))}
                                 </Group>
                                 <Group justify="space-between">
                                     <Group gap="xs">
-                                        <Tooltip label="Members">
+                                        <Tooltip label="Members" color={theme === 'futuristic' ? 'gray' : 'blue'}>
                                             <Group gap={4}>
-                                                <IconUsers size={16} color="#b0b7ff" />
-                                                <Text size="sm" style={{ color: '#b0b7ff' }}>{project.members}</Text>
+                                                <IconUsers size={16} color={styles.secondaryTextColor} />
+                                                <Text size="sm" style={{ color: styles.secondaryTextColor }}>{project.members}</Text>
                                             </Group>
                                         </Tooltip>
-                                        <Tooltip label="Created">
+                                        <Tooltip label="Created" color={theme === 'futuristic' ? 'gray' : 'blue'}>
                                             <Group gap={4}>
-                                                <IconCalendar size={16} color="#b0b7ff" />
-                                                <Text size="sm" style={{ color: '#b0b7ff' }}>
+                                                <IconCalendar size={16} color={styles.secondaryTextColor} />
+                                                <Text size="sm" style={{ color: styles.secondaryTextColor }}>
                                                     {project.createdAt ? new Date(project.createdAt).toLocaleDateString() : "No Date"}
                                                 </Text>
                                             </Group>
                                         </Tooltip>
                                     </Group>
                                     <Button
-                                        variant="gradient"
-                                        gradient={{ from: '#232b4d', to: '#3a2e5d', deg: 90 }}
+                                        variant={theme === 'futuristic' ? 'gradient' : 'filled'}
+                                        gradient={theme === 'futuristic' ? styles.buttonGradient : undefined}
+                                        color={theme === 'classic' ? 'blue' : undefined}
                                         size="sm"
-                                        style={{ fontWeight: 700, color: '#fff', boxShadow: '0 2px 16px #232b4d44' }}
+                                        style={{ fontWeight: 700, color: '#fff', boxShadow: styles.cardShadow }}
                                         onClick={() => router.push(`/projects/${project.id}`)}
                                     >
                                         View Details
@@ -776,18 +808,15 @@ export default function ProjectsPage() {
 
             <Modal
                 opened={modalOpened}
-                onClose={() => {
-                    setModalOpened(false);
-                    setEditingProject(null);
-                }}
+                onClose={() => { setModalOpened(false); setEditingProject(null); }}
                 title={editingProject ? "Edit Project" : "New Project"}
                 centered
                 styles={{
                     content: {
-                        background: 'rgba(24,28,43,0.92)',
-                        border: '1.5px solid #3a2e5d44',
-                        boxShadow: '0 2px 16px #232b4d22',
-                        color: '#fff',
+                        background: styles.cardBackground,
+                        border: styles.cardBorder,
+                        boxShadow: styles.cardShadow,
+                        color: styles.textColor,
                         borderRadius: 24,
                         padding: 32,
                     },
@@ -836,6 +865,16 @@ export default function ProjectsPage() {
                 onClose={() => setShareModalOpened(false)}
                 title="Share Project"
                 centered
+                styles={{
+                    content: {
+                        background: styles.cardBackground,
+                        border: styles.cardBorder,
+                        boxShadow: styles.cardShadow,
+                        color: styles.textColor,
+                        borderRadius: 24,
+                        padding: 32,
+                    },
+                }}
             >
                 <Stack>
                     <TextInput

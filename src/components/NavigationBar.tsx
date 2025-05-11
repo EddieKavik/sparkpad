@@ -6,6 +6,7 @@ import { getInitials } from "@/utils/helpers";
 import { useState, useEffect } from "react";
 import { showNotification } from "@mantine/notifications";
 import Link from "next/link";
+import { useTheme } from '@/contexts/ThemeContext';
 
 interface Notification {
     id: number;
@@ -25,6 +26,7 @@ interface NavigationBarProps {
 export function NavigationBar({ userName, onLogout, showBackButton = false }: NavigationBarProps) {
     const router = useRouter();
     const pathname = usePathname();
+    const { theme } = useTheme();
     const [modalOpened, setModalOpened] = useState(false);
     const [editName, setEditName] = useState("");
     const [saving, setSaving] = useState(false);
@@ -34,6 +36,20 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
     const [changingPassword, setChangingPassword] = useState(false);
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [notificationMenuOpened, setNotificationMenuOpened] = useState(false);
+
+    const styles = {
+        background: theme === 'futuristic'
+            ? 'linear-gradient(90deg, rgba(18,22,40,0.92) 70%, rgba(40,30,60,0.85) 100%)'
+            : '#fff',
+        borderBottom: theme === 'futuristic' ? '1px solid #222a44' : '1px solid #e9ecef',
+        boxShadow: theme === 'futuristic' ? '0 4px 24px 0 #1a1a2e77' : '0 2px 8px rgba(0,0,0,0.06)',
+        color: theme === 'futuristic' ? '#fff' : '#1a1b1e',
+        borderRadius: '0 0 32px 32px',
+        margin: '0 0 24px 0',
+        zIndex: 10,
+        position: 'relative',
+        backdropFilter: theme === 'futuristic' ? 'blur(14px)' : 'none',
+    };
 
     useEffect(() => {
         const fetchNotifications = async () => {
@@ -287,16 +303,7 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
 
     return (
         <>
-            <Group justify="space-between" align="center" p="md" style={{
-                borderBottom: '1px solid #222a44',
-                background: 'linear-gradient(90deg, rgba(18,22,40,0.92) 70%, rgba(40,30,60,0.85) 100%)',
-                boxShadow: '0 4px 24px 0 #1a1a2e77',
-                backdropFilter: 'blur(14px)',
-                borderRadius: '0 0 32px 32px',
-                margin: '0 0 24px 0',
-                zIndex: 10,
-                position: 'relative',
-            }}>
+            <Group justify="space-between" align="center" p="md" style={styles}>
                 <Group>
                     {/* Navigation Tabs */}
                     <Group gap="md">
@@ -304,16 +311,16 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                             component={Link}
                             href="/"
                             variant={pathname === "/" ? "filled" : "subtle"}
-                            color="violet"
+                            color={theme === 'futuristic' ? 'violet' : 'blue'}
                             size="sm"
                             style={{
-                                background: pathname === "/" ? 'linear-gradient(90deg, #232b4d 0%, #3a2e5d 100%)' : undefined,
-                                color: pathname === "/" ? '#fff' : undefined,
-                                boxShadow: pathname === "/" ? '0 2px 12px #232b4d88' : undefined,
+                                background: pathname === "/" ? (theme === 'futuristic' ? 'linear-gradient(90deg, #232b4d 0%, #3a2e5d 100%)' : '#228be6') : undefined,
+                                color: pathname === "/" ? '#fff' : (theme === 'classic' ? '#1a1b1e' : undefined),
+                                boxShadow: pathname === "/" ? (theme === 'futuristic' ? '0 2px 12px #232b4d88' : '0 2px 8px rgba(0,0,0,0.06)') : undefined,
                                 borderRadius: 16,
                                 fontWeight: 700,
                                 letterSpacing: 0.5,
-                                border: pathname === "/" ? '1.5px solid #4f5b93' : undefined
+                                border: pathname === "/" ? (theme === 'futuristic' ? '1.5px solid #4f5b93' : '1px solid #228be6') : undefined
                             }}
                         >
                             Dashboard
@@ -322,16 +329,16 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                             component={Link}
                             href="/projects"
                             variant={pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? "filled" : "subtle"}
-                            color="violet"
+                            color={theme === 'futuristic' ? 'violet' : 'blue'}
                             size="sm"
                             style={{
-                                background: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? 'linear-gradient(90deg, #2e254d 0%, #1a1a2e 100%)' : undefined,
-                                color: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '#fff' : undefined,
-                                boxShadow: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '0 2px 12px #2e254d88' : undefined,
+                                background: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? (theme === 'futuristic' ? 'linear-gradient(90deg, #2e254d 0%, #1a1a2e 100%)' : '#228be6') : undefined,
+                                color: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '#fff' : (theme === 'classic' ? '#1a1b1e' : undefined),
+                                boxShadow: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? (theme === 'futuristic' ? '0 2px 12px #2e254d88' : '0 2px 8px rgba(0,0,0,0.06)') : undefined,
                                 borderRadius: 16,
                                 fontWeight: 700,
                                 letterSpacing: 0.5,
-                                border: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '1.5px solid #4f5b93' : undefined
+                                border: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? (theme === 'futuristic' ? '1.5px solid #4f5b93' : '1px solid #228be6') : undefined
                             }}
                         >
                             Projects
@@ -340,16 +347,16 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                             component={Link}
                             href="/projects?showStats=1"
                             variant={pathname === "/projects" && pathname.includes("showStats=1") ? "filled" : "subtle"}
-                            color="violet"
+                            color={theme === 'futuristic' ? 'violet' : 'blue'}
                             size="sm"
                             style={{
-                                background: pathname === "/projects" && pathname.includes("showStats=1") ? 'linear-gradient(90deg, #2d3a5d 0%, #232b4d 100%)' : undefined,
-                                color: pathname === "/projects" && pathname.includes("showStats=1") ? '#fff' : undefined,
-                                boxShadow: pathname === "/projects" && pathname.includes("showStats=1") ? '0 2px 12px #2d3a5d88' : undefined,
+                                background: pathname === "/projects" && pathname.includes("showStats=1") ? (theme === 'futuristic' ? 'linear-gradient(90deg, #2d3a5d 0%, #232b4d 100%)' : '#228be6') : undefined,
+                                color: pathname === "/projects" && pathname.includes("showStats=1") ? '#fff' : (theme === 'classic' ? '#1a1b1e' : undefined),
+                                boxShadow: pathname === "/projects" && pathname.includes("showStats=1") ? (theme === 'futuristic' ? '0 2px 12px #2d3a5d88' : '0 2px 8px rgba(0,0,0,0.06)') : undefined,
                                 borderRadius: 16,
                                 fontWeight: 700,
                                 letterSpacing: 0.5,
-                                border: pathname === "/projects" && pathname.includes("showStats=1") ? '1.5px solid #4f5b93' : undefined
+                                border: pathname === "/projects" && pathname.includes("showStats=1") ? (theme === 'futuristic' ? '1.5px solid #4f5b93' : '1px solid #228be6') : undefined
                             }}
                         >
                             Statistics
