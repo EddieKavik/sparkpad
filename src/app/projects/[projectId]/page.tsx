@@ -115,6 +115,15 @@ export default function ProjectViewPage() {
     const [sortBy, setSortBy] = useState<'date' | 'title' | 'type'>('date');
     const [suggestingTags, setSuggestingTags] = useState(false);
     const [editSuggestingTags, setEditSuggestingTags] = useState(false);
+    // Add state for Q&A
+    const [qaQuestion, setQaQuestion] = useState("");
+    const [qaAnswer, setQaAnswer] = useState("");
+    const [qaLoading, setQaLoading] = useState(false);
+    const [qaError, setQaError] = useState("");
+    const [qaHistory, setQaHistory] = useState<{ id: string, question: string, answer: string, createdBy: string, createdAt: string }[]>([]);
+    const [isFollowup, setIsFollowup] = useState(false);
+    const [editQAPair, setEditQAPair] = useState<any | null>(null);
+    const [editQALoading, setEditQALoading] = useState(false);
 
     useEffect(() => {
         const user = localStorage.getItem("user");
@@ -768,6 +777,100 @@ export default function ProjectViewPage() {
         }
     };
 
+    // Fetch Q&A pairs from backend
+    useEffect(() => {
+        if (!projectId) return;
+        const fetchQA = async () => {
+            try {
+                const res = await fetch(`/api/projects/${projectId}/research/qa`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setQaHistory(Array.isArray(data) ? data : []);
+                }
+            } catch { }
+        };
+        fetchQA();
+    }, [projectId]);
+
+    // Handler for AI Q&A (with history and follow-up)
+    const handleAskResearchAI = async () => {
+        if (!qaQuestion.trim()) return;
+        setQaLoading(true);
+        setQaError("");
+        setQaAnswer("");
+        try {
+            const gemini = getGeminiClient();
+            const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+            // Compose context from all research items
+            const context = researchItems.map((item: any) => `Title: ${item.title}\nType: ${item.type}\nContent: ${item.content}\nTags: ${(item.tags || []).join(", ")}\n`).join("\n---\n");
+            // Compose Q&A history for context
+            const historyText = qaHistory.map((pair, i) => `Q${i + 1}: ${pair.question}\nA${i + 1}: ${pair.answer}`).join("\n");
+            // Improved prompt
+            let prompt = `You are an expert research assistant. Given the following project research items, answer the user's question concisely and helpfully.\n\nResearch Items:\n${context}`;
+            if (historyText) {
+                prompt += `\n\nPrevious Q&A:\n${historyText}`;
+            }
+            if (isFollowup && qaHistory.length > 0) {
+                prompt += `\n\nThe next question is a follow-up to the previous answer.`;
+            }
+            prompt += `\n\nQuestion: ${qaQuestion}`;
+            const result = await model.generateContent(prompt);
+            const answer = result.response.text().trim();
+            setQaAnswer(answer);
+            // Save to backend
+            const user = localStorage.getItem("user");
+            const createdBy = user ? JSON.parse(user).name : "anonymous";
+            const res = await fetch(`/api/projects/${projectId}/research/qa`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ question: qaQuestion, answer, createdBy }),
+            });
+            if (res.ok) {
+                const newPair = await res.json();
+                setQaHistory(h => [...h, newPair]);
+            }
+            setIsFollowup(false);
+        } catch (err: any) {
+            setQaError(err.message || "AI failed to answer.");
+        } finally {
+            setQaLoading(false);
+        }
+    };
+
+    // Handler to start a follow-up
+    const handleFollowup = () => {
+        if (qaHistory.length === 0) return;
+        setQaQuestion("");
+        setIsFollowup(true);
+    };
+
+    // Handler to delete a Q&A pair
+    const handleDeleteQAPair = async (id: string) => {
+        if (!window.confirm("Delete this Q&A pair?")) return;
+        const res = await fetch(`/api/projects/${projectId}/research/qa?id=${id}`, { method: "DELETE" });
+        if (res.ok) {
+            setQaHistory(h => h.filter(pair => pair.id !== id));
+        }
+    };
+
+    const handleStartEditQAPair = (pair: any) => setEditQAPair(pair);
+    const handleCancelEditQAPair = () => setEditQAPair(null);
+    const handleSaveEditQAPair = async () => {
+        if (!editQAPair) return;
+        setEditQALoading(true);
+        const res = await fetch(`/api/projects/${projectId}/research/qa?id=${editQAPair.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question: editQAPair.question, answer: editQAPair.answer, createdBy: editQAPair.createdBy }),
+        });
+        setEditQALoading(false);
+        if (res.ok) {
+            const updated = await res.json();
+            setQaHistory(h => h.map(pair => pair.id === updated.id ? updated : pair));
+            setEditQAPair(null);
+        }
+    };
+
     if (loading) {
         return (
             <Center style={{ minHeight: 200 }}>
@@ -1064,6 +1167,73 @@ export default function ProjectViewPage() {
                         <Tabs.Panel value="research" pt="md">
                             <Box style={{ maxWidth: 600, margin: '0 auto', padding: 24 }}>
                                 <Title order={3} mb="md">Research</Title>
+                                {/* AI Q&A UI */}
+                                <Paper p="md" mb="lg" radius="md" withBorder style={{ background: styles.tabBackground, border: styles.cardBorder }}>
+                                    <Group align="flex-end" gap="md">
+                                        <TextInput
+                                            label={isFollowup ? "Ask a follow-up question" : "Ask AI about your research"}
+                                            placeholder={isFollowup ? "Type your follow-up question..." : "Type your question..."}
+                                            value={qaQuestion}
+                                            onChange={e => setQaQuestion(e.target.value)}
+                                            style={{ flex: 1 }}
+                                            disabled={qaLoading}
+                                        />
+                                        <Button onClick={handleAskResearchAI} loading={qaLoading} disabled={!qaQuestion.trim()}>
+                                            {isFollowup ? "Ask Follow-up" : "Ask AI"}
+                                        </Button>
+                                        {qaHistory.length > 0 && (
+                                            <Button variant="light" color="blue" onClick={handleFollowup} disabled={qaLoading}>
+                                                Follow-up
+                                            </Button>
+                                        )}
+                                    </Group>
+                                    {qaError && <Text c="red" mt={8}>{qaError}</Text>}
+                                    {qaAnswer && (
+                                        <Paper mt={16} p="md" radius="md" style={{ background: styles.cardBackground, color: styles.textColor }}>
+                                            <Text size="sm" style={{ whiteSpace: 'pre-line' }}>{qaAnswer}</Text>
+                                        </Paper>
+                                    )}
+                                    {/* Q&A History */}
+                                    {qaHistory.length > 0 && (
+                                        <Stack mt={24}>
+                                            <Title order={5} mb={4} style={{ color: styles.secondaryTextColor }}>Q&A History</Title>
+                                            {qaHistory.map((pair, idx) => (
+                                                <Paper key={pair.id} p="sm" radius="md" style={{ background: styles.tabBackground, color: styles.textColor, marginBottom: 8, position: 'relative' }}>
+                                                    <Text size="sm" fw={600}>Q: {pair.question}</Text>
+                                                    <Text size="sm" style={{ whiteSpace: 'pre-line', marginTop: 4 }}>A: {pair.answer}</Text>
+                                                    <Button size="xs" color="red" variant="light" style={{ position: 'absolute', top: 8, right: 8 }} onClick={() => handleDeleteQAPair(pair.id)}>
+                                                        Delete
+                                                    </Button>
+                                                    <Button size="xs" color="blue" variant="light" style={{ position: 'absolute', top: 8, right: 60 }} onClick={() => handleStartEditQAPair(pair)}>
+                                                        Edit
+                                                    </Button>
+                                                </Paper>
+                                            ))}
+                                            <Modal opened={!!editQAPair} onClose={handleCancelEditQAPair} title="Edit Q&A" centered>
+                                                {editQAPair && (
+                                                    <Stack>
+                                                        <TextInput
+                                                            label="Question"
+                                                            value={editQAPair.question}
+                                                            onChange={e => setEditQAPair((p: any) => ({ ...p, question: e.target.value }))}
+                                                            required
+                                                        />
+                                                        <TextInput
+                                                            label="Answer"
+                                                            value={editQAPair.answer}
+                                                            onChange={e => setEditQAPair((p: any) => ({ ...p, answer: e.target.value }))}
+                                                            required
+                                                        />
+                                                        <Group justify="flex-end">
+                                                            <Button variant="default" onClick={handleCancelEditQAPair}>Cancel</Button>
+                                                            <Button onClick={handleSaveEditQAPair} loading={editQALoading}>Save</Button>
+                                                        </Group>
+                                                    </Stack>
+                                                )}
+                                            </Modal>
+                                        </Stack>
+                                    )}
+                                </Paper>
                                 <form onSubmit={handleAddResearch} style={{ marginBottom: 32 }}>
                                     <Group align="flex-end" gap="md">
                                         <TextInput
