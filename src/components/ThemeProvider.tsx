@@ -1,3 +1,5 @@
+"use client";
+
 import { createContext, useContext, useEffect, useState } from 'react';
 import { MantineProvider } from '@mantine/core';
 import { lightTheme, darkTheme } from '@/theme/theme';
