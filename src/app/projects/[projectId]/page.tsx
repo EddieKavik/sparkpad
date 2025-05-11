@@ -3,10 +3,11 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
 import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack, Modal, ActionIcon, rem, Menu, Avatar, Paper, MultiSelect } from "@mantine/core";
 import { showNotification } from "@mantine/notifications";
-import { IconSettings, IconDots, IconTrash, IconArrowLeft, IconSend, IconFile, IconMoodSmile, IconRobot, IconEdit, IconSparkles } from "@tabler/icons-react";
+import { IconSettings, IconDots, IconTrash, IconArrowLeft, IconSend, IconFile, IconMoodSmile, IconRobot, IconEdit, IconSparkles, IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 import { getGeminiClient } from "@/utils/gemini";
 import { NavigationBar } from "@/components/NavigationBar";
 import { useTheme } from '@/contexts/ThemeContext';
+import { useDisclosure } from '@mantine/hooks';
 
 // Helper to get up to 3 initials from a name or email
 function getInitials(nameOrEmail: string) {
@@ -110,6 +111,8 @@ export default function ProjectViewPage() {
     const [editResearchFile, setEditResearchFile] = useState<File | null>(null);
     const [commentInputs, setCommentInputs] = useState<{ [id: string]: string }>({});
     const [commentLoading, setCommentLoading] = useState<{ [id: string]: boolean }>({});
+    const [expanded, setExpanded] = useState<{ [id: string]: boolean }>({});
+    const [sortBy, setSortBy] = useState<'date' | 'title' | 'type'>('date');
 
     useEffect(() => {
         const user = localStorage.getItem("user");
@@ -724,6 +727,13 @@ export default function ProjectViewPage() {
         if (res.ok) fetchResearchItems();
     };
 
+    const sortedResearchItems = [...researchItems].sort((a, b) => {
+        if (sortBy === 'date') return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        if (sortBy === 'title') return (a.title || '').localeCompare(b.title || '');
+        if (sortBy === 'type') return (a.type || '').localeCompare(b.type || '');
+        return 0;
+    });
+
     if (loading) {
         return (
             <Center style={{ minHeight: 200 }}>
@@ -1063,110 +1073,127 @@ export default function ProjectViewPage() {
                                         <Button type="submit" loading={researchLoading}>Add</Button>
                                     </Group>
                                 </form>
-                                <MultiSelect
-                                    label="Filter by tags"
-                                    data={allTags}
-                                    value={tagFilter}
-                                    onChange={setTagFilter}
-                                    placeholder="Select tags to filter"
-                                    clearable
-                                    style={{ marginBottom: 16 }}
-                                />
+                                <Group mb={12} gap={8} align="center">
+                                    <MultiSelect
+                                        label="Filter by tags"
+                                        data={allTags}
+                                        value={tagFilter}
+                                        onChange={setTagFilter}
+                                        placeholder="Select tags to filter"
+                                        clearable
+                                        style={{ minWidth: 220 }}
+                                    />
+                                    <Text size="sm" c="dimmed">Sort by:</Text>
+                                    <Button size="xs" variant={sortBy === 'date' ? 'filled' : 'light'} onClick={() => setSortBy('date')}>Most Recent</Button>
+                                    <Button size="xs" variant={sortBy === 'title' ? 'filled' : 'light'} onClick={() => setSortBy('title')}>Title</Button>
+                                    <Button size="xs" variant={sortBy === 'type' ? 'filled' : 'light'} onClick={() => setSortBy('type')}>Type</Button>
+                                </Group>
                                 <Stack>
                                     {researchLoading ? (
                                         <Text>Loading research...</Text>
-                                    ) : researchItems.filter((item: any) => tagFilter.length === 0 || (item.tags || []).some((tag: string) => tagFilter.includes(tag))).length === 0 ? (
+                                    ) : sortedResearchItems.filter((item: any) => tagFilter.length === 0 || (item.tags || []).some((tag: string) => tagFilter.includes(tag))).length === 0 ? (
                                         <Text c="dimmed">No research items match the selected tags.</Text>
                                     ) : (
-                                        researchItems.filter((item: any) => tagFilter.length === 0 || (item.tags || []).some((tag: string) => tagFilter.includes(tag))).map((item: any) => (
-                                            <Paper key={item.id} withBorder p="md" radius="md" style={{ background: styles.cardBackground, border: styles.cardBorder, color: styles.textColor }}>
-                                                <Group justify="space-between" align="flex-start">
-                                                    <div style={{ flex: 1 }}>
-                                                        <Text fw={700}>{item.title}</Text>
-                                                        <Text size="sm" c={styles.secondaryTextColor}>{item.type}</Text>
-                                                        <Text mt="sm">{item.content}</Text>
-                                                        {item.summary && (
-                                                            <Paper
-                                                                p="sm"
-                                                                mt="sm"
-                                                                radius="md"
-                                                                style={{
-                                                                    background: theme === 'classic' ? '#f6f8fa' : 'rgba(35,43,77,0.12)',
-                                                                    color: styles.secondaryTextColor,
-                                                                    border: 'none',
-                                                                    boxShadow: 'none',
-                                                                    fontSize: 14,
-                                                                    marginTop: 8,
-                                                                    marginBottom: 0,
-                                                                }}
-                                                            >
-                                                                <Text size="xs" fw={600} mb={4} c={styles.secondaryTextColor} style={{ letterSpacing: 0.5 }}>
-                                                                    AI Summary:
-                                                                </Text>
-                                                                <Text size="sm" c={styles.secondaryTextColor} style={{ fontWeight: 400 }}>
-                                                                    {item.summary}
-                                                                </Text>
-                                                            </Paper>
-                                                        )}
-                                                        {item.tags && item.tags.length > 0 && (
-                                                            <Group gap="xs" mt="xs">
-                                                                {item.tags.map((tag: string) => (
-                                                                    <Paper key={tag} p="xs" radius="sm" style={{ background: styles.tabBackground, color: styles.secondaryTextColor }}>{tag}</Paper>
-                                                                ))}
-                                                            </Group>
-                                                        )}
-                                                        {item.fileUrl && (
-                                                            <Box mt={8} mb={4}>
-                                                                <a href={item.fileUrl} target="_blank" rel="noopener noreferrer" style={{ color: styles.accentColor, textDecoration: 'underline', fontSize: 14 }}>
-                                                                    View Attachment
-                                                                </a>
-                                                            </Box>
-                                                        )}
-                                                        {item.annotations && item.annotations.length > 0 && (
-                                                            <Stack mt={8} spacing={4}>
-                                                                {item.annotations.map((c: any) => (
-                                                                    <Group key={c.id} align="flex-start" gap={8}>
-                                                                        <Text size="xs" fw={600}>{c.author}</Text>
-                                                                        <Text size="xs" c="dimmed">{new Date(c.createdAt).toLocaleString()}</Text>
-                                                                        <Text size="sm" style={{ flex: 1 }}>{c.content}</Text>
-                                                                        {(c.author === userName || project?.createdBy === userName) && (
-                                                                            <ActionIcon size={18} color="red" variant="subtle" onClick={() => handleDeleteComment(item, c.id)}>
-                                                                                <IconTrash size={14} />
-                                                                            </ActionIcon>
-                                                                        )}
-                                                                    </Group>
-                                                                ))}
-                                                            </Stack>
-                                                        )}
-                                                        <Group mt={4} gap={4} align="flex-end">
-                                                            <TextInput
-                                                                placeholder="Add a comment..."
-                                                                value={commentInputs[item.id] || ''}
-                                                                onChange={e => setCommentInputs(inputs => ({ ...inputs, [item.id]: e.target.value }))}
-                                                                style={{ flex: 1 }}
-                                                                size="xs"
-                                                                disabled={commentLoading[item.id]}
-                                                            />
-                                                            <Button size="xs" onClick={() => handleAddComment(item)} loading={commentLoading[item.id]} disabled={!(commentInputs[item.id] || '').trim()}>
-                                                                Comment
-                                                            </Button>
+                                        sortedResearchItems.filter((item: any) => tagFilter.length === 0 || (item.tags || []).some((tag: string) => tagFilter.includes(tag))).map((item: any) => {
+                                            const isOpen = expanded[item.id];
+                                            return (
+                                                <Paper key={item.id} withBorder p="md" radius="md" style={{ background: styles.cardBackground, border: styles.cardBorder, color: styles.textColor, marginBottom: 8 }}>
+                                                    <Group justify="space-between" align="center" style={{ cursor: 'pointer' }} onClick={() => setExpanded(e => ({ ...e, [item.id]: !e[item.id] }))}>
+                                                        <Group align="center" gap={8} style={{ flex: 1 }}>
+                                                            <Text fw={700}>{item.title}</Text>
+                                                            <Text size="sm" c={styles.secondaryTextColor}>{item.type}</Text>
+                                                            {item.tags && item.tags.length > 0 && (
+                                                                <Group gap="xs">
+                                                                    {item.tags.map((tag: string) => (
+                                                                        <Paper key={tag} p="xs" radius="sm" style={{ background: styles.tabBackground, color: styles.secondaryTextColor }}>{tag}</Paper>
+                                                                    ))}
+                                                                </Group>
+                                                            )}
                                                         </Group>
-                                                    </div>
-                                                    <Group gap={4}>
-                                                        <ActionIcon variant="light" color={styles.accentColor} onClick={() => handleEditResearch(item)} title="Edit">
-                                                            <IconEdit size={18} />
-                                                        </ActionIcon>
-                                                        <ActionIcon variant="light" color="red" onClick={() => handleDeleteResearch(item.id)} title="Delete">
-                                                            <IconTrash size={18} />
-                                                        </ActionIcon>
-                                                        <ActionIcon variant="light" color="yellow" loading={summarizingId === item.id} onClick={() => handleSummarizeResearch(item)} title="Summarize with AI">
-                                                            <IconSparkles size={18} />
+                                                        <ActionIcon variant="subtle" color={styles.accentColor} size={28}>
+                                                            {isOpen ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
                                                         </ActionIcon>
                                                     </Group>
-                                                </Group>
-                                                <Text size="xs" c="dimmed" mt={8}>{new Date(item.createdAt).toLocaleString()}</Text>
-                                            </Paper>
-                                        ))
+                                                    {isOpen && (
+                                                        <Box mt={12}>
+                                                            <Text mt="sm">{item.content}</Text>
+                                                            {item.fileUrl && (
+                                                                <Box mt={8} mb={4}>
+                                                                    <a href={item.fileUrl} target="_blank" rel="noopener noreferrer" style={{ color: styles.accentColor, textDecoration: 'underline', fontSize: 14 }}>
+                                                                        View Attachment
+                                                                    </a>
+                                                                </Box>
+                                                            )}
+                                                            {item.summary && (
+                                                                <Paper
+                                                                    p="sm"
+                                                                    mt="sm"
+                                                                    radius="md"
+                                                                    style={{
+                                                                        background: theme === 'classic' ? '#f6f8fa' : 'rgba(35,43,77,0.12)',
+                                                                        color: styles.secondaryTextColor,
+                                                                        border: 'none',
+                                                                        boxShadow: 'none',
+                                                                        fontSize: 14,
+                                                                        marginTop: 8,
+                                                                        marginBottom: 0,
+                                                                    }}
+                                                                >
+                                                                    <Text size="xs" fw={600} mb={4} c={styles.secondaryTextColor} style={{ letterSpacing: 0.5 }}>
+                                                                        AI Summary:
+                                                                    </Text>
+                                                                    <Text size="sm" c={styles.secondaryTextColor} style={{ fontWeight: 400 }}>
+                                                                        {item.summary}
+                                                                    </Text>
+                                                                </Paper>
+                                                            )}
+                                                            {item.annotations && item.annotations.length > 0 && (
+                                                                <Stack mt={8} spacing={4}>
+                                                                    {item.annotations.map((c: any) => (
+                                                                        <Group key={c.id} align="flex-start" gap={8}>
+                                                                            <Text size="xs" fw={600}>{c.author}</Text>
+                                                                            <Text size="xs" c="dimmed">{new Date(c.createdAt).toLocaleString()}</Text>
+                                                                            <Text size="sm" style={{ flex: 1 }}>{c.content}</Text>
+                                                                            {(c.author === userName || project?.createdBy === userName) && (
+                                                                                <ActionIcon size={18} color="red" variant="subtle" onClick={e => { e.stopPropagation(); handleDeleteComment(item, c.id); }}>
+                                                                                    <IconTrash size={14} />
+                                                                                </ActionIcon>
+                                                                            )}
+                                                                        </Group>
+                                                                    ))}
+                                                                </Stack>
+                                                            )}
+                                                            <Group mt={4} gap={4} align="flex-end">
+                                                                <TextInput
+                                                                    placeholder="Add a comment..."
+                                                                    value={commentInputs[item.id] || ''}
+                                                                    onChange={e => setCommentInputs(inputs => ({ ...inputs, [item.id]: e.target.value }))}
+                                                                    style={{ flex: 1 }}
+                                                                    size="xs"
+                                                                    disabled={commentLoading[item.id]}
+                                                                    onClick={e => e.stopPropagation()}
+                                                                />
+                                                                <Button size="xs" onClick={e => { e.stopPropagation(); handleAddComment(item); }} loading={commentLoading[item.id]} disabled={!(commentInputs[item.id] || '').trim()}>
+                                                                    Comment
+                                                                </Button>
+                                                            </Group>
+                                                            <Group gap={4} mt={8}>
+                                                                <ActionIcon variant="light" color={styles.accentColor} onClick={e => { e.stopPropagation(); handleEditResearch(item); }} title="Edit">
+                                                                    <IconEdit size={18} />
+                                                                </ActionIcon>
+                                                                <ActionIcon variant="light" color="red" onClick={e => { e.stopPropagation(); handleDeleteResearch(item.id); }} title="Delete">
+                                                                    <IconTrash size={18} />
+                                                                </ActionIcon>
+                                                                <ActionIcon variant="light" color="yellow" loading={summarizingId === item.id} onClick={e => { e.stopPropagation(); handleSummarizeResearch(item); }} title="Summarize with AI">
+                                                                    <IconSparkles size={18} />
+                                                                </ActionIcon>
+                                                            </Group>
+                                                            <Text size="xs" c="dimmed" mt={8}>{new Date(item.createdAt).toLocaleString()}</Text>
+                                                        </Box>
+                                                    )}
+                                                </Paper>
+                                            );
+                                        })
                                     )}
                                 </Stack>
                                 <Modal opened={!!editResearch} onClose={handleCancelEditResearch} title="Edit Research" centered>
