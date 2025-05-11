@@ -53,6 +53,7 @@ export default function ProjectsPage() {
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
     const [showStats, setShowStats] = useState(false);
+    const [creatingProject, setCreatingProject] = useState(false);
 
     useEffect(() => {
         if (searchParams && searchParams.get('showStats') === '1') {
@@ -89,55 +90,53 @@ export default function ProjectsPage() {
     }, [router]);
 
     const handleCreateProject = async () => {
+        if (!newProjectName.trim()) return;
+        setCreatingProject(true);
         try {
             const userEmail = localStorage.getItem("user:username");
-            if (!userEmail) throw new Error("User not found");
-            const newProject: Project = {
+            if (!userEmail) {
+                router.replace("/login");
+                return;
+            }
+            const res = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`);
+            if (!res.ok) throw new Error("Failed to fetch projects");
+            const projects = await res.json();
+            const newProject = {
                 id: Date.now().toString(),
-                name: newProjectName,
-                description: newProjectDescription,
-                createdAt: new Date().toISOString(),
+                name: newProjectName.trim(),
+                description: newProjectDescription.trim(),
                 status: newProjectStatus,
-                members: 1,
-                tags: newProjectTags.split(',').map(tag => tag.trim()).filter(Boolean),
+                tags: newProjectTags.split(",").map(tag => tag.trim()).filter(Boolean),
+                createdAt: new Date().toISOString(),
+                members: [userEmail],
             };
-            const updatedProjects = [...projects, newProject];
-            const res = await fetch(
-                `http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`,
-                {
-                    method: "POST",
-                    body: JSON.stringify(updatedProjects),
-                }
-            );
-            if (!res.ok) throw new Error("Failed to create project");
-            setProjects(updatedProjects);
+            projects.push(newProject);
+            const saveRes = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`, {
+                method: "POST",
+                body: JSON.stringify(projects),
+            });
+            if (!saveRes.ok) throw new Error("Failed to create project");
+            setProjects(projects);
             setModalOpened(false);
             setNewProjectName("");
             setNewProjectDescription("");
-            setNewProjectStatus('active');
+            setNewProjectStatus("active");
             setNewProjectTags("");
+            showNotification({ title: "Success", message: "Project created!", color: "green" });
 
-            // Add notification for project creation
-            const notification = {
-                message: `Project "${newProjectName}" has been created`,
-                time: new Date().toISOString(),
-                type: 'project' as const,
-                link: `/projects/${newProject.id}`
-            };
-            const event = new CustomEvent('addNotification', { detail: notification });
-            window.dispatchEvent(event);
-
-            showNotification({
-                title: "Success",
-                message: "Project created successfully!",
-                color: "green",
-            });
+            // Dispatch project notification event
+            window.dispatchEvent(new CustomEvent('projectNotification', {
+                detail: {
+                    type: 'project',
+                    projectName: newProject.name,
+                    projectId: newProject.id,
+                    message: `New project "${newProject.name}" has been created`
+                }
+            }));
         } catch (err: any) {
-            showNotification({
-                title: "Error",
-                message: err.message || "Failed to create project",
-                color: "red",
-            });
+            showNotification({ title: "Error", message: err.message || "Failed to create project", color: "red" });
+        } finally {
+            setCreatingProject(false);
         }
     };
 
@@ -180,14 +179,14 @@ export default function ProjectsPage() {
             setNewProjectTags("");
 
             // Add notification for project update
-            const notification = {
-                message: `Project "${newProjectName}" has been updated`,
-                time: new Date().toISOString(),
-                type: 'update' as const,
-                link: `/projects/${editingProject.id}`
-            };
-            const event = new CustomEvent('addNotification', { detail: notification });
-            window.dispatchEvent(event);
+            window.dispatchEvent(new CustomEvent('projectNotification', {
+                detail: {
+                    type: 'update',
+                    projectName: newProjectName,
+                    projectId: editingProject.id,
+                    message: `Project "${newProjectName}" has been updated`
+                }
+            }));
 
             showNotification({
                 title: "Success",
@@ -221,13 +220,14 @@ export default function ProjectsPage() {
             setProjects(updatedProjects);
 
             // Add notification for project deletion
-            const notification = {
-                message: `Project "${project.name}" has been deleted`,
-                time: new Date().toISOString(),
-                type: 'system' as const
-            };
-            const event = new CustomEvent('addNotification', { detail: notification });
-            window.dispatchEvent(event);
+            window.dispatchEvent(new CustomEvent('projectNotification', {
+                detail: {
+                    type: 'system',
+                    projectName: project.name,
+                    projectId: projectId,
+                    message: `Project "${project.name}" has been deleted`
+                }
+            }));
 
             showNotification({
                 title: "Success",
@@ -267,14 +267,14 @@ export default function ProjectsPage() {
             setShareEmail("");
 
             // Add notification for project sharing
-            const notification = {
-                message: `Project "${project.name}" has been shared with ${shareEmail}`,
-                time: new Date().toISOString(),
-                type: 'project' as const,
-                link: `/projects/${projectId}`
-            };
-            const event = new CustomEvent('addNotification', { detail: notification });
-            window.dispatchEvent(event);
+            window.dispatchEvent(new CustomEvent('projectNotification', {
+                detail: {
+                    type: 'project',
+                    projectName: project.name,
+                    projectId: projectId,
+                    message: `Project "${project.name}" has been shared with ${shareEmail}`
+                }
+            }));
 
             showNotification({
                 title: "Success",

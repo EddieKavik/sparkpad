@@ -1,10 +1,9 @@
 "use client";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack, Modal, ActionIcon, rem, Menu, Avatar, Paper } from "@mantine/core";
 import { showNotification } from "@mantine/notifications";
-import { IconSettings, IconDots, IconTrash, IconArrowLeft } from "@tabler/icons-react";
-import { IconRobot } from "@tabler/icons-react";
+import { IconSettings, IconDots, IconTrash, IconArrowLeft, IconSend, IconFile, IconMoodSmile, IconRobot } from "@tabler/icons-react";
 import { getGeminiClient } from "@/utils/gemini";
 import { NavigationBar } from "@/components/NavigationBar";
 
@@ -50,6 +49,13 @@ export default function ProjectViewPage() {
     // AI row transformation state
     const [aiProcessing, setAiProcessing] = useState<{ docId: string; idx: number } | null>(null);
     const [userName, setUserName] = useState<string | null>(null);
+    // Chat state
+    const [chatMessages, setChatMessages] = useState<any[]>([]);
+    const [chatInput, setChatInput] = useState("");
+    const [sending, setSending] = useState(false);
+    const [uploading, setUploading] = useState(false);
+    const [aiThinking, setAiThinking] = useState(false);
+    const chatEndRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         const user = localStorage.getItem("user");
@@ -133,7 +139,7 @@ export default function ProjectViewPage() {
         }
         setAdding(true);
         try {
-            // Fetch all projects
+            // Fetch all projects for current user
             const userEmail = localStorage.getItem("user:username");
             if (!userEmail) {
                 router.replace("/login");
@@ -149,12 +155,32 @@ export default function ProjectViewPage() {
             updatedProject.members = Array.isArray(updatedProject.members) ? updatedProject.members : [];
             updatedProject.members.push(newMemberEmail);
             projects[idx] = updatedProject;
-            // Save back
+
+            // Save back to current user's storage
             const saveRes = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`, {
                 method: "POST",
                 body: JSON.stringify(projects),
             });
             if (!saveRes.ok) throw new Error("Failed to add member");
+
+            // Fetch and update new member's projects
+            const newMemberRes = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(newMemberEmail)}`);
+            let newMemberProjects = [];
+            if (newMemberRes.ok) {
+                try {
+                    newMemberProjects = await newMemberRes.json();
+                    if (!Array.isArray(newMemberProjects)) newMemberProjects = [];
+                } catch {
+                    newMemberProjects = [];
+                }
+            }
+            newMemberProjects.push(updatedProject);
+            const saveNewMemberRes = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(newMemberEmail)}`, {
+                method: "POST",
+                body: JSON.stringify(newMemberProjects),
+            });
+            if (!saveNewMemberRes.ok) throw new Error("Failed to update new member's projects");
+
             setProject(updatedProject);
             setNewMemberEmail("");
             showNotification({ title: "Success", message: "Member added!", color: "green" });
@@ -325,6 +351,122 @@ export default function ProjectViewPage() {
         }
     };
 
+    // Fetch chat messages for this project
+    useEffect(() => {
+        const fetchChat = async () => {
+            if (!projectId) return;
+            try {
+                const userEmail = localStorage.getItem("user:username");
+                if (!userEmail) return;
+                const res = await fetch(`http://localhost:3333/chat?mode=disk&key=${encodeURIComponent(projectId)}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setChatMessages(Array.isArray(data) ? data : []);
+                }
+            } catch { }
+        };
+        fetchChat();
+        const interval = setInterval(fetchChat, 5000); // Poll every 5s
+        return () => clearInterval(interval);
+    }, [projectId]);
+
+    // Scroll to bottom on new message
+    useEffect(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [chatMessages]);
+
+    // Send chat message
+    const sendMessage = async (content: string, type: string = "text", fileUrl?: string) => {
+        if (!content.trim() && !fileUrl) return;
+        setSending(true);
+        try {
+            const userEmail = localStorage.getItem("user:username");
+            const user = localStorage.getItem("user");
+            const senderName = user ? JSON.parse(user).name : userEmail;
+            const newMsg = {
+                id: Date.now(),
+                sender: userEmail,
+                senderName,
+                timestamp: new Date().toISOString(),
+                content,
+                type,
+                fileUrl,
+                reactions: []
+            };
+            const updated = [...chatMessages, newMsg];
+            setChatMessages(updated);
+            await fetch(`http://localhost:3333/chat?mode=disk&key=${encodeURIComponent(projectId)}`, {
+                method: "POST",
+                body: JSON.stringify(updated),
+            });
+            setChatInput("");
+
+            // Dispatch chat notification event
+            window.dispatchEvent(new CustomEvent('chatNotification', {
+                detail: {
+                    projectName: project.name,
+                    projectId: projectId,
+                    senderName,
+                    message: content
+                }
+            }));
+
+            // AI integration: if message starts with /ai or Ask AI button is used
+            if (content.trim().toLowerCase().startsWith("/ai")) {
+                setAiThinking(true);
+                const aiPrompt = content.replace(/^\/ai\s*/i, "").trim();
+                try {
+                    const gemini = getGeminiClient();
+                    const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+                    const result = await model.generateContent(aiPrompt);
+                    const aiText = result.response.text().trim();
+                    const aiMsg = {
+                        id: Date.now() + 1,
+                        sender: "ai",
+                        senderName: "AI Assistant",
+                        timestamp: new Date().toISOString(),
+                        content: aiText,
+                        type: "ai",
+                        reactions: []
+                    };
+                    const updatedWithAI = [...updated, aiMsg];
+                    setChatMessages(updatedWithAI);
+                    await fetch(`http://localhost:3333/chat?mode=disk&key=${encodeURIComponent(projectId)}`, {
+                        method: "POST",
+                        body: JSON.stringify(updatedWithAI),
+                    });
+                } catch {
+                    showNotification({ title: "AI Error", message: "AI could not respond.", color: "red" });
+                } finally {
+                    setAiThinking(false);
+                }
+            }
+        } catch {
+            showNotification({ title: "Error", message: "Failed to send message.", color: "red" });
+        } finally {
+            setSending(false);
+        }
+    };
+
+    // File upload handler (stub, implement as needed)
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        // TODO: Implement file upload logic (to server or cloud storage), then call sendMessage with fileUrl
+        // For now, just show a notification
+        showNotification({ title: "File Upload", message: "File upload coming soon!", color: "blue" });
+    };
+
+    // Add reaction to a message
+    const addReaction = async (msgId: number, emoji: string) => {
+        const updated = chatMessages.map(msg =>
+            msg.id === msgId ? { ...msg, reactions: [...(msg.reactions || []), emoji] } : msg
+        );
+        setChatMessages(updated);
+        await fetch(`http://localhost:3333/chat?mode=disk&key=${encodeURIComponent(projectId)}`, {
+            method: "POST",
+            body: JSON.stringify(updated),
+        });
+    };
+
     const handleLogout = () => {
         localStorage.removeItem("token");
         localStorage.removeItem("user");
@@ -374,6 +516,7 @@ export default function ProjectViewPage() {
                             <Tabs.Tab value="default">Documents</Tabs.Tab>
                             <Tabs.Tab value="templates">Templates</Tabs.Tab>
                             <Tabs.Tab value="members">Members</Tabs.Tab>
+                            <Tabs.Tab value="chat">Chat</Tabs.Tab>
                             {docTabs.filter(tab => tab.id !== "default").map(tab => (
                                 <Tabs.Tab key={tab.id} value={tab.id}>{tab.title}</Tabs.Tab>
                             ))}
@@ -538,6 +681,65 @@ export default function ProjectViewPage() {
                                     </Button>
                                 </Group>
                             </Stack>
+                        </Tabs.Panel>
+                        <Tabs.Panel value="chat" pt="md">
+                            <Box style={{ maxWidth: 600, margin: "0 auto" }}>
+                                <Title order={4}>Project Chat</Title>
+                                <Stack spacing="xs" style={{ minHeight: 320, maxHeight: 400, overflowY: "auto", background: "#f8fafc", borderRadius: 8, padding: 12, border: "1px solid #eee" }}>
+                                    {chatMessages.length === 0 ? (
+                                        <Text c="dimmed" ta="center">No messages yet. Start the conversation!</Text>
+                                    ) : (
+                                        chatMessages.map((msg, idx) => (
+                                            <Group key={msg.id} align="flex-end" style={{ justifyContent: msg.sender === userName ? "flex-end" : "flex-start" }}>
+                                                <Avatar radius="xl" color={msg.sender === "ai" ? "blue" : "violet"} size={32}>
+                                                    {msg.sender === "ai" ? <IconRobot size={18} /> : getInitials(msg.senderName)}
+                                                </Avatar>
+                                                <Paper shadow="xs" p="sm" radius="md" style={{ background: msg.sender === "ai" ? "#e0e7ff" : "white", minWidth: 80, maxWidth: 360 }}>
+                                                    <Text size="sm" fw={msg.sender === "ai" ? 600 : 500} style={{ wordBreak: "break-word" }}>{msg.content}</Text>
+                                                    <Group gap={4} mt={4} align="center">
+                                                        <Text size="xs" c="dimmed">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+                                                        {msg.reactions && msg.reactions.length > 0 && (
+                                                            <Group gap={2}>
+                                                                {msg.reactions.map((emoji: string, i: number) => (
+                                                                    <span key={i} style={{ fontSize: 16 }}>{emoji}</span>
+                                                                ))}
+                                                            </Group>
+                                                        )}
+                                                        <ActionIcon size="xs" variant="subtle" onClick={() => addReaction(msg.id, "👍")}>👍</ActionIcon>
+                                                        <ActionIcon size="xs" variant="subtle" onClick={() => addReaction(msg.id, "😂")}>😂</ActionIcon>
+                                                        <ActionIcon size="xs" variant="subtle" onClick={() => addReaction(msg.id, "🎉")}>🎉</ActionIcon>
+                                                    </Group>
+                                                </Paper>
+                                            </Group>
+                                        ))
+                                    )}
+                                    <div ref={chatEndRef} />
+                                </Stack>
+                                <Group mt="md" align="flex-end">
+                                    <TextInput
+                                        placeholder="Type a message... or use /ai to ask the AI assistant"
+                                        value={chatInput}
+                                        onChange={e => setChatInput(e.currentTarget.value)}
+                                        onKeyDown={e => {
+                                            if (e.key === "Enter" && !e.shiftKey) {
+                                                sendMessage(chatInput);
+                                            }
+                                        }}
+                                        style={{ flex: 1 }}
+                                        disabled={sending || aiThinking}
+                                    />
+                                    <ActionIcon variant="light" color="blue" size={36} component="label" title="Upload file">
+                                        <IconFile size={20} />
+                                        <input type="file" style={{ display: "none" }} onChange={handleFileUpload} />
+                                    </ActionIcon>
+                                    <ActionIcon variant="filled" color="violet" size={36} onClick={() => sendMessage(chatInput)} loading={sending || aiThinking} disabled={!chatInput.trim()} title="Send">
+                                        <IconSend size={20} />
+                                    </ActionIcon>
+                                    <ActionIcon variant="light" color="blue" size={36} onClick={() => sendMessage(`/ai ${chatInput}`)} loading={aiThinking} title="Ask AI">
+                                        <IconRobot size={20} />
+                                    </ActionIcon>
+                                </Group>
+                            </Box>
                         </Tabs.Panel>
                     </Tabs>
                     <ActionIcon

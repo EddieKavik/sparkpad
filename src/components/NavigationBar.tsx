@@ -50,7 +50,35 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
             })));
         }, 60000); // Update every minute
 
-        return () => clearInterval(interval);
+        // Set up event listeners for project notifications
+        const handleProjectNotification = (event: CustomEvent) => {
+            const { type, projectName, message } = event.detail;
+            addNotification({
+                message: message || `${type === 'project' ? 'New project' : 'Project update'}: ${projectName}`,
+                time: new Date().toISOString(),
+                type: type as 'project' | 'system' | 'update',
+                link: `/projects/${event.detail.projectId}`
+            });
+        };
+
+        const handleChatNotification = (event: CustomEvent) => {
+            const { projectName, senderName, message } = event.detail;
+            addNotification({
+                message: `New message in ${projectName} from ${senderName}: ${message}`,
+                time: new Date().toISOString(),
+                type: 'update',
+                link: `/projects/${event.detail.projectId}?tab=chat`
+            });
+        };
+
+        window.addEventListener('projectNotification' as any, handleProjectNotification);
+        window.addEventListener('chatNotification' as any, handleChatNotification);
+
+        return () => {
+            clearInterval(interval);
+            window.removeEventListener('projectNotification' as any, handleProjectNotification);
+            window.removeEventListener('chatNotification' as any, handleChatNotification);
+        };
     }, []);
 
     const getRelativeTime = (timestamp: string) => {
@@ -74,6 +102,12 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
         const updatedNotifications = [newNotification, ...notifications];
         setNotifications(updatedNotifications);
         localStorage.setItem('notifications', JSON.stringify(updatedNotifications));
+
+        // Play notification sound if available
+        try {
+            const audio = new Audio('/notification.mp3');
+            audio.play().catch(() => { }); // Ignore errors if sound can't be played
+        } catch { }
     };
 
     const markNotificationAsRead = (id: number) => {
@@ -213,7 +247,7 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                         <Button
                             component={Link}
                             href="/projects"
-                            variant={pathname.startsWith("/projects") && pathname !== "/" ? "filled" : "subtle"}
+                            variant={pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? "filled" : "subtle"}
                             color="violet"
                             size="sm"
                         >
@@ -222,7 +256,7 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                         <Button
                             component={Link}
                             href="/projects?showStats=1"
-                            variant={pathname === "/projects" && typeof window !== 'undefined' && window.location.search.includes('showStats=1') ? "filled" : "subtle"}
+                            variant={pathname === "/projects" && pathname.includes("showStats=1") ? "filled" : "subtle"}
                             color="violet"
                             size="sm"
                         >
