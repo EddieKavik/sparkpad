@@ -36,49 +36,40 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
     const [notificationMenuOpened, setNotificationMenuOpened] = useState(false);
 
     useEffect(() => {
-        // Load notifications from localStorage
-        const savedNotifications = localStorage.getItem('notifications');
-        if (savedNotifications) {
-            setNotifications(JSON.parse(savedNotifications));
-        }
+        const fetchNotifications = async () => {
+            const userEmail = localStorage.getItem("user:username");
+            if (!userEmail) return;
 
-        // Set up an interval to update notification times
-        const interval = setInterval(() => {
-            setNotifications(prev => prev.map(notification => ({
-                ...notification,
-                time: getRelativeTime(notification.time)
-            })));
-        }, 60000); // Update every minute
-
-        // Set up event listeners for project notifications
-        const handleProjectNotification = (event: CustomEvent) => {
-            const { type, projectName, message } = event.detail;
-            addNotification({
-                message: message || `${type === 'project' ? 'New project' : 'Project update'}: ${projectName}`,
-                time: new Date().toISOString(),
-                type: type as 'project' | 'system' | 'update',
-                link: `/projects/${event.detail.projectId}`
-            });
+            try {
+                const res = await fetch(`http://localhost:3333/notifications?mode=disk&key=${encodeURIComponent(userEmail)}`);
+                if (res.ok) {
+                    const text = await res.text();
+                    const data = text ? JSON.parse(text) : [];
+                    if (Array.isArray(data)) {
+                        setNotifications(data.map(notification => ({
+                            ...notification,
+                            id: notification.id || Date.now(),
+                            read: notification.read || false
+                        })));
+                    } else {
+                        setNotifications([]);
+                    }
+                } else {
+                    setNotifications([]);
+                }
+            } catch (error) {
+                console.error('Failed to fetch notifications:', error);
+                setNotifications([]);
+            }
         };
 
-        const handleChatNotification = (event: CustomEvent) => {
-            const { projectName, senderName, message } = event.detail;
-            addNotification({
-                message: `New message in ${projectName} from ${senderName}: ${message}`,
-                time: new Date().toISOString(),
-                type: 'update',
-                link: `/projects/${event.detail.projectId}?tab=chat`
-            });
-        };
+        // Initial fetch
+        fetchNotifications();
 
-        window.addEventListener('projectNotification' as any, handleProjectNotification);
-        window.addEventListener('chatNotification' as any, handleChatNotification);
+        // Set up polling for new notifications
+        const interval = setInterval(fetchNotifications, 10000); // Poll every 10 seconds
 
-        return () => {
-            clearInterval(interval);
-            window.removeEventListener('projectNotification' as any, handleProjectNotification);
-            window.removeEventListener('chatNotification' as any, handleChatNotification);
-        };
+        return () => clearInterval(interval);
     }, []);
 
     const getRelativeTime = (timestamp: string) => {
@@ -92,48 +83,117 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
         return `${Math.floor(diffInSeconds / 86400)}d ago`;
     };
 
-    const addNotification = (notification: Omit<Notification, 'id' | 'read'>) => {
+    const addNotification = async (notification: Omit<Notification, 'id' | 'read'>) => {
+        const userEmail = localStorage.getItem("user:username");
+        if (!userEmail) return;
+
         const newNotification: Notification = {
             ...notification,
             id: Date.now(),
             read: false,
             time: new Date().toISOString()
         };
-        const updatedNotifications = [newNotification, ...notifications];
-        setNotifications(updatedNotifications);
-        localStorage.setItem('notifications', JSON.stringify(updatedNotifications));
 
-        // Play notification sound if available
         try {
-            const audio = new Audio('/notification.mp3');
-            audio.play().catch(() => { }); // Ignore errors if sound can't be played
-        } catch { }
+            // Fetch existing notifications
+            const res = await fetch(`http://localhost:3333/notifications?mode=disk&key=${encodeURIComponent(userEmail)}`);
+            let existingNotifications: Notification[] = [];
+            if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data)) {
+                    existingNotifications = data;
+                }
+            }
+
+            // Add new notification to the beginning
+            const updatedNotifications = [newNotification, ...existingNotifications];
+            setNotifications(updatedNotifications);
+
+            // Save to server
+            await fetch(`http://localhost:3333/notifications?mode=disk&key=${encodeURIComponent(userEmail)}`, {
+                method: "POST",
+                body: JSON.stringify(updatedNotifications)
+            });
+
+            // Play notification sound if available
+            try {
+                const audio = new Audio('/notification.mp3');
+                audio.play().catch(() => { }); // Ignore errors if sound can't be played
+            } catch { }
+
+            // Show a toast notification
+            showNotification({
+                title: notification.type === 'project' ? 'New Project' :
+                    notification.type === 'update' ? 'Project Update' : 'System Notification',
+                message: notification.message,
+                color: notification.type === 'project' ? 'green' :
+                    notification.type === 'update' ? 'blue' : 'gray',
+            });
+        } catch (error) {
+            console.error('Failed to add notification:', error);
+        }
     };
 
-    const markNotificationAsRead = (id: number) => {
+    const markNotificationAsRead = async (id: number) => {
+        const userEmail = localStorage.getItem("user:username");
+        if (!userEmail) return;
+
         const updatedNotifications = notifications.map(notification =>
             notification.id === id ? { ...notification, read: true } : notification
         );
         setNotifications(updatedNotifications);
-        localStorage.setItem('notifications', JSON.stringify(updatedNotifications));
+
+        // Update on server
+        try {
+            await fetch(`http://localhost:3333/notifications?mode=disk&key=${encodeURIComponent(userEmail)}`, {
+                method: "POST",
+                body: JSON.stringify(updatedNotifications)
+            });
+        } catch (error) {
+            console.error('Failed to update notification:', error);
+        }
     };
 
-    const markAllAsRead = () => {
+    const markAllAsRead = async () => {
+        const userEmail = localStorage.getItem("user:username");
+        if (!userEmail) return;
+
         const updatedNotifications = notifications.map(notification => ({
             ...notification,
             read: true
         }));
         setNotifications(updatedNotifications);
-        localStorage.setItem('notifications', JSON.stringify(updatedNotifications));
+
+        // Update on server
+        try {
+            await fetch(`http://localhost:3333/notifications?mode=disk&key=${encodeURIComponent(userEmail)}`, {
+                method: "POST",
+                body: JSON.stringify(updatedNotifications)
+            });
+        } catch (error) {
+            console.error('Failed to update notifications:', error);
+        }
     };
 
-    const clearNotifications = () => {
+    const clearNotifications = async () => {
+        const userEmail = localStorage.getItem("user:username");
+        if (!userEmail) return;
+
         setNotifications([]);
-        localStorage.removeItem('notifications');
+
+        // Clear on server
+        try {
+            await fetch(`http://localhost:3333/notifications?mode=disk&key=${encodeURIComponent(userEmail)}`, {
+                method: "POST",
+                body: JSON.stringify([])
+            });
+        } catch (error) {
+            console.error('Failed to clear notifications:', error);
+        }
     };
 
-    const handleNotificationClick = (notification: Notification) => {
-        markNotificationAsRead(notification.id);
+    const handleNotificationClick = async (notification: Notification) => {
+        await markNotificationAsRead(notification.id);
         if (notification.link) {
             router.push(notification.link);
         }

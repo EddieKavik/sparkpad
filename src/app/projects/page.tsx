@@ -73,7 +73,8 @@ export default function ProjectsPage() {
                     `http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`
                 );
                 if (!res.ok) throw new Error("Failed to fetch projects");
-                const data = await res.json();
+                const text = await res.text();
+                const data = text ? JSON.parse(text) : [];
                 setProjects(Array.isArray(data) ? data : []);
             } catch (err: any) {
                 setError(err.message);
@@ -99,8 +100,11 @@ export default function ProjectsPage() {
                 return;
             }
             const res = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`);
-            if (!res.ok) throw new Error("Failed to fetch projects");
-            const projects = await res.json();
+            let projects = [];
+            if (res.ok) {
+                const text = await res.text();
+                projects = text ? JSON.parse(text) : [];
+            }
             const newProject = {
                 id: Date.now().toString(),
                 name: newProjectName.trim(),
@@ -483,7 +487,7 @@ export default function ProjectsPage() {
                                 <Card withBorder p="md" radius="md">
                                     <Stack gap="xs">
                                         <Text size="sm" fw={500}>Most Used Tags</Text>
-                                        {projectStats.mostUsedTags.map(({ tag, count }) => (
+                                        {(projectStats.mostUsedTags || []).map(({ tag, count }) => (
                                             <Group key={tag} justify="space-between">
                                                 <Badge variant="light">{tag}</Badge>
                                                 <Text size="sm">{count} projects</Text>
@@ -494,7 +498,7 @@ export default function ProjectsPage() {
                                 <Card withBorder p="md" radius="md">
                                     <Stack gap="xs">
                                         <Text size="sm" fw={500}>Recent Activity</Text>
-                                        {projectStats.recentActivity.map((activity, index) => (
+                                        {(projectStats.recentActivity || []).map((activity, index) => (
                                             <Group key={index} gap="xs">
                                                 <IconCalendar size={16} />
                                                 <Text size="sm" style={{ flex: 1 }}>
@@ -515,7 +519,7 @@ export default function ProjectsPage() {
                                     <Stack gap="xs">
                                         <Text size="sm" fw={500}>Project Growth</Text>
                                         <Group gap="xs" wrap="nowrap" style={{ overflowX: 'auto', padding: '8px 0' }}>
-                                            {projectStats.projectGrowth.map((point, index) => (
+                                            {(projectStats.projectGrowth || []).map((point, index) => (
                                                 <Box key={index} style={{ minWidth: 100 }}>
                                                     <Text size="xs" c="dimmed">{point.date}</Text>
                                                     <Text size="sm" fw={500}>{point.count} projects</Text>
@@ -527,7 +531,7 @@ export default function ProjectsPage() {
                                 <Card withBorder p="md" radius="md">
                                     <Stack gap="xs">
                                         <Text size="sm" fw={500}>Member Distribution</Text>
-                                        {projectStats.memberDistribution.map((dist, index) => (
+                                        {(projectStats.memberDistribution || []).map((dist, index) => (
                                             <Group key={index} justify="space-between">
                                                 <Text size="sm" style={{ flex: 1 }} truncate>{dist.project}</Text>
                                                 <Badge variant="light" color="blue">{dist.members} members</Badge>
@@ -539,7 +543,7 @@ export default function ProjectsPage() {
                                     <Stack gap="xs">
                                         <Text size="sm" fw={500}>Status Trend</Text>
                                         <Group gap="xs" wrap="nowrap" style={{ overflowX: 'auto', padding: '8px 0' }}>
-                                            {projectStats.statusTrend.map((point, index) => (
+                                            {(projectStats.statusTrend || []).map((point, index) => (
                                                 <Box key={index} style={{ minWidth: 120 }}>
                                                     <Text size="xs" c="dimmed">{point.date}</Text>
                                                     <Group gap={4}>
@@ -558,7 +562,7 @@ export default function ProjectsPage() {
                                             <Text size="sm" fw={500}>Most Active Projects</Text>
                                             <Text size="xs" c="dimmed">Avg. Age: {projectStats.averageProjectAge} days</Text>
                                         </Group>
-                                        {projectStats.mostActiveProjects.map((project, index) => (
+                                        {(projectStats.mostActiveProjects || []).map((project, index) => (
                                             <Group key={index} justify="space-between">
                                                 <Text size="sm" style={{ flex: 1 }} truncate>{project.name}</Text>
                                                 <Badge variant="light" color="violet">{project.activityCount} activities</Badge>
@@ -605,9 +609,9 @@ export default function ProjectsPage() {
                             />
                             <MultiSelect
                                 placeholder="Filter by tags"
-                                value={tagFilter}
+                                value={(tagFilter || []).filter((v): v is string => typeof v === 'string' && v)}
                                 onChange={setTagFilter}
-                                data={allTags.map(tag => ({ value: tag, label: tag }))}
+                                data={(allTags || []).filter((tag): tag is string => typeof tag === 'string' && tag).map(tag => ({ value: tag, label: tag }))}
                                 leftSection={<IconTag size={16} />}
                                 style={{ width: 200 }}
                             />
@@ -661,7 +665,7 @@ export default function ProjectsPage() {
                         gridTemplateColumns: viewMode === 'grid' ? 'repeat(auto-fill, minmax(300px, 1fr))' : '1fr',
                         gap: '1rem'
                     }}>
-                        {filteredAndSortedProjects.map((project) => (
+                        {(filteredAndSortedProjects || []).map((project) => (
                             <Card key={project.id} withBorder shadow="sm" radius="md" p="lg">
                                 <Group justify="space-between" mb="md">
                                     <div>
@@ -706,7 +710,7 @@ export default function ProjectsPage() {
                                     {project.description}
                                 </Text>
                                 <Group gap="xs" mb="md">
-                                    {project.tags.map((tag, index) => (
+                                    {(project.tags || []).map((tag, index) => (
                                         <Badge key={index} variant="light" color="violet" size="sm">
                                             {tag}
                                         </Badge>

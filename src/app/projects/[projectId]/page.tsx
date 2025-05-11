@@ -146,14 +146,19 @@ export default function ProjectViewPage() {
                 return;
             }
             const res = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`);
-            if (!res.ok) throw new Error("Failed to fetch projects");
-            const projects = await res.json();
+            let projects = [];
+            if (res.ok) {
+                const text = await res.text();
+                projects = text ? JSON.parse(text) : [];
+                if (!Array.isArray(projects)) projects = [];
+            }
             // Find and update the project
             const idx = projects.findIndex((p: any) => String(p.id) === String(projectId));
             if (idx === -1) throw new Error("Project not found");
             const updatedProject = { ...projects[idx] };
+            // Ensure members is a unique array of valid emails
             updatedProject.members = Array.isArray(updatedProject.members) ? updatedProject.members : [];
-            updatedProject.members.push(newMemberEmail);
+            updatedProject.members = Array.from(new Set([...updatedProject.members, newMemberEmail].filter(Boolean)));
             projects[idx] = updatedProject;
 
             // Save back to current user's storage
@@ -167,14 +172,19 @@ export default function ProjectViewPage() {
             const newMemberRes = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(newMemberEmail)}`);
             let newMemberProjects = [];
             if (newMemberRes.ok) {
-                try {
-                    newMemberProjects = await newMemberRes.json();
-                    if (!Array.isArray(newMemberProjects)) newMemberProjects = [];
-                } catch {
-                    newMemberProjects = [];
-                }
+                const text = await newMemberRes.text();
+                newMemberProjects = text ? JSON.parse(text) : [];
+                if (!Array.isArray(newMemberProjects)) newMemberProjects = [];
             }
-            newMemberProjects.push(updatedProject);
+            // Avoid duplicate projects for the new member
+            if (!newMemberProjects.some((p: any) => String(p.id) === String(updatedProject.id))) {
+                newMemberProjects.push(updatedProject);
+            } else {
+                // If project exists, update its members array
+                newMemberProjects = newMemberProjects.map((p: any) =>
+                    String(p.id) === String(updatedProject.id) ? updatedProject : p
+                );
+            }
             const saveNewMemberRes = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(newMemberEmail)}`, {
                 method: "POST",
                 body: JSON.stringify(newMemberProjects),
@@ -401,15 +411,50 @@ export default function ProjectViewPage() {
             });
             setChatInput("");
 
-            // Dispatch chat notification event
-            window.dispatchEvent(new CustomEvent('chatNotification', {
-                detail: {
-                    projectName: project.name,
-                    projectId: projectId,
-                    senderName,
-                    message: content
-                }
-            }));
+            // Notify all project members except the sender
+            if (project && Array.isArray(project.members)) {
+                const notificationPromises = project.members
+                    .filter(memberEmail => memberEmail !== userEmail)
+                    .map(async memberEmail => {
+                        try {
+                            // Fetch existing notifications for the member
+                            const res = await fetch(`http://localhost:3333/notifications?mode=disk&key=${encodeURIComponent(memberEmail)}`);
+                            let existingNotifications = [];
+                            if (res.ok) {
+                                const data = await res.json();
+                                if (Array.isArray(data)) {
+                                    existingNotifications = data;
+                                }
+                            }
+
+                            // Create new notification
+                            const newNotification = {
+                                id: Date.now(),
+                                type: 'chat',
+                                projectName: project.name,
+                                projectId: projectId,
+                                senderName,
+                                message: content,
+                                timestamp: new Date().toISOString(),
+                                read: false
+                            };
+
+                            // Add to beginning of notifications array
+                            const updatedNotifications = [newNotification, ...existingNotifications];
+
+                            // Save updated notifications
+                            await fetch(`http://localhost:3333/notifications?mode=disk&key=${encodeURIComponent(memberEmail)}`, {
+                                method: "POST",
+                                body: JSON.stringify(updatedNotifications)
+                            });
+                        } catch (error) {
+                            console.error(`Failed to send notification to ${memberEmail}:`, error);
+                        }
+                    });
+
+                // Wait for all notifications to be sent
+                await Promise.all(notificationPromises);
+            }
 
             // AI integration: if message starts with /ai or Ask AI button is used
             if (content.trim().toLowerCase().startsWith("/ai")) {
