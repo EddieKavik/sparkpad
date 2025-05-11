@@ -1,19 +1,21 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { Group, Button, Text, Avatar, Menu, ActionIcon, rem, Modal, TextInput, Title } from "@mantine/core";
-import { IconMaximize } from "@tabler/icons-react";
+import { Group, Button, Text, Avatar, Menu, ActionIcon, rem, Modal, TextInput, Title, AppShell, Burger, UnstyledButton } from "@mantine/core";
+import { IconMaximize, IconChevronDown, IconLogout, IconUser, IconSun, IconMoonStars } from "@tabler/icons-react";
 import { getInitials } from "@/utils/helpers";
 import { useState } from "react";
 import { showNotification } from "@mantine/notifications";
+import { useDisclosure } from '@mantine/hooks';
+import { useAuth } from '@/contexts/AuthContext';
+import { useTheme } from './ThemeProvider';
 
-interface NavigationBarProps {
-    userName?: string | null;
-    onLogout?: () => void;
-    showBackButton?: boolean;
-}
-
-export function NavigationBar({ userName, onLogout, showBackButton = false }: NavigationBarProps) {
+export function NavigationBar() {
+    const [opened, { toggle }] = useDisclosure();
+    const { user, signOut } = useAuth();
     const router = useRouter();
+    const [userMenuOpened, setUserMenuOpened] = useState(false);
+    const { isDarkMode, toggleTheme } = useTheme();
+    const theme = useMantineTheme();
     const [modalOpened, setModalOpened] = useState(false);
     const [editName, setEditName] = useState("");
     const [saving, setSaving] = useState(false);
@@ -23,7 +25,7 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
     const [changingPassword, setChangingPassword] = useState(false);
 
     const handleNameClick = () => {
-        setEditName(userName || "");
+        setEditName(user?.name || "");
         setModalOpened(true);
     };
 
@@ -115,56 +117,60 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
     };
 
     return (
-        <>
-            <Group justify="space-between" align="center" p="md" style={{ borderBottom: '1px solid #eee' }}>
+        <AppShell.Header>
+            <Group h="100%" px="md" justify="space-between">
                 <Group>
-                    {showBackButton && (
-                        <Button
-                            variant="subtle"
-                            onClick={() => router.push('/')}
-                            size="sm"
-                        >
-                            Back to Dashboard
-                        </Button>
-                    )}
-                </Group>
-                <Group>
-                    {userName && (
-                        <Menu shadow="md" width={200} position="bottom-end">
-                            <Menu.Target>
-                                <Group style={{ cursor: 'pointer' }} gap={8} onClick={handleNameClick}>
-                                    <Avatar radius="xl" color="violet" size={32}>
-                                        {getInitials(userName)}
-                                    </Avatar>
-                                    <Text size="sm" fw={500}>{userName}</Text>
-                                </Group>
-                            </Menu.Target>
-                            <Menu.Dropdown>
-                                <Menu.Item onClick={handleNameClick}>
-                                    Edit Profile
-                                </Menu.Item>
-                                <Menu.Item onClick={onLogout}>
-                                    Logout
-                                </Menu.Item>
-                            </Menu.Dropdown>
-                        </Menu>
-                    )}
-                    <ActionIcon
+                    <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
+                    <Button
                         variant="subtle"
-                        color="gray"
-                        radius="md"
-                        style={{ padding: 0, minWidth: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center" }}
-                        onClick={() => {
-                            if (document.fullscreenElement) {
-                                document.exitFullscreen();
-                            } else {
-                                document.body.requestFullscreen();
-                            }
-                        }}
-                        title="Fullscreen"
+                        onClick={() => router.push('/')}
+                        size="sm"
                     >
-                        <IconMaximize size={22} />
+                        Back to Dashboard
+                    </Button>
+                </Group>
+
+                <Group>
+                    <ActionIcon
+                        variant="default"
+                        onClick={toggleTheme}
+                        size="lg"
+                        aria-label="Toggle color scheme"
+                    >
+                        {isDarkMode ? (
+                            <IconSun size="1.2rem" stroke={1.5} />
+                        ) : (
+                            <IconMoonStars size="1.2rem" stroke={1.5} />
+                        )}
                     </ActionIcon>
+
+                    <Menu
+                        width={260}
+                        position="bottom-end"
+                        transitionProps={{ transition: 'pop-top-right' }}
+                        onClose={() => setUserMenuOpened(false)}
+                        onOpen={() => setUserMenuOpened(true)}
+                        withinPortal
+                    >
+                        <Menu.Target>
+                            <UnstyledButton style={{ cursor: 'pointer' }} onClick={handleNameClick}>
+                                <Group gap={8}>
+                                    <Avatar radius="xl" color="violet" size={32}>
+                                        {getInitials(user?.name)}
+                                    </Avatar>
+                                    <Text size="sm" fw={500}>{user?.name}</Text>
+                                </Group>
+                            </UnstyledButton>
+                        </Menu.Target>
+                        <Menu.Dropdown>
+                            <Menu.Item onClick={handleNameClick}>
+                                Edit Profile
+                            </Menu.Item>
+                            <Menu.Item onClick={() => signOut()}>
+                                Logout
+                            </Menu.Item>
+                        </Menu.Dropdown>
+                    </Menu>
                 </Group>
             </Group>
 
@@ -204,7 +210,7 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                     Change Password
                 </Button>
             </Modal>
-        </>
+        </AppShell.Header>
     );
 }
 
