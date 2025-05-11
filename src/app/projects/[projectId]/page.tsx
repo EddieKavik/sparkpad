@@ -113,6 +113,8 @@ export default function ProjectViewPage() {
     const [commentLoading, setCommentLoading] = useState<{ [id: string]: boolean }>({});
     const [expanded, setExpanded] = useState<{ [id: string]: boolean }>({});
     const [sortBy, setSortBy] = useState<'date' | 'title' | 'type'>('date');
+    const [suggestingTags, setSuggestingTags] = useState(false);
+    const [editSuggestingTags, setEditSuggestingTags] = useState(false);
 
     useEffect(() => {
         const user = localStorage.getItem("user");
@@ -734,6 +736,38 @@ export default function ProjectViewPage() {
         return 0;
     });
 
+    const handleSuggestTags = async () => {
+        setSuggestingTags(true);
+        try {
+            const gemini = getGeminiClient();
+            const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const prompt = `Suggest 3-5 concise, relevant tags (as a comma-separated list) for the following research item.\nTitle: ${newResearch.title}\nType: ${newResearch.type}\nContent: ${newResearch.content}`;
+            const result = await model.generateContent(prompt);
+            const tags = result.response.text().split(/,|\n/).map(t => t.trim()).filter(Boolean);
+            setNewResearch(r => ({ ...r, tags: Array.from(new Set([...(r.tags || []), ...tags])) }));
+        } catch (err: any) {
+            showNotification({ title: 'AI Error', message: err.message || 'Failed to suggest tags.', color: 'red' });
+        } finally {
+            setSuggestingTags(false);
+        }
+    };
+
+    const handleEditSuggestTags = async () => {
+        setEditSuggestingTags(true);
+        try {
+            const gemini = getGeminiClient();
+            const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const prompt = `Suggest 3-5 concise, relevant tags (as a comma-separated list) for the following research item.\nTitle: ${editResearch.title}\nType: ${editResearch.type}\nContent: ${editResearch.content}`;
+            const result = await model.generateContent(prompt);
+            const tags = result.response.text().split(/,|\n/).map(t => t.trim()).filter(Boolean);
+            setEditResearch((r: any) => ({ ...r, tags: Array.from(new Set([...(r.tags || []), ...tags])) }));
+        } catch (err: any) {
+            showNotification({ title: 'AI Error', message: err.message || 'Failed to suggest tags.', color: 'red' });
+        } finally {
+            setEditSuggestingTags(false);
+        }
+    };
+
     if (loading) {
         return (
             <Center style={{ minHeight: 200 }}>
@@ -1070,6 +1104,9 @@ export default function ProjectViewPage() {
                                             style={{ flex: 2 }}
                                         />
                                         <input type="file" onChange={e => handleFileChange(e, setNewResearchFile)} style={{ flex: 2 }} />
+                                        <Button variant="light" color="yellow" onClick={handleSuggestTags} loading={suggestingTags} style={{ marginBottom: 8 }}>
+                                            Suggest Tags with AI
+                                        </Button>
                                         <Button type="submit" loading={researchLoading}>Add</Button>
                                     </Group>
                                 </form>
@@ -1232,6 +1269,9 @@ export default function ProjectViewPage() {
                                                 }}
                                             />
                                             <input type="file" onChange={e => handleFileChange(e, setEditResearchFile)} />
+                                            <Button variant="light" color="yellow" onClick={handleEditSuggestTags} loading={editSuggestingTags} style={{ alignSelf: 'flex-start', marginBottom: 8 }}>
+                                                Suggest Tags with AI
+                                            </Button>
                                             <Group justify="flex-end">
                                                 <Button variant="default" onClick={handleCancelEditResearch}>Cancel</Button>
                                                 <Button onClick={handleSaveEditResearch} loading={editResearchLoading}>Save</Button>
