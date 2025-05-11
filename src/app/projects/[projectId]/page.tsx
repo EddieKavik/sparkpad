@@ -191,9 +191,10 @@ export default function ProjectViewPage() {
             });
             if (!saveNewMemberRes.ok) throw new Error("Failed to update new member's projects");
 
-            setProject(updatedProject);
             setNewMemberEmail("");
             showNotification({ title: "Success", message: "Member added!", color: "green" });
+            // Refresh project data so UI updates
+            await fetchProject();
         } catch (err: any) {
             showNotification({ title: "Error", message: err.message || "Failed to add member", color: "red" });
         } finally {
@@ -539,25 +540,69 @@ export default function ProjectViewPage() {
 
     return (
         <>
-            <NavigationBar userName={userName} onLogout={handleLogout} showBackButton={true} />
-            <Container size="md" mt={40}>
-                <Title order={2} mb="lg">
-                    Project: {project.name || projectId}
-                </Title>
-                <Modal opened={settingsOpened} onClose={() => setSettingsOpened(false)} title="Rename Project" centered>
-                    <TextInput
-                        label="Project Name"
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.currentTarget.value)}
-                        mb="md"
-                    />
-                    <Button onClick={handleRename} loading={renaming} fullWidth disabled={!renameValue}>
-                        Save
-                    </Button>
-                </Modal>
-                <Group align="center" justify="space-between" mb="xs">
-                    <Tabs value={activeTab} onChange={value => setActiveTab(value || "default")} style={{ flex: 1 }}>
-                        <Tabs.List>
+            <Box style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #181c2b 0%, #23243a 100%)', position: 'relative', overflow: 'hidden' }}>
+                {/* Futuristic Glow Overlay */}
+                <div style={{
+                    position: 'absolute',
+                    top: 0, left: 0, right: 0, bottom: 0,
+                    pointerEvents: 'none',
+                    zIndex: 0,
+                    background: 'radial-gradient(circle at 80% 20%, #3a2e5d44 0%, transparent 60%), radial-gradient(circle at 20% 80%, #232b4d44 0%, transparent 60%)',
+                    filter: 'blur(48px)',
+                }} />
+                <NavigationBar userName={userName} onLogout={handleLogout} showBackButton={true} />
+                <Container size="md" mt={40}>
+                    <Title order={2} mb="lg" style={{ color: '#fff', fontWeight: 800, letterSpacing: 1 }}>
+                        Project: {project.name || projectId}
+                    </Title>
+                    <Modal opened={settingsOpened} onClose={() => setSettingsOpened(false)} title="Rename Project" centered
+                        styles={{
+                            content: {
+                                background: 'rgba(24,28,43,0.92)',
+                                border: '1.5px solid #3a2e5d44',
+                                boxShadow: '0 2px 16px #232b4d22',
+                                color: '#fff',
+                                borderRadius: 24,
+                                padding: 32,
+                            },
+                        }}
+                    >
+                        <TextInput
+                            label="Project Name"
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.currentTarget.value)}
+                            mb="md"
+                        />
+                        <Button onClick={handleRename} loading={renaming} fullWidth disabled={!renameValue} variant="gradient" gradient={{ from: '#232b4d', to: '#3a2e5d', deg: 90 }} style={{ fontWeight: 700, color: '#fff', boxShadow: '0 2px 16px #232b4d44' }}>
+                            Save
+                        </Button>
+                    </Modal>
+                    <Group align="center" justify="space-between" mb="xs">
+                        <Tabs value={activeTab} onChange={value => setActiveTab(value || "default")} style={{ flex: 1 }}
+                            styles={{
+                                tab: {
+                                    background: 'rgba(35,43,77,0.18)',
+                                    color: '#b0b7ff',
+                                    borderRadius: 16,
+                                    fontWeight: 700,
+                                    marginRight: 8,
+                                    padding: '8px 20px',
+                                },
+                                list: {
+                                    background: 'rgba(24,28,43,0.85)',
+                                    borderRadius: 20,
+                                    boxShadow: '0 2px 16px #232b4d22',
+                                    padding: 4,
+                                },
+                                panel: {
+                                    background: 'rgba(24,28,43,0.92)',
+                                    borderRadius: 24,
+                                    color: '#fff',
+                                    marginTop: 16,
+                                    boxShadow: '0 2px 16px #232b4d22',
+                                },
+                            }}
+                        >
                             <Tabs.Tab value="default">Documents</Tabs.Tab>
                             <Tabs.Tab value="templates">Templates</Tabs.Tab>
                             <Tabs.Tab value="members">Members</Tabs.Tab>
@@ -572,233 +617,239 @@ export default function ProjectViewPage() {
                                 ml={8}
                                 onClick={handleAddDocument}
                                 title="Add Document"
-                                style={{ marginLeft: rem(8) }}
+                                style={{ marginLeft: rem(8), background: 'rgba(35,43,77,0.18)', color: '#b0b7ff', borderRadius: 12 }}
                             >
                                 +
                             </ActionIcon>
-                        </Tabs.List>
-                        <Tabs.Panel value="default" pt="md">
+                        </Tabs>
+                        <ActionIcon
+                            variant="light"
+                            color="gray"
+                            size={36}
+                            onClick={() => setSettingsOpened(true)}
+                            title="Project Settings"
+                            style={{ marginLeft: rem(12) }}
+                        >
+                            <IconSettings size={22} />
+                        </ActionIcon>
+                    </Group>
+                    <Tabs.Panel value="default" pt="md">
+                        <Box>
+                            <Text c="dimmed">No document selected. Click + to add a new document.</Text>
+                        </Box>
+                    </Tabs.Panel>
+                    {docTabs.filter(tab => tab.id !== "default").map(tab => (
+                        <Tabs.Panel key={tab.id} value={tab.id} pt="md">
                             <Box>
-                                <Text c="dimmed">No document selected. Click + to add a new document.</Text>
-                            </Box>
-                        </Tabs.Panel>
-                        {docTabs.filter(tab => tab.id !== "default").map(tab => (
-                            <Tabs.Panel key={tab.id} value={tab.id} pt="md">
-                                <Box>
-                                    <Title order={4}>{tab.title}</Title>
-                                    <Stack mt="md">
-                                        {(docRows[tab.id] || []).map((row, idx) => {
-                                            const isEditing = editingRow && editingRow.docId === tab.id && editingRow.idx === idx;
-                                            const isAI = aiProcessing && aiProcessing.docId === tab.id && aiProcessing.idx === idx;
-                                            return (
-                                                <Group key={idx} justify="space-between" align="center" style={{ position: "relative" }}>
-                                                    {isEditing ? (
-                                                        <>
-                                                            <TextInput
-                                                                value={editRowValue}
-                                                                onChange={e => setEditRowValue(e.currentTarget.value)}
-                                                                autoFocus
-                                                                style={{ flex: 1 }}
-                                                                disabled={!!isAI}
-                                                            />
-                                                            <Button size="xs" color="violet" onClick={handleSaveEditRow} loading={savingEdit || !!isAI} disabled={!!isAI}>
-                                                                Save
-                                                            </Button>
-                                                            <Button size="xs" variant="default" onClick={handleCancelEditRow} disabled={savingEdit || !!isAI}>
-                                                                Cancel
-                                                            </Button>
-                                                            <ActionIcon
-                                                                size={28}
-                                                                color="blue"
-                                                                variant="light"
-                                                                onClick={() => handleAiTransformRow(tab.id, idx, editRowValue)}
-                                                                loading={!!isAI}
-                                                                disabled={!!isAI}
-                                                                title="Transform with AI"
-                                                            >
-                                                                <IconRobot size={18} />
-                                                            </ActionIcon>
-                                                        </>
-                                                    ) : (
-                                                        <Paper
-                                                            p="sm"
-                                                            withBorder
-                                                            radius="md"
-                                                            style={{ flex: 1, minWidth: 0, cursor: "pointer" }}
-                                                            onClick={() => handleStartEditRow(tab.id, idx, row)}
-                                                            title="Click to edit"
+                                <Title order={4}>{tab.title}</Title>
+                                <Stack mt="md">
+                                    {(docRows[tab.id] || []).map((row, idx) => {
+                                        const isEditing = editingRow && editingRow.docId === tab.id && editingRow.idx === idx;
+                                        const isAI = aiProcessing && aiProcessing.docId === tab.id && aiProcessing.idx === idx;
+                                        return (
+                                            <Group key={idx} justify="space-between" align="center" style={{ position: "relative" }}>
+                                                {isEditing ? (
+                                                    <>
+                                                        <TextInput
+                                                            value={editRowValue}
+                                                            onChange={e => setEditRowValue(e.currentTarget.value)}
+                                                            autoFocus
+                                                            style={{ flex: 1 }}
+                                                            disabled={!!isAI}
+                                                        />
+                                                        <Button size="xs" color="violet" onClick={handleSaveEditRow} loading={savingEdit || !!isAI} disabled={!!isAI} style={{ background: 'linear-gradient(90deg, #232b4d 0%, #3a2e5d 100%)', color: '#fff', fontWeight: 700, borderRadius: 12 }}>
+                                                            Save
+                                                        </Button>
+                                                        <Button size="xs" variant="default" onClick={handleCancelEditRow} disabled={savingEdit || !!isAI} style={{ background: 'rgba(35,43,77,0.18)', color: '#b0b7ff', fontWeight: 600, borderRadius: 12 }}>
+                                                            Cancel
+                                                        </Button>
+                                                        <ActionIcon
+                                                            size={28}
+                                                            color="blue"
+                                                            variant="light"
+                                                            onClick={() => handleAiTransformRow(tab.id, idx, editRowValue)}
+                                                            loading={!!isAI}
+                                                            disabled={!!isAI}
+                                                            title="Transform with AI"
                                                         >
-                                                            {row}
-                                                        </Paper>
-                                                    )}
-                                                    <Menu shadow="md" width={120} position="bottom-end" withinPortal>
-                                                        <Menu.Target>
-                                                            <ActionIcon variant="subtle" color="gray" size={28} style={{ opacity: 0.7 }}>
-                                                                <IconDots size={18} />
-                                                            </ActionIcon>
-                                                        </Menu.Target>
-                                                        <Menu.Dropdown>
-                                                            <Menu.Item
-                                                                color="red"
-                                                                leftSection={<IconTrash size={16} />}
-                                                                onClick={() => handleDeleteRow(tab.id, idx)}
-                                                            >
-                                                                Delete
-                                                            </Menu.Item>
-                                                        </Menu.Dropdown>
-                                                    </Menu>
-                                                </Group>
-                                            );
-                                        })}
-                                        {addingRowFor === tab.id ? (
-                                            <Group>
-                                                <TextInput
-                                                    value={newRowValue}
-                                                    onChange={e => setNewRowValue(e.currentTarget.value)}
-                                                    placeholder="Enter row text"
-                                                    autoFocus
-                                                    style={{ flex: 1 }}
-                                                />
-                                                <Button size="xs" color="violet" onClick={() => handleSaveRow(tab.id)} loading={savingRow}>
-                                                    Save
-                                                </Button>
-                                                <Button size="xs" variant="default" onClick={handleCancelRow} disabled={savingRow}>
-                                                    Cancel
-                                                </Button>
+                                                            <IconRobot size={18} />
+                                                        </ActionIcon>
+                                                    </>
+                                                ) : (
+                                                    <Paper
+                                                        p="sm"
+                                                        withBorder
+                                                        radius="md"
+                                                        style={{ flex: 1, minWidth: 0, cursor: "pointer", background: 'rgba(35,43,77,0.18)', color: '#b0b7ff', border: '1.5px solid #3a2e5d44' }}
+                                                        onClick={() => handleStartEditRow(tab.id, idx, row)}
+                                                        title="Click to edit"
+                                                    >
+                                                        {row}
+                                                    </Paper>
+                                                )}
+                                                <Menu shadow="md" width={120} position="bottom-end" withinPortal>
+                                                    <Menu.Target>
+                                                        <ActionIcon variant="subtle" color="gray" size={28} style={{ opacity: 0.7 }}>
+                                                            <IconDots size={18} />
+                                                        </ActionIcon>
+                                                    </Menu.Target>
+                                                    <Menu.Dropdown>
+                                                        <Menu.Item
+                                                            color="red"
+                                                            leftSection={<IconTrash size={16} />}
+                                                            onClick={() => handleDeleteRow(tab.id, idx)}
+                                                        >
+                                                            Delete
+                                                        </Menu.Item>
+                                                    </Menu.Dropdown>
+                                                </Menu>
                                             </Group>
-                                        ) : (
-                                            <Button size="xs" variant="light" color="violet" onClick={() => handleAddRow(tab.id)}>
-                                                + Add Row
+                                        );
+                                    })}
+                                    {addingRowFor === tab.id ? (
+                                        <Group>
+                                            <TextInput
+                                                value={newRowValue}
+                                                onChange={e => setNewRowValue(e.currentTarget.value)}
+                                                placeholder="Enter row text"
+                                                autoFocus
+                                                style={{ flex: 1 }}
+                                            />
+                                            <Button size="xs" color="violet" onClick={() => handleSaveRow(tab.id)} loading={savingRow} style={{ background: 'linear-gradient(90deg, #232b4d 0%, #3a2e5d 100%)', color: '#fff', fontWeight: 700, borderRadius: 12 }}>
+                                                Save
                                             </Button>
-                                        )}
-                                    </Stack>
-                                </Box>
-                            </Tabs.Panel>
-                        ))}
-                        <Tabs.Panel value="templates" pt="md">
-                            <Box>
-                                <Text c="dimmed">Templates tab content coming soon!</Text>
+                                            <Button size="xs" variant="default" onClick={handleCancelRow} disabled={savingRow} style={{ background: 'rgba(35,43,77,0.18)', color: '#b0b7ff', fontWeight: 600, borderRadius: 12 }}>
+                                                Cancel
+                                            </Button>
+                                        </Group>
+                                    ) : (
+                                        <Button
+                                            size="xs"
+                                            variant="light"
+                                            color="violet"
+                                            onClick={() => handleAddRow(tab.id)}
+                                            style={{ background: 'rgba(35,43,77,0.18)', color: '#b0b7ff', fontWeight: 600, borderRadius: 12 }}
+                                        >
+                                            + Add Row
+                                        </Button>
+                                    )}
+                                </Stack>
                             </Box>
                         </Tabs.Panel>
-                        <Tabs.Panel value="members" pt="md">
-                            <Stack>
-                                <Title order={4} mb="xs">Members</Title>
-                                {Array.isArray(project.members) && project.members.length > 0 ? (
-                                    project.members.map((email: string, idx: number) => (
-                                        <Group key={email + idx} justify="space-between" align="center" wrap="nowrap">
-                                            <Group align="center" gap={8}>
-                                                <Avatar radius="xl" color="violet" size={32}>
-                                                    {getInitials(email)}
-                                                </Avatar>
-                                                <Text c="violet.8">{email}</Text>
-                                            </Group>
-                                            <Menu shadow="md" width={140} position="bottom-end">
-                                                <Menu.Target>
-                                                    <ActionIcon variant="subtle" color="gray" size={28}>
-                                                        <IconDots size={18} />
-                                                    </ActionIcon>
-                                                </Menu.Target>
-                                                <Menu.Dropdown>
-                                                    <Menu.Item
-                                                        color="red"
-                                                        leftSection={<IconTrash size={16} />}
-                                                        onClick={() => handleRemoveMember(email)}
-                                                        disabled={project.members.length <= 1}
-                                                    >
-                                                        Remove
-                                                    </Menu.Item>
-                                                </Menu.Dropdown>
-                                            </Menu>
+                    ))}
+                    <Tabs.Panel value="templates" pt="md">
+                        <Box>
+                            <Text c="dimmed">Templates tab content coming soon!</Text>
+                        </Box>
+                    </Tabs.Panel>
+                    <Tabs.Panel value="members" pt="md">
+                        <Stack>
+                            <Title order={4} mb="xs">Members</Title>
+                            {Array.isArray(project.members) && project.members.length > 0 ? (
+                                project.members.map((email: string, idx: number) => (
+                                    <Group key={email + idx} justify="space-between" align="center" wrap="nowrap">
+                                        <Group align="center" gap={8}>
+                                            <Avatar radius="xl" color="violet" size={32}>
+                                                {getInitials(email)}
+                                            </Avatar>
+                                            <Text c="violet.8">{email}</Text>
+                                        </Group>
+                                        <Menu shadow="md" width={140} position="bottom-end">
+                                            <Menu.Target>
+                                                <ActionIcon variant="subtle" color="gray" size={28}>
+                                                    <IconDots size={18} />
+                                                </ActionIcon>
+                                            </Menu.Target>
+                                            <Menu.Dropdown>
+                                                <Menu.Item
+                                                    color="red"
+                                                    leftSection={<IconTrash size={16} />}
+                                                    onClick={() => handleRemoveMember(email)}
+                                                    disabled={project.members.length <= 1}
+                                                >
+                                                    Remove
+                                                </Menu.Item>
+                                            </Menu.Dropdown>
+                                        </Menu>
+                                    </Group>
+                                ))
+                            ) : (
+                                <Text c="dimmed">No members yet.</Text>
+                            )}
+                            <Group mt="md">
+                                <TextInput
+                                    placeholder="Add member by email"
+                                    value={newMemberEmail}
+                                    onChange={(e) => setNewMemberEmail(e.currentTarget.value)}
+                                    disabled={adding}
+                                />
+                                <Button onClick={handleAddMember} loading={adding} disabled={!newMemberEmail}>
+                                    Add
+                                </Button>
+                            </Group>
+                        </Stack>
+                    </Tabs.Panel>
+                    <Tabs.Panel value="chat" pt="md">
+                        <Box style={{ maxWidth: 600, margin: "0 auto" }}>
+                            <Title order={4}>Project Chat</Title>
+                            <Stack spacing="xs" style={{ minHeight: 320, maxHeight: 400, overflowY: "auto", background: "#f8fafc", borderRadius: 8, padding: 12, border: "1px solid #eee" }}>
+                                {chatMessages.length === 0 ? (
+                                    <Text c="dimmed" ta="center">No messages yet. Start the conversation!</Text>
+                                ) : (
+                                    chatMessages.map((msg, idx) => (
+                                        <Group key={msg.id} align="flex-end" style={{ justifyContent: msg.sender === userName ? "flex-end" : "flex-start" }}>
+                                            <Avatar radius="xl" color={msg.sender === "ai" ? "blue" : "violet"} size={32}>
+                                                {msg.sender === "ai" ? <IconRobot size={18} /> : getInitials(msg.senderName)}
+                                            </Avatar>
+                                            <Paper shadow="xs" p="sm" radius="md" style={{ background: '#232b4d', color: '#b0b7ff', minWidth: 80, maxWidth: 360 }}>
+                                                <Text size="sm" fw={msg.sender === "ai" ? 600 : 500} style={{ wordBreak: "break-word" }}>{msg.content}</Text>
+                                                <Group gap={4} mt={4} align="center">
+                                                    <Text size="xs" c="dimmed">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+                                                    {msg.reactions && msg.reactions.length > 0 && (
+                                                        <Group gap={2}>
+                                                            {msg.reactions.map((emoji: string, i: number) => (
+                                                                <span key={i} style={{ fontSize: 16 }}>{emoji}</span>
+                                                            ))}
+                                                        </Group>
+                                                    )}
+                                                    <ActionIcon size="xs" variant="subtle" onClick={() => addReaction(msg.id, "👍")}>👍</ActionIcon>
+                                                    <ActionIcon size="xs" variant="subtle" onClick={() => addReaction(msg.id, "😂")}>😂</ActionIcon>
+                                                    <ActionIcon size="xs" variant="subtle" onClick={() => addReaction(msg.id, "🎉")}>🎉</ActionIcon>
+                                                </Group>
+                                            </Paper>
                                         </Group>
                                     ))
-                                ) : (
-                                    <Text c="dimmed">No members yet.</Text>
                                 )}
-                                <Group mt="md">
-                                    <TextInput
-                                        placeholder="Add member by email"
-                                        value={newMemberEmail}
-                                        onChange={(e) => setNewMemberEmail(e.currentTarget.value)}
-                                        disabled={adding}
-                                    />
-                                    <Button onClick={handleAddMember} loading={adding} disabled={!newMemberEmail}>
-                                        Add
-                                    </Button>
-                                </Group>
+                                <div ref={chatEndRef} />
                             </Stack>
-                        </Tabs.Panel>
-                        <Tabs.Panel value="chat" pt="md">
-                            <Box style={{ maxWidth: 600, margin: "0 auto" }}>
-                                <Title order={4}>Project Chat</Title>
-                                <Stack spacing="xs" style={{ minHeight: 320, maxHeight: 400, overflowY: "auto", background: "#f8fafc", borderRadius: 8, padding: 12, border: "1px solid #eee" }}>
-                                    {chatMessages.length === 0 ? (
-                                        <Text c="dimmed" ta="center">No messages yet. Start the conversation!</Text>
-                                    ) : (
-                                        chatMessages.map((msg, idx) => (
-                                            <Group key={msg.id} align="flex-end" style={{ justifyContent: msg.sender === userName ? "flex-end" : "flex-start" }}>
-                                                <Avatar radius="xl" color={msg.sender === "ai" ? "blue" : "violet"} size={32}>
-                                                    {msg.sender === "ai" ? <IconRobot size={18} /> : getInitials(msg.senderName)}
-                                                </Avatar>
-                                                <Paper shadow="xs" p="sm" radius="md" style={{ background: msg.sender === "ai" ? "#e0e7ff" : "white", minWidth: 80, maxWidth: 360 }}>
-                                                    <Text size="sm" fw={msg.sender === "ai" ? 600 : 500} style={{ wordBreak: "break-word" }}>{msg.content}</Text>
-                                                    <Group gap={4} mt={4} align="center">
-                                                        <Text size="xs" c="dimmed">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
-                                                        {msg.reactions && msg.reactions.length > 0 && (
-                                                            <Group gap={2}>
-                                                                {msg.reactions.map((emoji: string, i: number) => (
-                                                                    <span key={i} style={{ fontSize: 16 }}>{emoji}</span>
-                                                                ))}
-                                                            </Group>
-                                                        )}
-                                                        <ActionIcon size="xs" variant="subtle" onClick={() => addReaction(msg.id, "👍")}>👍</ActionIcon>
-                                                        <ActionIcon size="xs" variant="subtle" onClick={() => addReaction(msg.id, "😂")}>😂</ActionIcon>
-                                                        <ActionIcon size="xs" variant="subtle" onClick={() => addReaction(msg.id, "🎉")}>🎉</ActionIcon>
-                                                    </Group>
-                                                </Paper>
-                                            </Group>
-                                        ))
-                                    )}
-                                    <div ref={chatEndRef} />
-                                </Stack>
-                                <Group mt="md" align="flex-end">
-                                    <TextInput
-                                        placeholder="Type a message... or use /ai to ask the AI assistant"
-                                        value={chatInput}
-                                        onChange={e => setChatInput(e.currentTarget.value)}
-                                        onKeyDown={e => {
-                                            if (e.key === "Enter" && !e.shiftKey) {
-                                                sendMessage(chatInput);
-                                            }
-                                        }}
-                                        style={{ flex: 1 }}
-                                        disabled={sending || aiThinking}
-                                    />
-                                    <ActionIcon variant="light" color="blue" size={36} component="label" title="Upload file">
-                                        <IconFile size={20} />
-                                        <input type="file" style={{ display: "none" }} onChange={handleFileUpload} />
-                                    </ActionIcon>
-                                    <ActionIcon variant="filled" color="violet" size={36} onClick={() => sendMessage(chatInput)} loading={sending || aiThinking} disabled={!chatInput.trim()} title="Send">
-                                        <IconSend size={20} />
-                                    </ActionIcon>
-                                    <ActionIcon variant="light" color="blue" size={36} onClick={() => sendMessage(`/ai ${chatInput}`)} loading={aiThinking} title="Ask AI">
-                                        <IconRobot size={20} />
-                                    </ActionIcon>
-                                </Group>
-                            </Box>
-                        </Tabs.Panel>
-                    </Tabs>
-                    <ActionIcon
-                        variant="light"
-                        color="gray"
-                        size={36}
-                        onClick={() => setSettingsOpened(true)}
-                        title="Project Settings"
-                        style={{ marginLeft: rem(12) }}
-                    >
-                        <IconSettings size={22} />
-                    </ActionIcon>
-                </Group>
-            </Container>
+                            <Group mt="md" align="flex-end">
+                                <TextInput
+                                    placeholder="Type a message... or use /ai to ask the AI assistant"
+                                    value={chatInput}
+                                    onChange={e => setChatInput(e.currentTarget.value)}
+                                    onKeyDown={e => {
+                                        if (e.key === "Enter" && !e.shiftKey) {
+                                            sendMessage(chatInput);
+                                        }
+                                    }}
+                                    style={{ flex: 1 }}
+                                    disabled={sending || aiThinking}
+                                />
+                                <ActionIcon variant="light" color="blue" size={36} component="label" title="Upload file">
+                                    <IconFile size={20} />
+                                    <input type="file" style={{ display: "none" }} onChange={handleFileUpload} />
+                                </ActionIcon>
+                                <ActionIcon variant="filled" color="violet" size={36} onClick={() => sendMessage(chatInput)} loading={sending || aiThinking} disabled={!chatInput.trim()} title="Send">
+                                    <IconSend size={20} />
+                                </ActionIcon>
+                                <ActionIcon variant="light" color="blue" size={36} onClick={() => sendMessage(`/ai ${chatInput}`)} loading={aiThinking} title="Ask AI">
+                                    <IconRobot size={20} />
+                                </ActionIcon>
+                            </Group>
+                        </Box>
+                    </Tabs.Panel>
+                </Container>
+            </Box>
         </>
     );
 } 

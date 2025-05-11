@@ -15,6 +15,7 @@ import {
 import { showNotification } from "@mantine/notifications";
 import { IconSparkles } from "@tabler/icons-react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 async function encryptPassword(password: string): Promise<string> {
     const salt = window.crypto.getRandomValues(new Uint8Array(16));
@@ -107,43 +108,62 @@ export default function SignupPage() {
     };
 
     return (
-        <Box style={{ minHeight: "100vh", background: "linear-gradient(135deg, #f8fafc 0%, #e0e7ff 100%)" }}>
-            <Center style={{ minHeight: "100vh" }}>
-                <Paper shadow="xl" radius="lg" p={32} withBorder style={{ minWidth: 350, maxWidth: 400, width: "100%" }}>
-                    <Stack align="center" mb="md">
-                        <IconSparkles size={40} color="#7950f2" />
-                        <Title order={2} style={{ fontWeight: 800, letterSpacing: -1 }}>Sign Up for SparkPad</Title>
-                        <Text c="dimmed" size="sm" ta="center">
-                            Create your account to start sparking ideas!
-                        </Text>
-                    </Stack>
+        <Box style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #181c2b 0%, #23243a 100%)', position: 'relative', overflow: 'hidden' }}>
+            {/* Futuristic Glow Overlay */}
+            <div style={{
+                position: 'absolute',
+                top: 0, left: 0, right: 0, bottom: 0,
+                pointerEvents: 'none',
+                zIndex: 0,
+                background: 'radial-gradient(circle at 80% 20%, #3a2e5d44 0%, transparent 60%), radial-gradient(circle at 20% 80%, #232b4d44 0%, transparent 60%)',
+                filter: 'blur(48px)',
+            }} />
+            <Center style={{ minHeight: '100vh', zIndex: 1 }}>
+                <Paper shadow="md" p={32} radius={32} withBorder style={{ background: 'rgba(24,28,43,0.92)', border: '1.5px solid #3a2e5d44', boxShadow: '0 8px 32px 0 #232b4d44', color: '#fff', maxWidth: 400, width: '100%', backdropFilter: 'blur(16px)' }}>
+                    <Group justify="center" mb={24}>
+                        <IconSparkles size={36} color="#7f5fff" />
+                        <Title order={2} style={{ color: '#fff', fontWeight: 800, letterSpacing: 1 }}>Create Account</Title>
+                    </Group>
+                    <Text c="#b0b7ff" size="md" ta="center" mb={24}>
+                        Join the future of collaboration
+                    </Text>
                     <form onSubmit={handleSubmit}>
-                        <Stack>
+                        <Stack gap={16}>
+                            <TextInput
+                                label="Name"
+                                value={name}
+                                onChange={(e) => setName(e.currentTarget.value)}
+                                required
+                                size="md"
+                                style={{ background: 'rgba(35,43,77,0.18)', color: '#b0b7ff', borderRadius: 12 }}
+                            />
                             <TextInput
                                 label="Email"
-                                placeholder="you@email.com"
                                 value={email}
                                 onChange={(e) => setEmail(e.currentTarget.value)}
                                 required
-                                autoComplete="email"
                                 size="md"
-                                radius="md"
+                                style={{ background: 'rgba(35,43,77,0.18)', color: '#b0b7ff', borderRadius: 12 }}
                             />
                             <PasswordInput
                                 label="Password"
-                                placeholder="Your password"
                                 value={password}
                                 onChange={(e) => setPassword(e.currentTarget.value)}
                                 required
-                                autoComplete="new-password"
                                 size="md"
-                                radius="md"
+                                style={{ background: 'rgba(35,43,77,0.18)', color: '#b0b7ff', borderRadius: 12 }}
                             />
-                            <Button type="submit" loading={loading} size="md" radius="md" fullWidth gradient={{ from: 'indigo', to: 'violet', deg: 90 }}>
-                                Register
+                            <Button type="submit" fullWidth size="md" variant="gradient" gradient={{ from: '#232b4d', to: '#3a2e5d', deg: 90 }} style={{ fontWeight: 700, color: '#fff', borderRadius: 16, boxShadow: '0 2px 16px #232b4d44' }} loading={loading}>
+                                Sign Up
                             </Button>
                         </Stack>
                     </form>
+                    <Group justify="center" mt={24}>
+                        <Text c="#b0b7ff" size="sm">Already have an account?</Text>
+                        <Button component={Link} href="/login" variant="subtle" size="sm" style={{ color: '#7f5fff', fontWeight: 700, borderRadius: 12 }}>
+                            Sign In
+                        </Button>
+                    </Group>
                 </Paper>
             </Center>
         </Box>

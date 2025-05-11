@@ -1,10 +1,13 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Container, Group, Button, Title, Box, Text, Modal, TextInput, Card, Stack, Loader } from "@mantine/core";
+import { Container, Group, Button, Title, Box, Text, Modal, TextInput, Card, Stack, Loader, Badge } from "@mantine/core";
 import { showNotification } from "@mantine/notifications";
 import Link from "next/link";
 import { NavigationBar } from "@/components/NavigationBar";
+import { IconRocket, IconUserPlus, IconBell, IconSearch, IconStar, IconRobot, IconUsersGroup, IconSparkles } from "@tabler/icons-react";
+import { Carousel } from '@mantine/carousel';
+import '@mantine/carousel/styles.css';
 
 export default function Home() {
   const router = useRouter();
@@ -14,8 +17,19 @@ export default function Home() {
   const [projects, setProjects] = useState<any[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectModal, setProjectModal] = useState(false);
+  const [inviteModal, setInviteModal] = useState(false);
+  const [searchModal, setSearchModal] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteProjectId, setInviteProjectId] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [invitingMember, setInvitingMember] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
+  const [newProjectDescription, setNewProjectDescription] = useState("");
+  const [newProjectStatus, setNewProjectStatus] = useState<'active' | 'archived' | 'completed'>('active');
+  const [newProjectTags, setNewProjectTags] = useState("");
   const [creatingProject, setCreatingProject] = useState(false);
+  const [activityFeed, setActivityFeed] = useState<any[]>([]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -90,11 +104,12 @@ export default function Home() {
       // Add new project with members array
       const newProject = {
         id: Date.now().toString(),
-        name: newProjectName,
-        members: [userEmail],
+        name: newProjectName.trim(),
+        description: newProjectDescription.trim(),
+        status: newProjectStatus,
+        tags: newProjectTags.split(",").map(tag => tag.trim()).filter(Boolean),
         createdAt: new Date().toISOString(),
-        status: 'active',
-        tags: []
+        members: [userEmail],
       };
       const updatedProjects = [...projectsArr, newProject];
       // Store updated array
@@ -106,6 +121,9 @@ export default function Home() {
       showNotification({ title: "Success", message: "Project created!", color: "green" });
       setProjectModal(false);
       setNewProjectName("");
+      setNewProjectDescription("");
+      setNewProjectStatus("active");
+      setNewProjectTags("");
       fetchProjects();
     } catch (err: any) {
       showNotification({ title: "Error", message: err.message || "Failed to create project", color: "red" });
@@ -114,9 +132,210 @@ export default function Home() {
     }
   };
 
+  const handleInviteMember = async () => {
+    if (!inviteEmail || !inviteProjectId) {
+      showNotification({ title: "Error", message: "Please fill in all fields", color: "red" });
+      return;
+    }
+
+    setInvitingMember(true);
+    try {
+      const userEmail = localStorage.getItem("user:username");
+      if (!userEmail) {
+        router.replace("/login");
+        return;
+      }
+
+      // Fetch current projects array
+      const resGet = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`);
+      if (!resGet.ok) throw new Error("Failed to fetch projects");
+      
+      const projectsArr = await resGet.json();
+      const projectIndex = projectsArr.findIndex((p: any) => p.id === inviteProjectId);
+      
+      if (projectIndex === -1) {
+        throw new Error("Project not found");
+      }
+
+      // Add new member if not already a member
+      if (!projectsArr[projectIndex].members.includes(inviteEmail)) {
+        projectsArr[projectIndex].members.push(inviteEmail);
+        
+        // Update projects
+        const resSet = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`, {
+          method: "POST",
+          body: JSON.stringify(projectsArr),
+        });
+
+        if (!resSet.ok) throw new Error("Failed to invite member");
+        
+        showNotification({ title: "Success", message: "Member invited successfully!", color: "green" });
+        setInviteModal(false);
+        setInviteEmail("");
+        setInviteProjectId("");
+        fetchProjects();
+      } else {
+        showNotification({ title: "Info", message: "User is already a member of this project", color: "blue" });
+      }
+    } catch (err: any) {
+      showNotification({ title: "Error", message: err.message || "Failed to invite member", color: "red" });
+    } finally {
+      setInvitingMember(false);
+    }
+  };
+
+  const handleSearchProjects = () => {
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    const query = searchQuery.toLowerCase();
+    const results = projects.filter(project => 
+      project.name.toLowerCase().includes(query) ||
+      project.description.toLowerCase().includes(query) ||
+      project.tags.some((tag: string) => tag.toLowerCase().includes(query))
+    );
+    setSearchResults(results);
+  };
+
+  useEffect(() => {
+    handleSearchProjects();
+  }, [searchQuery]);
+
+  // Example: Simulate activity feed (replace with real data in production)
+  useEffect(() => {
+    setActivityFeed([
+      { type: 'project', message: 'You created "AI Research Hub"', time: '2m ago', icon: <IconRocket size={18} color="#00f0ff" /> },
+      { type: 'member', message: 'Invited Jane Doe to "Design Sprint"', time: '10m ago', icon: <IconUserPlus size={18} color="#ff00e0" /> },
+      { type: 'ai', message: 'AI Assistant suggested a new template', time: '1h ago', icon: <IconRobot size={18} color="#00ffae" /> },
+      { type: 'star', message: 'You starred "Quantum Project"', time: '3h ago', icon: <IconStar size={18} color="#ffe600" /> },
+    ]);
+  }, []);
+
+  // Calculate stats
+  const totalProjects = projects.length;
+  const activeProjects = projects.filter((p) => p.status === 'active').length;
+  const completedProjects = projects.filter((p) => p.status === 'completed').length;
+  const teamMembers = Array.from(new Set(projects.flatMap(p => Array.isArray(p.members) ? p.members : []))).length;
+
   return (
-    <Box style={{ minHeight: "100vh", background: "linear-gradient(135deg, #f8fafc 0%, #e0e7ff 100%)" }}>
+    <Box style={{ minHeight: "100vh", background: "linear-gradient(135deg, #181c2b 0%, #23243a 100%)", position: 'relative', overflow: 'hidden' }}>
+      {/* Futuristic Glow Overlay */}
+      <div style={{
+        position: 'absolute',
+        top: 0, left: 0, right: 0, bottom: 0,
+        pointerEvents: 'none',
+        zIndex: 0,
+        background: 'radial-gradient(circle at 80% 20%, #3a2e5d44 0%, transparent 60%), radial-gradient(circle at 20% 80%, #232b4d44 0%, transparent 60%)',
+        filter: 'blur(48px)',
+      }} />
       <NavigationBar userName={userName} onLogout={handleLogout} />
+      {/* Welcome Banner */}
+      <Box style={{
+        margin: '0 auto',
+        marginTop: 40,
+        marginBottom: 32,
+        maxWidth: 700,
+        padding: 32,
+        borderRadius: 32,
+        background: 'rgba(24,28,43,0.85)',
+        boxShadow: '0 8px 32px 0 #232b4d44',
+        border: '1.5px solid #3a2e5d77',
+        backdropFilter: 'blur(16px)',
+        textAlign: 'center',
+        position: 'relative',
+        zIndex: 1
+      }}>
+        <Group justify="center" align="center" gap={8}>
+          <IconSparkles size={32} color="#7f5fff" />
+          <Title order={2} style={{ color: '#fff', fontWeight: 800, letterSpacing: 1 }}>Welcome{userName ? `, ${userName}` : ''} to SparkPad</Title>
+        </Group>
+        <Text mt="sm" c="#b0b7ff" size="lg" style={{ fontWeight: 500, letterSpacing: 0.5 }}>
+          Your futuristic AI workspace for collaborative innovation.
+        </Text>
+      </Box>
+      {/* Quick Actions */}
+      <Group justify="center" gap={24} mb={32}>
+        <Button leftSection={<IconRocket size={18} />} variant="gradient" gradient={{ from: '#232b4d', to: '#3a2e5d', deg: 90 }} size="md" radius="xl" style={{ fontWeight: 700, boxShadow: '0 2px 16px #232b4d44', color: '#fff' }} onClick={() => setProjectModal(true)}>
+          New Project
+        </Button>
+        <Button leftSection={<IconUserPlus size={18} />} variant="gradient" gradient={{ from: '#3a2e5d', to: '#232b4d', deg: 90 }} size="md" radius="xl" style={{ fontWeight: 700, boxShadow: '0 2px 16px #3a2e5d44', color: '#fff' }} onClick={() => setInviteModal(true)}>
+          Invite Member
+        </Button>
+        <Button leftSection={<IconSearch size={18} />} variant="gradient" gradient={{ from: '#232b4d', to: '#181c2b', deg: 90 }} size="md" radius="xl" style={{ fontWeight: 700, boxShadow: '0 2px 16px #181c2b44', color: '#fff' }} onClick={() => setSearchModal(true)}>
+          Search Projects
+        </Button>
+      </Group>
+      {/* Stats Cards */}
+      <Group justify="center" gap={32} mb={40}>
+        <Box style={{ minWidth: 180, borderRadius: 24, background: 'rgba(35,43,77,0.18)', border: '1.5px solid #3a2e5d77', boxShadow: '0 2px 16px #232b4d22', padding: 24, textAlign: 'center', color: '#7f5fff', backdropFilter: 'blur(8px)' }}>
+          <IconRocket size={32} color="#7f5fff" />
+          <Title order={3} style={{ color: '#7f5fff', fontWeight: 700 }}>{totalProjects}</Title>
+          <Text size="sm" c="#b0b7ff">Total Projects</Text>
+        </Box>
+        <Box style={{ minWidth: 180, borderRadius: 24, background: 'rgba(58,46,93,0.18)', border: '1.5px solid #7f5fff77', boxShadow: '0 2px 16px #3a2e5d22', padding: 24, textAlign: 'center', color: '#b0b7ff', backdropFilter: 'blur(8px)' }}>
+          <IconBell size={32} color="#b0b7ff" />
+          <Title order={3} style={{ color: '#b0b7ff', fontWeight: 700 }}>{activeProjects}</Title>
+          <Text size="sm" c="#b0b7ff">Active Projects</Text>
+        </Box>
+        <Box style={{ minWidth: 180, borderRadius: 24, background: 'rgba(127,95,255,0.18)', border: '1.5px solid #7f5fff77', boxShadow: '0 2px 16px #7f5fff22', padding: 24, textAlign: 'center', color: '#fff7b0', backdropFilter: 'blur(8px)' }}>
+          <IconStar size={32} color="#fff7b0" />
+          <Title order={3} style={{ color: '#fff7b0', fontWeight: 700 }}>{completedProjects}</Title>
+          <Text size="sm" c="#fff7b0">Completed</Text>
+        </Box>
+        <Box style={{ minWidth: 180, borderRadius: 24, background: 'rgba(24,28,43,0.18)', border: '1.5px solid #3a2e5d77', boxShadow: '0 2px 16px #232b4d22', padding: 24, textAlign: 'center', color: '#b0fff7', backdropFilter: 'blur(8px)' }}>
+          <IconUsersGroup size={32} color="#b0fff7" />
+          <Title order={3} style={{ color: '#b0fff7', fontWeight: 700 }}>{teamMembers}</Title>
+          <Text size="sm" c="#b0fff7">Team Members</Text>
+        </Box>
+      </Group>
+      {/* Recent Projects Carousel */}
+      <Box mb={40} style={{ maxWidth: 900, margin: '0 auto', zIndex: 1, position: 'relative' }}>
+        <Title order={4} mb={16} style={{ color: '#fff', fontWeight: 700, letterSpacing: 1 }}>Recent Projects</Title>
+        {projects.length === 0 ? (
+          <Text c="#b0b7ff" ta="center">No projects yet. Start your first project!</Text>
+        ) : (
+          <Carousel slideSize="33.3333%" height={180} slideGap="md">
+            {(projects.slice(-6).reverse() || []).map((project, idx) => (
+              <Carousel.Slide key={project.id || idx}>
+                <Card shadow="md" p="lg" radius="lg" withBorder style={{ background: 'rgba(24,28,43,0.92)', border: '1.5px solid #3a2e5d44', color: '#fff', minHeight: 160, display: 'flex', flexDirection: 'column', justifyContent: 'center', cursor: 'pointer', transition: 'box-shadow 0.2s', boxShadow: '0 2px 16px #232b4d22' }}>
+                  <Group justify="space-between" align="center">
+                    <Text fw={700} size="lg" style={{ color: '#7f5fff' }}>{project.name || "Untitled Project"}</Text>
+                    <IconStar size={20} color="#fff7b0" style={{ filter: 'drop-shadow(0 0 6px #fff7b088)' }} />
+                  </Group>
+                  <Text size="sm" c="#b0b7ff" mt={8} mb={8} lineClamp={2}>{project.description || "No description."}</Text>
+                  <Group gap={6} mt={8}>
+                    {(project.tags || []).map((tag: string, i: number) => (
+                      <Badge key={i} color="violet" variant="light" size="xs">{tag}</Badge>
+                    ))}
+                  </Group>
+                  <Button mt={16} variant="gradient" gradient={{ from: '#232b4d', to: '#3a2e5d', deg: 90 }} size="xs" radius="xl" style={{ fontWeight: 700, color: '#fff' }} component={Link} href={`/projects/${project.id}`}>
+                    Open Project
+                  </Button>
+                </Card>
+              </Carousel.Slide>
+            ))}
+          </Carousel>
+        )}
+      </Box>
+      {/* Activity Feed */}
+      <Box mb={40} style={{ maxWidth: 700, margin: '0 auto', zIndex: 1, position: 'relative', background: 'rgba(24,28,43,0.85)', borderRadius: 24, border: '1.5px solid #3a2e5d44', boxShadow: '0 2px 16px #232b4d22', padding: 24 }}>
+        <Title order={4} mb={16} style={{ color: '#fff', fontWeight: 700, letterSpacing: 1 }}>Activity Feed</Title>
+        {activityFeed.length === 0 ? (
+          <Text c="#b0b7ff" ta="center">No recent activity.</Text>
+        ) : (
+          <Stack gap={12}>
+            {activityFeed.map((item, idx) => (
+              <Group key={idx} gap={10} align="center">
+                {item.icon}
+                <Text size="sm" c="#b0b7ff">{item.message}</Text>
+                <Text size="xs" c="#7f5fff" ml="auto">{item.time}</Text>
+              </Group>
+            ))}
+          </Stack>
+        )}
+      </Box>
       {/* Project Create Modal */}
       <Modal opened={projectModal} onClose={() => setProjectModal(false)} title="Create Project" centered>
         <TextInput
@@ -125,31 +344,149 @@ export default function Home() {
           onChange={(e) => setNewProjectName(e.currentTarget.value)}
           mb="md"
         />
+        <TextInput
+          label="Description"
+          value={newProjectDescription}
+          onChange={(e) => setNewProjectDescription(e.currentTarget.value)}
+          mb="md"
+        />
+        <TextInput
+          label="Tags (comma-separated)"
+          value={newProjectTags}
+          onChange={(e) => setNewProjectTags(e.currentTarget.value)}
+          mb="md"
+          placeholder="e.g. web, design, marketing"
+        />
+        <select
+          value={newProjectStatus}
+          onChange={e => setNewProjectStatus(e.target.value as 'active' | 'archived' | 'completed')}
+          style={{ width: '100%', marginBottom: 16, padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
+        >
+          <option value="active">Active</option>
+          <option value="archived">Archived</option>
+          <option value="completed">Completed</option>
+        </select>
         <Button onClick={handleCreateProject} loading={creatingProject} fullWidth>
           Create
         </Button>
       </Modal>
-      <Container size="lg" mt={40}>
-        <Title order={2} mb="md">Welcome to SparkPad!</Title>
-        <Button mb="md" onClick={() => setProjectModal(true)} color="violet">
-          + New Project
-        </Button>
-        {projectsLoading ? (
-          <Loader mt="md" />
-        ) : projects.length === 0 ? (
-          <Text mt="md" c="dimmed">No projects found.</Text>
-        ) : (
-          <Stack mt="md">
-            {projects.map((project, idx) => (
-              <Link href={`/projects/${project.id}`} style={{ textDecoration: "none" }} key={project.id || idx}>
-                <Card shadow="sm" p="md" radius="md" withBorder style={{ cursor: "pointer", transition: "box-shadow 0.2s", marginBottom: 8 }}>
-                  <Text fw={600} c="violet.8">{project.name || "Untitled Project"}</Text>
-                </Card>
-              </Link>
+      {/* Invite Member Modal */}
+      <Modal
+        opened={inviteModal}
+        onClose={() => setInviteModal(false)}
+        title="Invite Team Member"
+        centered
+        size="md"
+        styles={{
+          title: { color: '#fff', fontWeight: 700 },
+          header: { background: 'rgba(24,28,43,0.95)' },
+          body: { background: 'rgba(24,28,43,0.95)' },
+        }}
+      >
+        <Stack>
+          <TextInput
+            label="Member Email"
+            placeholder="Enter member's email"
+            value={inviteEmail}
+            onChange={(e) => setInviteEmail(e.target.value)}
+            styles={{
+              label: { color: '#b0b7ff' },
+              input: { background: 'rgba(35,43,77,0.3)', borderColor: '#3a2e5d77', color: '#fff' },
+            }}
+          />
+          <select
+            value={inviteProjectId}
+            onChange={(e) => setInviteProjectId(e.target.value)}
+            style={{
+              background: 'rgba(35,43,77,0.3)',
+              border: '1px solid #3a2e5d77',
+              borderRadius: '4px',
+              padding: '8px 12px',
+              color: '#fff',
+              width: '100%',
+            }}
+          >
+            <option value="">Select Project</option>
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
             ))}
-          </Stack>
-        )}
-      </Container>
+          </select>
+          <Button
+            onClick={handleInviteMember}
+            loading={invitingMember}
+            variant="gradient"
+            gradient={{ from: '#3a2e5d', to: '#232b4d', deg: 90 }}
+            fullWidth
+          >
+            Invite Member
+          </Button>
+        </Stack>
+      </Modal>
+      {/* Search Projects Modal */}
+      <Modal
+        opened={searchModal}
+        onClose={() => setSearchModal(false)}
+        title="Search Projects"
+        centered
+        size="lg"
+        styles={{
+          title: { color: '#fff', fontWeight: 700 },
+          header: { background: 'rgba(24,28,43,0.95)' },
+          body: { background: 'rgba(24,28,43,0.95)' },
+        }}
+      >
+        <Stack>
+          <TextInput
+            placeholder="Search by project name, description, or tags..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            styles={{
+              input: { background: 'rgba(35,43,77,0.3)', borderColor: '#3a2e5d77', color: '#fff' },
+            }}
+          />
+          <Box>
+            {searchResults.length > 0 ? (
+              <Stack>
+                {searchResults.map((project) => (
+                  <Card
+                    key={project.id}
+                    style={{
+                      background: 'rgba(35,43,77,0.3)',
+                      border: '1px solid #3a2e5d77',
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => {
+                      router.push(`/projects/${project.id}`);
+                      setSearchModal(false);
+                    }}
+                  >
+                    <Group justify="space-between">
+                      <Box>
+                        <Text fw={700} c="#fff">{project.name}</Text>
+                        <Text size="sm" c="#b0b7ff">{project.description}</Text>
+                      </Box>
+                      <Badge color={project.status === 'active' ? 'green' : project.status === 'completed' ? 'blue' : 'gray'}>
+                        {project.status}
+                      </Badge>
+                    </Group>
+                    <Group mt="xs" gap="xs">
+                      {project.tags.map((tag: string) => (
+                        <Badge key={tag} variant="light" color="violet">
+                          {tag}
+                        </Badge>
+                      ))}
+                    </Group>
+                  </Card>
+                ))}
+              </Stack>
+            ) : searchQuery ? (
+              <Text c="#b0b7ff" ta="center">No projects found</Text>
+            ) : null}
+          </Box>
+        </Stack>
+      </Modal>
     </Box>
   );
 }

@@ -288,9 +288,14 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
     return (
         <>
             <Group justify="space-between" align="center" p="md" style={{
-                borderBottom: '1px solid #eee',
-                background: 'linear-gradient(135deg, #f8fafc 0%, #e0e7ff 100%)',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                borderBottom: '1px solid #222a44',
+                background: 'linear-gradient(90deg, rgba(18,22,40,0.92) 70%, rgba(40,30,60,0.85) 100%)',
+                boxShadow: '0 4px 24px 0 #1a1a2e77',
+                backdropFilter: 'blur(14px)',
+                borderRadius: '0 0 32px 32px',
+                margin: '0 0 24px 0',
+                zIndex: 10,
+                position: 'relative',
             }}>
                 <Group>
                     {/* Navigation Tabs */}
@@ -301,6 +306,15 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                             variant={pathname === "/" ? "filled" : "subtle"}
                             color="violet"
                             size="sm"
+                            style={{
+                                background: pathname === "/" ? 'linear-gradient(90deg, #232b4d 0%, #3a2e5d 100%)' : undefined,
+                                color: pathname === "/" ? '#fff' : undefined,
+                                boxShadow: pathname === "/" ? '0 2px 12px #232b4d88' : undefined,
+                                borderRadius: 16,
+                                fontWeight: 700,
+                                letterSpacing: 0.5,
+                                border: pathname === "/" ? '1.5px solid #4f5b93' : undefined
+                            }}
                         >
                             Dashboard
                         </Button>
@@ -310,6 +324,15 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                             variant={pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? "filled" : "subtle"}
                             color="violet"
                             size="sm"
+                            style={{
+                                background: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? 'linear-gradient(90deg, #2e254d 0%, #1a1a2e 100%)' : undefined,
+                                color: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '#fff' : undefined,
+                                boxShadow: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '0 2px 12px #2e254d88' : undefined,
+                                borderRadius: 16,
+                                fontWeight: 700,
+                                letterSpacing: 0.5,
+                                border: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '1.5px solid #4f5b93' : undefined
+                            }}
                         >
                             Projects
                         </Button>
@@ -319,6 +342,15 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                             variant={pathname === "/projects" && pathname.includes("showStats=1") ? "filled" : "subtle"}
                             color="violet"
                             size="sm"
+                            style={{
+                                background: pathname === "/projects" && pathname.includes("showStats=1") ? 'linear-gradient(90deg, #2d3a5d 0%, #232b4d 100%)' : undefined,
+                                color: pathname === "/projects" && pathname.includes("showStats=1") ? '#fff' : undefined,
+                                boxShadow: pathname === "/projects" && pathname.includes("showStats=1") ? '0 2px 12px #2d3a5d88' : undefined,
+                                borderRadius: 16,
+                                fontWeight: 700,
+                                letterSpacing: 0.5,
+                                border: pathname === "/projects" && pathname.includes("showStats=1") ? '1.5px solid #4f5b93' : undefined
+                            }}
                         >
                             Statistics
                         </Button>
@@ -333,28 +365,44 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                         onChange={setNotificationMenuOpened}
                     >
                         <Menu.Target>
-                            <Tooltip label="Notifications">
-                                <ActionIcon variant="subtle" color="gray" size="lg" style={{ position: 'relative' }}>
-                                    <IconBell size={20} />
-                                    {notifications.filter(n => !n.read).length > 0 && (
-                                        <Badge
-                                            size="xs"
-                                            color="red"
-                                            style={{
-                                                position: 'absolute',
-                                                top: -5,
-                                                right: -5,
-                                                padding: '0 4px',
-                                                minWidth: 16,
-                                                height: 16,
-                                                borderRadius: 8,
-                                            }}
-                                        >
-                                            {notifications.filter(n => !n.read).length}
-                                        </Badge>
-                                    )}
-                                </ActionIcon>
-                            </Tooltip>
+                            <ActionIcon
+                                variant="subtle"
+                                color="gray"
+                                size="lg"
+                                style={{
+                                    position: 'relative',
+                                    marginRight: 16,
+                                    marginLeft: 8,
+                                    background: 'transparent',
+                                    zIndex: 2
+                                }}
+                            >
+                                <IconBell size={22} color="#b0b7ff" />
+                                {notifications.filter(n => !n.read).length > 0 && (
+                                    <Badge
+                                        size="sm"
+                                        color="red"
+                                        style={{
+                                            position: 'absolute',
+                                            top: -8,
+                                            right: -8,
+                                            minWidth: 20,
+                                            height: 20,
+                                            borderRadius: 10,
+                                            fontWeight: 700,
+                                            fontSize: 12,
+                                            background: 'linear-gradient(90deg, #ff3b6b 0%, #ffb86b 100%)',
+                                            boxShadow: '0 0 8px #ff3b6b88',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            zIndex: 3
+                                        }}
+                                    >
+                                        {notifications.filter(n => !n.read).length}
+                                    </Badge>
+                                )}
+                            </ActionIcon>
                         </Menu.Target>
                         <Menu.Dropdown>
                             <Menu.Label>
@@ -420,11 +468,11 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                     {userName && (
                         <Menu shadow="md" width={200} position="bottom-end">
                             <Menu.Target>
-                                <Group style={{ cursor: 'pointer' }} gap={8} onClick={handleNameClick}>
-                                    <Avatar radius="xl" color="violet" size={32}>
+                                <Group style={{ cursor: 'pointer', marginLeft: 12, color: '#fff', fontWeight: 600, textShadow: '0 2px 8px #232b4d' }} gap={8} onClick={handleNameClick}>
+                                    <Avatar radius="xl" color="violet" size={32} style={{ boxShadow: '0 0 8px #7f5fff88', border: '2px solid #232b4d' }}>
                                         {getInitials(userName)}
                                     </Avatar>
-                                    <Text size="sm" fw={500}>{userName}</Text>
+                                    <Text size="sm" fw={600} style={{ color: '#fff', marginLeft: 6 }}>{userName}</Text>
                                 </Group>
                             </Menu.Target>
                             <Menu.Dropdown>

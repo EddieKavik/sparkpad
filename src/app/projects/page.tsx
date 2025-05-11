@@ -399,26 +399,39 @@ export default function ProjectsPage() {
     };
 
     return (
-        <div style={{ minHeight: '100vh', background: '#f8fafc' }}>
+        <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #181c2b 0%, #23243a 100%)', position: 'relative', overflow: 'hidden' }}>
+            {/* Futuristic Glow Overlay */}
+            <div style={{
+                position: 'absolute',
+                top: 0, left: 0, right: 0, bottom: 0,
+                pointerEvents: 'none',
+                zIndex: 0,
+                background: 'radial-gradient(circle at 80% 20%, #3a2e5d44 0%, transparent 60%), radial-gradient(circle at 20% 80%, #232b4d44 0%, transparent 60%)',
+                filter: 'blur(48px)',
+            }} />
             <NavigationBar showBackButton />
             <Container size="lg" py="xl">
                 <Group justify="space-between" mb="xl">
                     <div>
-                        <Title order={2}>Projects</Title>
-                        <Text c="dimmed" size="sm">Manage your projects and collaborate with your team</Text>
+                        <Title order={2} style={{ color: '#fff', fontWeight: 800, letterSpacing: 1 }}>Projects</Title>
+                        <Text c="#b0b7ff" size="sm">Manage your projects and collaborate with your team</Text>
                     </div>
                     <Group>
                         <Button
-                            variant="light"
+                            variant="gradient"
+                            gradient={{ from: '#232b4d', to: '#3a2e5d', deg: 90 }}
                             color="violet"
                             leftSection={<IconChartBar size={16} />}
                             onClick={() => setShowStats(!showStats)}
-                            style={{ borderWidth: 2 }}
+                            style={{ borderWidth: 2, fontWeight: 700, color: '#fff', boxShadow: '0 2px 16px #232b4d44' }}
                         >
                             {showStats ? 'Hide Statistics' : 'Show Statistics'}
                         </Button>
                         <Button
                             leftSection={<IconPlus size={16} />}
+                            variant="gradient"
+                            gradient={{ from: '#3a2e5d', to: '#232b4d', deg: 90 }}
+                            style={{ fontWeight: 700, color: '#fff', boxShadow: '0 2px 16px #3a2e5d44' }}
                             onClick={() => {
                                 setEditingProject(null);
                                 setNewProjectName("");
@@ -434,7 +447,7 @@ export default function ProjectsPage() {
                 </Group>
 
                 {showStats && (
-                    <Paper withBorder p="md" mb="xl" radius="md" style={{ borderWidth: 2, borderColor: 'var(--mantine-color-violet-6)' }}>
+                    <Paper withBorder p="md" mb="xl" radius="md" style={{ background: 'rgba(24,28,43,0.85)', border: '1.5px solid #3a2e5d44', boxShadow: '0 2px 16px #232b4d22', color: '#fff' }}>
                         <Stack>
                             <Group justify="space-between" align="center">
                                 <Title order={3}>Project Statistics</Title>
@@ -584,7 +597,21 @@ export default function ProjectsPage() {
                                 onChange={(e) => setSearchQuery(e.currentTarget.value)}
                                 leftSection={<IconSearch size={16} />}
                                 style={{ flex: 1 }}
+                                onKeyDown={e => {
+                                    if (e.key === 'Enter') {
+                                        // Optionally, you could trigger a search here, but filtering is live
+                                    }
+                                }}
                             />
+                            <Button
+                                variant="light"
+                                color="violet"
+                                onClick={() => {/* Filtering is live, but you could add extra logic here if needed */ }}
+                                style={{ fontWeight: 700, borderRadius: 12 }}
+                                leftSection={<IconSearch size={16} />}
+                            >
+                                Search
+                            </Button>
                             <SegmentedControl
                                 value={viewMode}
                                 onChange={(value) => setViewMode(value as 'grid' | 'list')}
@@ -643,7 +670,7 @@ export default function ProjectsPage() {
                 ) : error ? (
                     <Text c="red">{error}</Text>
                 ) : filteredAndSortedProjects.length === 0 ? (
-                    <Card withBorder p="xl" radius="md" style={{ textAlign: 'center' }}>
+                    <Card withBorder p="xl" radius="md" style={{ textAlign: 'center', background: 'rgba(35,43,77,0.18)', border: '1.5px solid #3a2e5d77', color: '#b0b7ff', boxShadow: '0 2px 16px #232b4d22' }}>
                         <Stack align="center" gap="md">
                             <Text size="lg" fw={500}>No projects found</Text>
                             <Text c="dimmed">
@@ -666,17 +693,15 @@ export default function ProjectsPage() {
                         gap: '1rem'
                     }}>
                         {(filteredAndSortedProjects || []).map((project) => (
-                            <Card key={project.id} withBorder shadow="sm" radius="md" p="lg">
+                            <Card key={project.id} withBorder shadow="md" radius="md" p="lg" style={{ background: 'rgba(24,28,43,0.92)', border: '1.5px solid #3a2e5d44', color: '#fff', minHeight: 180, display: 'flex', flexDirection: 'column', justifyContent: 'center', cursor: 'pointer', transition: 'box-shadow 0.2s', boxShadow: '0 2px 16px #232b4d22' }}>
                                 <Group justify="space-between" mb="md">
                                     <div>
-                                        <Text fw={500} size="lg">{project.name}</Text>
-                                        <Badge color={getStatusColor(project.status)} size="sm">
-                                            {project.status}
-                                        </Badge>
+                                        <Text fw={700} size="lg" style={{ color: '#7f5fff' }}>{project.name}</Text>
+                                        <Badge color="violet" size="sm" style={{ background: '#3a2e5d', color: '#fff', fontWeight: 600 }}>{project.status}</Badge>
                                     </div>
                                     <Menu shadow="md" width={200}>
                                         <Menu.Target>
-                                            <ActionIcon variant="subtle" color="gray">
+                                            <ActionIcon variant="subtle" color="gray" style={{ color: '#b0b7ff', background: 'rgba(35,43,77,0.18)' }}>
                                                 <IconDotsVertical size={16} />
                                             </ActionIcon>
                                         </Menu.Target>
@@ -706,12 +731,12 @@ export default function ProjectsPage() {
                                         </Menu.Dropdown>
                                     </Menu>
                                 </Group>
-                                <Text size="sm" c="dimmed" mb="md" lineClamp={2}>
+                                <Text size="sm" c="#b0b7ff" mb="md" lineClamp={2}>
                                     {project.description}
                                 </Text>
                                 <Group gap="xs" mb="md">
-                                    {(project.tags || []).map((tag, index) => (
-                                        <Badge key={index} variant="light" color="violet" size="sm">
+                                    {(project.tags || []).map((tag: string, index: number) => (
+                                        <Badge key={index} variant="light" color="violet" size="sm" style={{ background: '#232b4d', color: '#b0b7ff' }}>
                                             {tag}
                                         </Badge>
                                     ))}
@@ -720,22 +745,24 @@ export default function ProjectsPage() {
                                     <Group gap="xs">
                                         <Tooltip label="Members">
                                             <Group gap={4}>
-                                                <IconUsers size={16} />
-                                                <Text size="sm">{project.members}</Text>
+                                                <IconUsers size={16} color="#b0b7ff" />
+                                                <Text size="sm" style={{ color: '#b0b7ff' }}>{project.members}</Text>
                                             </Group>
                                         </Tooltip>
                                         <Tooltip label="Created">
                                             <Group gap={4}>
-                                                <IconCalendar size={16} />
-                                                <Text size="sm">
-                                                    {new Date(project.createdAt).toLocaleDateString()}
+                                                <IconCalendar size={16} color="#b0b7ff" />
+                                                <Text size="sm" style={{ color: '#b0b7ff' }}>
+                                                    {project.createdAt ? new Date(project.createdAt).toLocaleDateString() : "No Date"}
                                                 </Text>
                                             </Group>
                                         </Tooltip>
                                     </Group>
                                     <Button
-                                        variant="light"
+                                        variant="gradient"
+                                        gradient={{ from: '#232b4d', to: '#3a2e5d', deg: 90 }}
                                         size="sm"
+                                        style={{ fontWeight: 700, color: '#fff', boxShadow: '0 2px 16px #232b4d44' }}
                                         onClick={() => router.push(`/projects/${project.id}`)}
                                     >
                                         View Details
@@ -755,6 +782,16 @@ export default function ProjectsPage() {
                 }}
                 title={editingProject ? "Edit Project" : "New Project"}
                 centered
+                styles={{
+                    content: {
+                        background: 'rgba(24,28,43,0.92)',
+                        border: '1.5px solid #3a2e5d44',
+                        boxShadow: '0 2px 16px #232b4d22',
+                        color: '#fff',
+                        borderRadius: 24,
+                        padding: 32,
+                    },
+                }}
             >
                 <Stack>
                     <TextInput
