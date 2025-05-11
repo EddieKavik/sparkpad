@@ -64,31 +64,44 @@ export default function ProjectViewPage() {
         const fetchProject = async () => {
             setLoading(true);
             try {
-                const res = await fetch("http://localhost:3333/projects?mode=volatile&key=projects");
-                if (!res.ok) throw new Error("Failed to fetch projects");
-                const data = await res.json();
-                if (Array.isArray(data)) {
-                    const found = data.find((p: any) => String(p.id) === String(projectId));
-                    setProject(found || null);
-                    setRenameValue(found?.name || "");
-                } else {
-                    setProject(null);
+                const userEmail = localStorage.getItem("user:username");
+                if (!userEmail) {
+                    router.replace("/login");
+                    return;
                 }
-            } catch {
-                setProject(null);
+                const res = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`);
+                if (!res.ok) throw new Error("Failed to fetch project");
+                const projects = await res.json();
+                const project = Array.isArray(projects)
+                    ? projects.find((p) => p.id === projectId)
+                    : null;
+                if (!project) throw new Error("Project not found");
+                setProject(project);
+                setRenameValue(project.name || "");
+            } catch (err: any) {
+                showNotification({
+                    title: "Error",
+                    message: err.message || "Failed to fetch project",
+                    color: "red",
+                });
             } finally {
                 setLoading(false);
             }
         };
         fetchProject();
-    }, [projectId]);
+    }, [projectId, router]);
 
     // Load document rows from Civil Memory on mount or when projectId changes
     useEffect(() => {
         const fetchDocRows = async () => {
             if (!projectId) return;
             try {
-                const res = await fetch(`http://localhost:3333/docs?mode=volatile&key=${projectId}`);
+                const userEmail = localStorage.getItem("user:username");
+                if (!userEmail) {
+                    router.replace("/login");
+                    return;
+                }
+                const res = await fetch(`http://localhost:3333/docs?mode=disk&key=${encodeURIComponent(userEmail)}`);
                 if (res.ok) {
                     const data = await res.json();
                     setDocRows(typeof data === "object" && data ? data : {});
@@ -96,12 +109,17 @@ export default function ProjectViewPage() {
             } catch { }
         };
         fetchDocRows();
-    }, [projectId]);
+    }, [projectId, router]);
 
     // Save document rows to Civil Memory
     const saveDocRows = async (updated: { [docId: string]: string[] }) => {
         if (!projectId) return;
-        await fetch(`http://localhost:3333/docs?mode=volatile&key=${projectId}`, {
+        const userEmail = localStorage.getItem("user:username");
+        if (!userEmail) {
+            router.replace("/login");
+            return;
+        }
+        await fetch(`http://localhost:3333/docs?mode=disk&key=${encodeURIComponent(userEmail)}`, {
             method: "POST",
             body: JSON.stringify(updated),
         });
@@ -116,7 +134,12 @@ export default function ProjectViewPage() {
         setAdding(true);
         try {
             // Fetch all projects
-            const res = await fetch("http://localhost:3333/projects?mode=volatile&key=projects");
+            const userEmail = localStorage.getItem("user:username");
+            if (!userEmail) {
+                router.replace("/login");
+                return;
+            }
+            const res = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`);
             if (!res.ok) throw new Error("Failed to fetch projects");
             const projects = await res.json();
             // Find and update the project
@@ -127,7 +150,7 @@ export default function ProjectViewPage() {
             updatedProject.members.push(newMemberEmail);
             projects[idx] = updatedProject;
             // Save back
-            const saveRes = await fetch("http://localhost:3333/projects?mode=volatile&key=projects", {
+            const saveRes = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`, {
                 method: "POST",
                 body: JSON.stringify(projects),
             });
@@ -146,14 +169,19 @@ export default function ProjectViewPage() {
         if (!project || !renameValue) return;
         setRenaming(true);
         try {
-            const res = await fetch("http://localhost:3333/projects?mode=volatile&key=projects");
+            const userEmail = localStorage.getItem("user:username");
+            if (!userEmail) {
+                router.replace("/login");
+                return;
+            }
+            const res = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`);
             if (!res.ok) throw new Error("Failed to fetch projects");
             const projects = await res.json();
             const idx = projects.findIndex((p: any) => String(p.id) === String(projectId));
             if (idx === -1) throw new Error("Project not found");
             const updatedProject = { ...projects[idx], name: renameValue };
             projects[idx] = updatedProject;
-            const saveRes = await fetch("http://localhost:3333/projects?mode=volatile&key=projects", {
+            const saveRes = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`, {
                 method: "POST",
                 body: JSON.stringify(projects),
             });
@@ -175,7 +203,12 @@ export default function ProjectViewPage() {
             return;
         }
         try {
-            const res = await fetch("http://localhost:3333/projects?mode=volatile&key=projects");
+            const userEmail = localStorage.getItem("user:username");
+            if (!userEmail) {
+                router.replace("/login");
+                return;
+            }
+            const res = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`);
             if (!res.ok) throw new Error("Failed to fetch projects");
             const projects = await res.json();
             const idx = projects.findIndex((p: any) => String(p.id) === String(projectId));
@@ -183,7 +216,7 @@ export default function ProjectViewPage() {
             const updatedProject = { ...projects[idx] };
             updatedProject.members = updatedProject.members.filter((email: string) => email !== emailToRemove);
             projects[idx] = updatedProject;
-            const saveRes = await fetch("http://localhost:3333/projects?mode=volatile&key=projects", {
+            const saveRes = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`, {
                 method: "POST",
                 body: JSON.stringify(projects),
             });

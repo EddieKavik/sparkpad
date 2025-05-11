@@ -37,10 +37,14 @@ export default function Home() {
   const fetchProjects = async () => {
     setProjectsLoading(true);
     try {
-      const res = await fetch("http://localhost:3333/projects?mode=volatile&key=projects");
+      const userEmail = localStorage.getItem("user:username");
+      if (!userEmail) {
+        router.replace("/login");
+        return;
+      }
+      const res = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`);
       if (!res.ok) throw new Error("Failed to fetch projects");
       const data = await res.json();
-      const userEmail = localStorage.getItem("user:username");
       // Only show projects where the user is a member
       const filtered = Array.isArray(data)
         ? data.filter(
@@ -67,8 +71,13 @@ export default function Home() {
   const handleCreateProject = async () => {
     setCreatingProject(true);
     try {
+      const userEmail = localStorage.getItem("user:username");
+      if (!userEmail) {
+        router.replace("/login");
+        return;
+      }
       // Fetch current projects array
-      const resGet = await fetch("http://localhost:3333/projects?mode=volatile&key=projects");
+      const resGet = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`);
       let projectsArr = [];
       if (resGet.ok) {
         try {
@@ -79,11 +88,17 @@ export default function Home() {
         }
       }
       // Add new project with members array
-      const userEmail = localStorage.getItem("user:username") || "";
-      const newProject = { id: Date.now(), name: newProjectName, members: [userEmail] };
+      const newProject = {
+        id: Date.now().toString(),
+        name: newProjectName,
+        members: [userEmail],
+        createdAt: new Date().toISOString(),
+        status: 'active',
+        tags: []
+      };
       const updatedProjects = [...projectsArr, newProject];
       // Store updated array
-      const resSet = await fetch("http://localhost:3333/projects?mode=volatile&key=projects", {
+      const resSet = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`, {
         method: "POST",
         body: JSON.stringify(updatedProjects),
       });
