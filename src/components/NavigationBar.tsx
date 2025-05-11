@@ -1,10 +1,11 @@
 "use client";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { Group, Button, Text, Avatar, Menu, ActionIcon, rem, Modal, TextInput, Title, Badge, Tooltip, ThemeIcon, ScrollArea } from "@mantine/core";
 import { IconMaximize, IconBell, IconSettings, IconUser, IconLogout, IconEdit, IconLock, IconArrowLeft, IconCheck, IconX } from "@tabler/icons-react";
 import { getInitials } from "@/utils/helpers";
 import { useState, useEffect } from "react";
 import { showNotification } from "@mantine/notifications";
+import Link from "next/link";
 
 interface Notification {
     id: number;
@@ -23,6 +24,7 @@ interface NavigationBarProps {
 
 export function NavigationBar({ userName, onLogout, showBackButton = false }: NavigationBarProps) {
     const router = useRouter();
+    const pathname = usePathname();
     const [modalOpened, setModalOpened] = useState(false);
     const [editName, setEditName] = useState("");
     const [saving, setSaving] = useState(false);
@@ -191,22 +193,42 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
 
     return (
         <>
-            <Group justify="space-between" align="center" p="md" style={{ 
+            <Group justify="space-between" align="center" p="md" style={{
                 borderBottom: '1px solid #eee',
                 background: 'linear-gradient(135deg, #f8fafc 0%, #e0e7ff 100%)',
                 boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
             }}>
                 <Group>
-                    {showBackButton && (
+                    {/* Navigation Tabs */}
+                    <Group gap="md">
                         <Button
-                            variant="subtle"
-                            onClick={() => router.push('/')}
+                            component={Link}
+                            href="/"
+                            variant={pathname === "/" ? "filled" : "subtle"}
+                            color="violet"
                             size="sm"
-                            leftSection={<IconArrowLeft size={16} />}
                         >
-                            Back to Dashboard
+                            Dashboard
                         </Button>
-                    )}
+                        <Button
+                            component={Link}
+                            href="/projects"
+                            variant={pathname.startsWith("/projects") && pathname !== "/" ? "filled" : "subtle"}
+                            color="violet"
+                            size="sm"
+                        >
+                            Projects
+                        </Button>
+                        <Button
+                            component={Link}
+                            href="/projects?showStats=1"
+                            variant={pathname === "/projects" && typeof window !== 'undefined' && window.location.search.includes('showStats=1') ? "filled" : "subtle"}
+                            color="violet"
+                            size="sm"
+                        >
+                            Statistics
+                        </Button>
+                    </Group>
                 </Group>
                 <Group>
                     <Menu

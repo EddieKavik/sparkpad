@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Container, Title, Text, Button, Group, Card, Stack, TextInput, ActionIcon, Menu, Badge, Tooltip, Modal, Textarea, Select, MultiSelect, SegmentedControl, Paper, Input, SimpleGrid, RingProgress, Center } from "@mantine/core";
+import { Container, Title, Text, Button, Group, Card, Stack, TextInput, ActionIcon, Menu, Badge, Tooltip, Modal, Textarea, Select, MultiSelect, SegmentedControl, Paper, Input, SimpleGrid, RingProgress, Center, Box } from "@mantine/core";
 import { IconPlus, IconDotsVertical, IconEdit, IconTrash, IconShare, IconUsers, IconCalendar, IconTag, IconSearch, IconFilter, IconSortAscending, IconSortDescending, IconChartBar, IconChartPie, IconChartLine } from "@tabler/icons-react";
 import { NavigationBar } from "@/components/NavigationBar";
 import { showNotification } from "@mantine/notifications";
@@ -25,6 +25,11 @@ interface ProjectStats {
     averageMembersPerProject: number;
     mostUsedTags: { tag: string; count: number }[];
     recentActivity: { type: string; project: string; time: string }[];
+    projectGrowth: { date: string; count: number }[];
+    memberDistribution: { project: string; members: number }[];
+    statusTrend: { date: string; active: number; completed: number; archived: number }[];
+    averageProjectAge: number;
+    mostActiveProjects: { name: string; activityCount: number }[];
 }
 
 export default function ProjectsPage() {
@@ -297,8 +302,8 @@ export default function ProjectsPage() {
     // Filter and sort projects
     const filteredAndSortedProjects = projects
         .filter(project => {
-            const matchesSearch = project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                project.description.toLowerCase().includes(searchQuery.toLowerCase());
+            const matchesSearch = (project.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+                (project.description || "").toLowerCase().includes(searchQuery.toLowerCase());
             const matchesStatus = statusFilter.length === 0 || statusFilter.includes(project.status);
             const matchesTags = tagFilter.length === 0 || tagFilter.some(tag => project.tags.includes(tag));
             return matchesSearch && matchesStatus && matchesTags;
@@ -343,6 +348,41 @@ export default function ProjectsPage() {
             ])
             .flat()
             .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
+            .slice(0, 5),
+        projectGrowth: projects
+            .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+            .reduce((acc, project) => {
+                const date = new Date(project.createdAt).toLocaleDateString();
+                const lastCount = acc.length > 0 ? acc[acc.length - 1].count : 0;
+                acc.push({ date, count: lastCount + 1 });
+                return acc;
+            }, [] as { date: string; count: number }[]),
+        memberDistribution: projects
+            .map(p => ({ project: p.name, members: p.members }))
+            .sort((a, b) => b.members - a.members)
+            .slice(0, 5),
+        statusTrend: projects
+            .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+            .reduce((acc, project) => {
+                const date = new Date(project.createdAt).toLocaleDateString();
+                const lastStatus = acc.length > 0 ? acc[acc.length - 1] : { date, active: 0, completed: 0, archived: 0 };
+                const newStatus = { ...lastStatus, date };
+                newStatus[project.status]++;
+                acc.push(newStatus);
+                return acc;
+            }, [] as { date: string; active: number; completed: number; archived: number }[]),
+        averageProjectAge: projects.length
+            ? Math.round(projects.reduce((sum, p) => {
+                const age = Date.now() - new Date(p.createdAt).getTime();
+                return sum + age;
+            }, 0) / projects.length / (1000 * 60 * 60 * 24)) // Convert to days
+            : 0,
+        mostActiveProjects: projects
+            .map(p => ({
+                name: p.name,
+                activityCount: p.members + (p.tags?.length || 0) + (p.status === 'active' ? 1 : 0)
+            }))
+            .sort((a, b) => b.activityCount - a.activityCount)
             .slice(0, 5)
     };
 
@@ -358,8 +398,10 @@ export default function ProjectsPage() {
                     <Group>
                         <Button
                             variant="light"
+                            color="violet"
                             leftSection={<IconChartBar size={16} />}
                             onClick={() => setShowStats(!showStats)}
+                            style={{ borderWidth: 2 }}
                         >
                             {showStats ? 'Hide Statistics' : 'Show Statistics'}
                         </Button>
@@ -380,9 +422,19 @@ export default function ProjectsPage() {
                 </Group>
 
                 {showStats && (
-                    <Paper withBorder p="md" mb="xl" radius="md">
+                    <Paper withBorder p="md" mb="xl" radius="md" style={{ borderWidth: 2, borderColor: 'var(--mantine-color-violet-6)' }}>
                         <Stack>
-                            <Title order={3} mb="md">Project Statistics</Title>
+                            <Group justify="space-between" align="center">
+                                <Title order={3}>Project Statistics</Title>
+                                <Button
+                                    variant="subtle"
+                                    color="violet"
+                                    size="sm"
+                                    onClick={() => setShowStats(false)}
+                                >
+                                    Hide Statistics
+                                </Button>
+                            </Group>
                             <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }}>
                                 <Card withBorder p="md" radius="md">
                                     <Stack align="center" gap="xs">
@@ -443,6 +495,65 @@ export default function ProjectsPage() {
                                                 <Text size="xs" c="dimmed">
                                                     {new Date(activity.time).toLocaleDateString()}
                                                 </Text>
+                                            </Group>
+                                        ))}
+                                    </Stack>
+                                </Card>
+                            </SimpleGrid>
+
+                            <Title order={4} mt="xl" mb="md">Detailed Analytics</Title>
+                            <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                                <Card withBorder p="md" radius="md">
+                                    <Stack gap="xs">
+                                        <Text size="sm" fw={500}>Project Growth</Text>
+                                        <Group gap="xs" wrap="nowrap" style={{ overflowX: 'auto', padding: '8px 0' }}>
+                                            {projectStats.projectGrowth.map((point, index) => (
+                                                <Box key={index} style={{ minWidth: 100 }}>
+                                                    <Text size="xs" c="dimmed">{point.date}</Text>
+                                                    <Text size="sm" fw={500}>{point.count} projects</Text>
+                                                </Box>
+                                            ))}
+                                        </Group>
+                                    </Stack>
+                                </Card>
+                                <Card withBorder p="md" radius="md">
+                                    <Stack gap="xs">
+                                        <Text size="sm" fw={500}>Member Distribution</Text>
+                                        {projectStats.memberDistribution.map((dist, index) => (
+                                            <Group key={index} justify="space-between">
+                                                <Text size="sm" style={{ flex: 1 }} truncate>{dist.project}</Text>
+                                                <Badge variant="light" color="blue">{dist.members} members</Badge>
+                                            </Group>
+                                        ))}
+                                    </Stack>
+                                </Card>
+                                <Card withBorder p="md" radius="md">
+                                    <Stack gap="xs">
+                                        <Text size="sm" fw={500}>Status Trend</Text>
+                                        <Group gap="xs" wrap="nowrap" style={{ overflowX: 'auto', padding: '8px 0' }}>
+                                            {projectStats.statusTrend.map((point, index) => (
+                                                <Box key={index} style={{ minWidth: 120 }}>
+                                                    <Text size="xs" c="dimmed">{point.date}</Text>
+                                                    <Group gap={4}>
+                                                        <Badge size="xs" color="green">{point.active}</Badge>
+                                                        <Badge size="xs" color="blue">{point.completed}</Badge>
+                                                        <Badge size="xs" color="gray">{point.archived}</Badge>
+                                                    </Group>
+                                                </Box>
+                                            ))}
+                                        </Group>
+                                    </Stack>
+                                </Card>
+                                <Card withBorder p="md" radius="md">
+                                    <Stack gap="xs">
+                                        <Group justify="space-between">
+                                            <Text size="sm" fw={500}>Most Active Projects</Text>
+                                            <Text size="xs" c="dimmed">Avg. Age: {projectStats.averageProjectAge} days</Text>
+                                        </Group>
+                                        {projectStats.mostActiveProjects.map((project, index) => (
+                                            <Group key={index} justify="space-between">
+                                                <Text size="sm" style={{ flex: 1 }} truncate>{project.name}</Text>
+                                                <Badge variant="light" color="violet">{project.activityCount} activities</Badge>
                                             </Group>
                                         ))}
                                     </Stack>
