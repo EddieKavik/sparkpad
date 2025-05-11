@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { Container, Group, Button, Title, Box, Paper, rem, Text, Modal, TextInput, Card, Stack, Loader } from "@mantine/core";
 import { showNotification } from "@mantine/notifications";
 import Link from "next/link";
+import { NavigationBar } from "@/components/NavigationBar";
+import { IconMaximize } from "@tabler/icons-react";
 
 export default function Home() {
   const router = useRouter();
@@ -252,6 +254,7 @@ export default function Home() {
 
   return (
     <Box style={{ minHeight: "100vh", background: "linear-gradient(135deg, #f8fafc 0%, #e0e7ff 100%)" }}>
+      <NavigationBar userName={userName} onLogout={handleLogout} />
       {/* Project Create Modal */}
       <Modal opened={projectModal} onClose={() => setProjectModal(false)} title="Create Project" centered>
         <TextInput
@@ -311,69 +314,6 @@ export default function Home() {
           <Button color="red" onClick={handleDeleteAccount} loading={deletingAccount}>Delete</Button>
         </Group>
       </Modal>
-      <Paper
-        shadow="xs"
-        p={0}
-        style={{
-          height: 60,
-          background: "#fff",
-          borderBottom: "1px solid #e0e7ff",
-          display: "flex",
-          alignItems: "center",
-        }}
-      >
-        <Container size="lg" style={{ height: "100%" }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              height: "100%",
-              justifyContent: "space-between",
-            }}
-          >
-            <Title
-              order={3}
-              style={{
-                fontWeight: 800,
-                letterSpacing: -1,
-                fontSize: rem(24),
-                color: "#7950f2",
-              }}
-            >
-              SparkPad
-            </Title>
-            <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
-              {userName && (
-                <Text
-                  size="md"
-                  fw={600}
-                  c="violet.8"
-                  style={{
-                    marginRight: 0,
-                    padding: "4px 16px",
-                    borderRadius: 8,
-                    background: "#f3f0ff",
-                    border: "1px solid #e5dbff",
-                    cursor: "pointer",
-                  }}
-                  onClick={() => { setEditName(userName || ""); setModalOpened(true); }}
-                  title="Edit profile"
-                >
-                  {userName}
-                </Text>
-              )}
-              <Button
-                variant="outline"
-                color="violet"
-                radius="md"
-                onClick={handleLogout}
-              >
-                Logout
-              </Button>
-            </div>
-          </div>
-        </Container>
-      </Paper>
       <Container size="lg" mt={40}>
         <Title order={2} mb="md">Welcome to SparkPad!</Title>
         <Button mb="md" onClick={() => setProjectModal(true)} color="violet">

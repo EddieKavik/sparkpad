@@ -1,11 +1,12 @@
 "use client";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack, Modal, ActionIcon, rem, Menu, Avatar, Paper } from "@mantine/core";
 import { showNotification } from "@mantine/notifications";
-import { IconSettings, IconDots, IconTrash } from "@tabler/icons-react";
+import { IconSettings, IconDots, IconTrash, IconArrowLeft } from "@tabler/icons-react";
 import { IconRobot } from "@tabler/icons-react";
 import { getGeminiClient } from "@/utils/gemini";
+import { NavigationBar } from "@/components/NavigationBar";
 
 // Helper to get up to 3 initials from a name or email
 function getInitials(nameOrEmail: string) {
@@ -23,6 +24,7 @@ function getInitials(nameOrEmail: string) {
 
 export default function ProjectViewPage() {
     const params = useParams();
+    const router = useRouter();
     const projectId = params?.projectId;
     const [project, setProject] = useState<any>(null);
     const [loading, setLoading] = useState(true);
@@ -47,8 +49,18 @@ export default function ProjectViewPage() {
     const [savingEdit, setSavingEdit] = useState(false);
     // AI row transformation state
     const [aiProcessing, setAiProcessing] = useState<{ docId: string; idx: number } | null>(null);
+    const [userName, setUserName] = useState<string | null>(null);
 
     useEffect(() => {
+        const user = localStorage.getItem("user");
+        if (user) {
+            try {
+                const parsed = JSON.parse(user);
+                setUserName(parsed.name || null);
+            } catch {
+                setUserName(null);
+            }
+        }
         const fetchProject = async () => {
             setLoading(true);
             try {
@@ -56,7 +68,7 @@ export default function ProjectViewPage() {
                 if (!res.ok) throw new Error("Failed to fetch projects");
                 const data = await res.json();
                 if (Array.isArray(data)) {
-                    const found = data.find((p) => String(p.id) === String(projectId));
+                    const found = data.find((p: any) => String(p.id) === String(projectId));
                     setProject(found || null);
                     setRenameValue(found?.name || "");
                 } else {
@@ -81,7 +93,7 @@ export default function ProjectViewPage() {
                     const data = await res.json();
                     setDocRows(typeof data === "object" && data ? data : {});
                 }
-            } catch {}
+            } catch { }
         };
         fetchDocRows();
     }, [projectId]);
@@ -108,7 +120,7 @@ export default function ProjectViewPage() {
             if (!res.ok) throw new Error("Failed to fetch projects");
             const projects = await res.json();
             // Find and update the project
-            const idx = projects.findIndex((p) => String(p.id) === String(projectId));
+            const idx = projects.findIndex((p: any) => String(p.id) === String(projectId));
             if (idx === -1) throw new Error("Project not found");
             const updatedProject = { ...projects[idx] };
             updatedProject.members = Array.isArray(updatedProject.members) ? updatedProject.members : [];
@@ -137,7 +149,7 @@ export default function ProjectViewPage() {
             const res = await fetch("http://localhost:3333/projects?mode=volatile&key=projects");
             if (!res.ok) throw new Error("Failed to fetch projects");
             const projects = await res.json();
-            const idx = projects.findIndex((p) => String(p.id) === String(projectId));
+            const idx = projects.findIndex((p: any) => String(p.id) === String(projectId));
             if (idx === -1) throw new Error("Project not found");
             const updatedProject = { ...projects[idx], name: renameValue };
             projects[idx] = updatedProject;
@@ -166,7 +178,7 @@ export default function ProjectViewPage() {
             const res = await fetch("http://localhost:3333/projects?mode=volatile&key=projects");
             if (!res.ok) throw new Error("Failed to fetch projects");
             const projects = await res.json();
-            const idx = projects.findIndex((p) => String(p.id) === String(projectId));
+            const idx = projects.findIndex((p: any) => String(p.id) === String(projectId));
             if (idx === -1) throw new Error("Project not found");
             const updatedProject = { ...projects[idx] };
             updatedProject.members = updatedProject.members.filter((email: string) => email !== emailToRemove);
@@ -280,6 +292,12 @@ export default function ProjectViewPage() {
         }
     };
 
+    const handleLogout = () => {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        router.replace("/login");
+    };
+
     if (loading) {
         return (
             <Center style={{ minHeight: 200 }}>
@@ -300,204 +318,207 @@ export default function ProjectViewPage() {
     }
 
     return (
-        <Container size="md" mt={40}>
-            <Title order={2} mb="lg">
-                Project: {project.name || projectId}
-            </Title>
-            <Modal opened={settingsOpened} onClose={() => setSettingsOpened(false)} title="Rename Project" centered>
-                <TextInput
-                    label="Project Name"
-                    value={renameValue}
-                    onChange={(e) => setRenameValue(e.currentTarget.value)}
-                    mb="md"
-                />
-                <Button onClick={handleRename} loading={renaming} fullWidth disabled={!renameValue}>
-                    Save
-                </Button>
-            </Modal>
-            <Group align="center" justify="space-between" mb="xs">
-                <Tabs value={activeTab} onChange={setActiveTab} style={{ flex: 1 }}>
-                    <Tabs.List>
-                        <Tabs.Tab value="default">Documents</Tabs.Tab>
-                        <Tabs.Tab value="templates">Templates</Tabs.Tab>
-                        <Tabs.Tab value="members">Members</Tabs.Tab>
-                        {docTabs.filter(tab => tab.id !== "default").map(tab => (
-                            <Tabs.Tab key={tab.id} value={tab.id}>{tab.title}</Tabs.Tab>
-                        ))}
-                        <ActionIcon
-                            variant="light"
-                            color="violet"
-                            size={28}
-                            ml={8}
-                            onClick={handleAddDocument}
-                            title="Add Document"
-                            style={{ marginLeft: rem(8) }}
-                        >
-                            +
-                        </ActionIcon>
-                    </Tabs.List>
-                    <Tabs.Panel value="default" pt="md">
-                        <Box>
-                            <Text c="dimmed">No document selected. Click + to add a new document.</Text>
-                        </Box>
-                    </Tabs.Panel>
-                    {docTabs.filter(tab => tab.id !== "default").map(tab => (
-                        <Tabs.Panel key={tab.id} value={tab.id} pt="md">
+        <>
+            <NavigationBar userName={userName} onLogout={handleLogout} showBackButton={true} />
+            <Container size="md" mt={40}>
+                <Title order={2} mb="lg">
+                    Project: {project.name || projectId}
+                </Title>
+                <Modal opened={settingsOpened} onClose={() => setSettingsOpened(false)} title="Rename Project" centered>
+                    <TextInput
+                        label="Project Name"
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.currentTarget.value)}
+                        mb="md"
+                    />
+                    <Button onClick={handleRename} loading={renaming} fullWidth disabled={!renameValue}>
+                        Save
+                    </Button>
+                </Modal>
+                <Group align="center" justify="space-between" mb="xs">
+                    <Tabs value={activeTab} onChange={value => setActiveTab(value || "default")} style={{ flex: 1 }}>
+                        <Tabs.List>
+                            <Tabs.Tab value="default">Documents</Tabs.Tab>
+                            <Tabs.Tab value="templates">Templates</Tabs.Tab>
+                            <Tabs.Tab value="members">Members</Tabs.Tab>
+                            {docTabs.filter(tab => tab.id !== "default").map(tab => (
+                                <Tabs.Tab key={tab.id} value={tab.id}>{tab.title}</Tabs.Tab>
+                            ))}
+                            <ActionIcon
+                                variant="light"
+                                color="violet"
+                                size={28}
+                                ml={8}
+                                onClick={handleAddDocument}
+                                title="Add Document"
+                                style={{ marginLeft: rem(8) }}
+                            >
+                                +
+                            </ActionIcon>
+                        </Tabs.List>
+                        <Tabs.Panel value="default" pt="md">
                             <Box>
-                                <Title order={4}>{tab.title}</Title>
-                                <Stack mt="md">
-                                    {(docRows[tab.id] || []).map((row, idx) => {
-                                        const isEditing = editingRow && editingRow.docId === tab.id && editingRow.idx === idx;
-                                        const isAI = aiProcessing && aiProcessing.docId === tab.id && aiProcessing.idx === idx;
-                                        return (
-                                            <Group key={idx} position="apart" align="center" style={{ position: "relative" }}>
-                                                {isEditing ? (
-                                                    <>
-                                                        <TextInput
-                                                            value={editRowValue}
-                                                            onChange={e => setEditRowValue(e.currentTarget.value)}
-                                                            autoFocus
-                                                            style={{ flex: 1 }}
-                                                            disabled={isAI}
-                                                        />
-                                                        <Button size="xs" color="violet" onClick={handleSaveEditRow} loading={savingEdit || isAI} disabled={isAI}>
-                                                            Save
-                                                        </Button>
-                                                        <Button size="xs" variant="default" onClick={handleCancelEditRow} disabled={savingEdit || isAI}>
-                                                            Cancel
-                                                        </Button>
-                                                        <ActionIcon
-                                                            size={28}
-                                                            color="blue"
-                                                            variant="light"
-                                                            onClick={() => handleAiTransformRow(tab.id, idx, editRowValue)}
-                                                            loading={isAI}
-                                                            disabled={isAI}
-                                                            title="Transform with AI"
-                                                        >
-                                                            <IconRobot size={18} />
-                                                        </ActionIcon>
-                                                    </>
-                                                ) : (
-                                                    <Paper
-                                                        p="sm"
-                                                        withBorder
-                                                        radius="md"
-                                                        style={{ flex: 1, minWidth: 0, cursor: "pointer" }}
-                                                        onClick={() => handleStartEditRow(tab.id, idx, row)}
-                                                        title="Click to edit"
-                                                    >
-                                                        {row}
-                                                    </Paper>
-                                                )}
-                                                <Menu shadow="md" width={120} position="bottom-end" withinPortal>
-                                                    <Menu.Target>
-                                                        <ActionIcon variant="subtle" color="gray" size={28} style={{ opacity: 0.7 }}>
-                                                            <IconDots size={18} />
-                                                        </ActionIcon>
-                                                    </Menu.Target>
-                                                    <Menu.Dropdown>
-                                                        <Menu.Item
-                                                            color="red"
-                                                            leftSection={<IconTrash size={16} />}
-                                                            onClick={() => handleDeleteRow(tab.id, idx)}
-                                                        >
-                                                            Delete
-                                                        </Menu.Item>
-                                                    </Menu.Dropdown>
-                                                </Menu>
-                                            </Group>
-                                        );
-                                    })}
-                                    {addingRowFor === tab.id ? (
-                                        <Group>
-                                            <TextInput
-                                                value={newRowValue}
-                                                onChange={e => setNewRowValue(e.currentTarget.value)}
-                                                placeholder="Enter row text"
-                                                autoFocus
-                                                style={{ flex: 1 }}
-                                            />
-                                            <Button size="xs" color="violet" onClick={() => handleSaveRow(tab.id)} loading={savingRow}>
-                                                Save
-                                            </Button>
-                                            <Button size="xs" variant="default" onClick={handleCancelRow} disabled={savingRow}>
-                                                Cancel
-                                            </Button>
-                                        </Group>
-                                    ) : (
-                                        <Button size="xs" variant="light" color="violet" onClick={() => handleAddRow(tab.id)}>
-                                            + Add Row
-                                        </Button>
-                                    )}
-                                </Stack>
+                                <Text c="dimmed">No document selected. Click + to add a new document.</Text>
                             </Box>
                         </Tabs.Panel>
-                    ))}
-                    <Tabs.Panel value="templates" pt="md">
-                        <Box>
-                            <Text c="dimmed">Templates tab content coming soon!</Text>
-                        </Box>
-                    </Tabs.Panel>
-                    <Tabs.Panel value="members" pt="md">
-                        <Stack>
-                            <Title order={4} mb="xs">Members</Title>
-                            {Array.isArray(project.members) && project.members.length > 0 ? (
-                                project.members.map((email: string, idx: number) => (
-                                    <Group key={email + idx} justify="space-between" align="center" wrap="nowrap">
-                                        <Group align="center" gap={8}>
-                                            <Avatar radius="xl" color="violet" size={32}>
-                                                {getInitials(email)}
-                                            </Avatar>
-                                            <Text c="violet.8">{email}</Text>
+                        {docTabs.filter(tab => tab.id !== "default").map(tab => (
+                            <Tabs.Panel key={tab.id} value={tab.id} pt="md">
+                                <Box>
+                                    <Title order={4}>{tab.title}</Title>
+                                    <Stack mt="md">
+                                        {(docRows[tab.id] || []).map((row, idx) => {
+                                            const isEditing = editingRow && editingRow.docId === tab.id && editingRow.idx === idx;
+                                            const isAI = aiProcessing && aiProcessing.docId === tab.id && aiProcessing.idx === idx;
+                                            return (
+                                                <Group key={idx} justify="space-between" align="center" style={{ position: "relative" }}>
+                                                    {isEditing ? (
+                                                        <>
+                                                            <TextInput
+                                                                value={editRowValue}
+                                                                onChange={e => setEditRowValue(e.currentTarget.value)}
+                                                                autoFocus
+                                                                style={{ flex: 1 }}
+                                                                disabled={!!isAI}
+                                                            />
+                                                            <Button size="xs" color="violet" onClick={handleSaveEditRow} loading={savingEdit || !!isAI} disabled={!!isAI}>
+                                                                Save
+                                                            </Button>
+                                                            <Button size="xs" variant="default" onClick={handleCancelEditRow} disabled={savingEdit || !!isAI}>
+                                                                Cancel
+                                                            </Button>
+                                                            <ActionIcon
+                                                                size={28}
+                                                                color="blue"
+                                                                variant="light"
+                                                                onClick={() => handleAiTransformRow(tab.id, idx, editRowValue)}
+                                                                loading={!!isAI}
+                                                                disabled={!!isAI}
+                                                                title="Transform with AI"
+                                                            >
+                                                                <IconRobot size={18} />
+                                                            </ActionIcon>
+                                                        </>
+                                                    ) : (
+                                                        <Paper
+                                                            p="sm"
+                                                            withBorder
+                                                            radius="md"
+                                                            style={{ flex: 1, minWidth: 0, cursor: "pointer" }}
+                                                            onClick={() => handleStartEditRow(tab.id, idx, row)}
+                                                            title="Click to edit"
+                                                        >
+                                                            {row}
+                                                        </Paper>
+                                                    )}
+                                                    <Menu shadow="md" width={120} position="bottom-end" withinPortal>
+                                                        <Menu.Target>
+                                                            <ActionIcon variant="subtle" color="gray" size={28} style={{ opacity: 0.7 }}>
+                                                                <IconDots size={18} />
+                                                            </ActionIcon>
+                                                        </Menu.Target>
+                                                        <Menu.Dropdown>
+                                                            <Menu.Item
+                                                                color="red"
+                                                                leftSection={<IconTrash size={16} />}
+                                                                onClick={() => handleDeleteRow(tab.id, idx)}
+                                                            >
+                                                                Delete
+                                                            </Menu.Item>
+                                                        </Menu.Dropdown>
+                                                    </Menu>
+                                                </Group>
+                                            );
+                                        })}
+                                        {addingRowFor === tab.id ? (
+                                            <Group>
+                                                <TextInput
+                                                    value={newRowValue}
+                                                    onChange={e => setNewRowValue(e.currentTarget.value)}
+                                                    placeholder="Enter row text"
+                                                    autoFocus
+                                                    style={{ flex: 1 }}
+                                                />
+                                                <Button size="xs" color="violet" onClick={() => handleSaveRow(tab.id)} loading={savingRow}>
+                                                    Save
+                                                </Button>
+                                                <Button size="xs" variant="default" onClick={handleCancelRow} disabled={savingRow}>
+                                                    Cancel
+                                                </Button>
+                                            </Group>
+                                        ) : (
+                                            <Button size="xs" variant="light" color="violet" onClick={() => handleAddRow(tab.id)}>
+                                                + Add Row
+                                            </Button>
+                                        )}
+                                    </Stack>
+                                </Box>
+                            </Tabs.Panel>
+                        ))}
+                        <Tabs.Panel value="templates" pt="md">
+                            <Box>
+                                <Text c="dimmed">Templates tab content coming soon!</Text>
+                            </Box>
+                        </Tabs.Panel>
+                        <Tabs.Panel value="members" pt="md">
+                            <Stack>
+                                <Title order={4} mb="xs">Members</Title>
+                                {Array.isArray(project.members) && project.members.length > 0 ? (
+                                    project.members.map((email: string, idx: number) => (
+                                        <Group key={email + idx} justify="space-between" align="center" wrap="nowrap">
+                                            <Group align="center" gap={8}>
+                                                <Avatar radius="xl" color="violet" size={32}>
+                                                    {getInitials(email)}
+                                                </Avatar>
+                                                <Text c="violet.8">{email}</Text>
+                                            </Group>
+                                            <Menu shadow="md" width={140} position="bottom-end">
+                                                <Menu.Target>
+                                                    <ActionIcon variant="subtle" color="gray" size={28}>
+                                                        <IconDots size={18} />
+                                                    </ActionIcon>
+                                                </Menu.Target>
+                                                <Menu.Dropdown>
+                                                    <Menu.Item
+                                                        color="red"
+                                                        leftSection={<IconTrash size={16} />}
+                                                        onClick={() => handleRemoveMember(email)}
+                                                        disabled={project.members.length <= 1}
+                                                    >
+                                                        Remove
+                                                    </Menu.Item>
+                                                </Menu.Dropdown>
+                                            </Menu>
                                         </Group>
-                                        <Menu shadow="md" width={140} position="bottom-end">
-                                            <Menu.Target>
-                                                <ActionIcon variant="subtle" color="gray" size={28}>
-                                                    <IconDots size={18} />
-                                                </ActionIcon>
-                                            </Menu.Target>
-                                            <Menu.Dropdown>
-                                                <Menu.Item
-                                                    color="red"
-                                                    leftSection={<IconTrash size={16} />}
-                                                    onClick={() => handleRemoveMember(email)}
-                                                    disabled={project.members.length <= 1}
-                                                >
-                                                    Remove
-                                                </Menu.Item>
-                                            </Menu.Dropdown>
-                                        </Menu>
-                                    </Group>
-                                ))
-                            ) : (
-                                <Text c="dimmed">No members yet.</Text>
-                            )}
-                            <Group mt="md">
-                                <TextInput
-                                    placeholder="Add member by email"
-                                    value={newMemberEmail}
-                                    onChange={(e) => setNewMemberEmail(e.currentTarget.value)}
-                                    disabled={adding}
-                                />
-                                <Button onClick={handleAddMember} loading={adding} disabled={!newMemberEmail}>
-                                    Add
-                                </Button>
-                            </Group>
-                        </Stack>
-                    </Tabs.Panel>
-                </Tabs>
-                <ActionIcon
-                    variant="light"
-                    color="gray"
-                    size={36}
-                    onClick={() => setSettingsOpened(true)}
-                    title="Project Settings"
-                    style={{ marginLeft: rem(12) }}
-                >
-                    <IconSettings size={22} />
-                </ActionIcon>
-            </Group>
-        </Container>
+                                    ))
+                                ) : (
+                                    <Text c="dimmed">No members yet.</Text>
+                                )}
+                                <Group mt="md">
+                                    <TextInput
+                                        placeholder="Add member by email"
+                                        value={newMemberEmail}
+                                        onChange={(e) => setNewMemberEmail(e.currentTarget.value)}
+                                        disabled={adding}
+                                    />
+                                    <Button onClick={handleAddMember} loading={adding} disabled={!newMemberEmail}>
+                                        Add
+                                    </Button>
+                                </Group>
+                            </Stack>
+                        </Tabs.Panel>
+                    </Tabs>
+                    <ActionIcon
+                        variant="light"
+                        color="gray"
+                        size={36}
+                        onClick={() => setSettingsOpened(true)}
+                        title="Project Settings"
+                        style={{ marginLeft: rem(12) }}
+                    >
+                        <IconSettings size={22} />
+                    </ActionIcon>
+                </Group>
+            </Container>
+        </>
     );
 } 

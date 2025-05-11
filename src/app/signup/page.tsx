@@ -14,6 +14,7 @@ import {
 } from "@mantine/core";
 import { showNotification } from "@mantine/notifications";
 import { IconSparkles } from "@tabler/icons-react";
+import { useRouter } from "next/navigation";
 
 async function encryptPassword(password: string): Promise<string> {
     const salt = window.crypto.getRandomValues(new Uint8Array(16));
@@ -48,6 +49,7 @@ export default function SignupPage() {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [loading, setLoading] = useState(false);
+    const router = useRouter();
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -91,6 +93,7 @@ export default function SignupPage() {
             localStorage.setItem("user:username", email);
             setEmail("");
             setPassword("");
+            setTimeout(() => router.push("/login"), 500);
         } catch (err: any) {
             console.error("Sign-up error:", err);
             showNotification({

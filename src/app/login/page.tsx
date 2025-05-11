@@ -209,6 +209,15 @@ export default function LoginPage() {
                             </Button>
                         </Stack>
                     </form>
+                    <Button
+                        variant="subtle"
+                        color="violet"
+                        fullWidth
+                        mt="md"
+                        onClick={() => router.push("/signup")}
+                    >
+                        Sign Up
+                    </Button>
                 </Paper>
             </Center>
         </Box>
