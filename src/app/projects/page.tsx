@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Container, Title, Text, Button, Group, Card, Stack, TextInput, ActionIcon, Menu, Badge, Tooltip, Modal, Textarea, Select, MultiSelect, SegmentedControl, Paper, Input, SimpleGrid, RingProgress, Center, Box } from "@mantine/core";
 import { IconPlus, IconDotsVertical, IconEdit, IconTrash, IconShare, IconUsers, IconCalendar, IconTag, IconSearch, IconFilter, IconSortAscending, IconSortDescending, IconChartBar, IconChartPie, IconChartLine } from "@tabler/icons-react";
 import { NavigationBar } from "@/components/NavigationBar";
@@ -34,6 +34,7 @@ interface ProjectStats {
 
 export default function ProjectsPage() {
     const router = useRouter();
+    const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
     const [projects, setProjects] = useState<Project[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -54,6 +55,12 @@ export default function ProjectsPage() {
     const [showStats, setShowStats] = useState(false);
 
     useEffect(() => {
+        if (searchParams && searchParams.get('showStats') === '1') {
+            setShowStats(true);
+        }
+    }, []);
+
+    useEffect(() => {
         const fetchProjects = async () => {
             try {
                 const userEmail = localStorage.getItem("user:username");
@@ -66,7 +73,7 @@ export default function ProjectsPage() {
                 );
                 if (!res.ok) throw new Error("Failed to fetch projects");
                 const data = await res.json();
-                setProjects(data);
+                setProjects(Array.isArray(data) ? data : []);
             } catch (err: any) {
                 setError(err.message);
                 showNotification({
@@ -297,10 +304,11 @@ export default function ProjectsPage() {
     };
 
     // Get unique tags from all projects
-    const allTags = Array.from(new Set(projects.flatMap(project => project.tags)));
+    const safeProjects = Array.isArray(projects) ? projects : [];
+    const allTags = Array.from(new Set(safeProjects.flatMap(project => project.tags)));
 
     // Filter and sort projects
-    const filteredAndSortedProjects = projects
+    const filteredAndSortedProjects = safeProjects
         .filter(project => {
             const matchesSearch = (project.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
                 (project.description || "").toLowerCase().includes(searchQuery.toLowerCase());
@@ -326,14 +334,14 @@ export default function ProjectsPage() {
 
     // Calculate project statistics
     const projectStats: ProjectStats = {
-        totalProjects: projects.length,
-        activeProjects: projects.filter(p => p.status === 'active').length,
-        completedProjects: projects.filter(p => p.status === 'completed').length,
-        archivedProjects: projects.filter(p => p.status === 'archived').length,
-        totalMembers: projects.reduce((sum, p) => sum + p.members, 0),
-        averageMembersPerProject: projects.length ? Math.round(projects.reduce((sum, p) => sum + p.members, 0) / projects.length) : 0,
+        totalProjects: safeProjects.length,
+        activeProjects: safeProjects.filter(p => p.status === 'active').length,
+        completedProjects: safeProjects.filter(p => p.status === 'completed').length,
+        archivedProjects: safeProjects.filter(p => p.status === 'archived').length,
+        totalMembers: safeProjects.reduce((sum, p) => sum + p.members, 0),
+        averageMembersPerProject: safeProjects.length ? Math.round(safeProjects.reduce((sum, p) => sum + p.members, 0) / safeProjects.length) : 0,
         mostUsedTags: Object.entries(
-            projects.flatMap(p => p.tags).reduce((acc, tag) => {
+            safeProjects.flatMap(p => p.tags).reduce((acc, tag) => {
                 acc[tag] = (acc[tag] || 0) + 1;
                 return acc;
             }, {} as Record<string, number>)
@@ -341,7 +349,7 @@ export default function ProjectsPage() {
             .map(([tag, count]) => ({ tag, count }))
             .sort((a, b) => b.count - a.count)
             .slice(0, 5),
-        recentActivity: projects
+        recentActivity: safeProjects
             .map(p => [
                 { type: 'created', project: p.name, time: p.createdAt },
                 ...(p.members > 1 ? [{ type: 'shared', project: p.name, time: p.createdAt }] : [])
@@ -349,7 +357,7 @@ export default function ProjectsPage() {
             .flat()
             .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
             .slice(0, 5),
-        projectGrowth: projects
+        projectGrowth: safeProjects
             .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
             .reduce((acc, project) => {
                 const date = new Date(project.createdAt).toLocaleDateString();
@@ -357,11 +365,11 @@ export default function ProjectsPage() {
                 acc.push({ date, count: lastCount + 1 });
                 return acc;
             }, [] as { date: string; count: number }[]),
-        memberDistribution: projects
+        memberDistribution: safeProjects
             .map(p => ({ project: p.name, members: p.members }))
             .sort((a, b) => b.members - a.members)
             .slice(0, 5),
-        statusTrend: projects
+        statusTrend: safeProjects
             .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
             .reduce((acc, project) => {
                 const date = new Date(project.createdAt).toLocaleDateString();
@@ -371,13 +379,13 @@ export default function ProjectsPage() {
                 acc.push(newStatus);
                 return acc;
             }, [] as { date: string; active: number; completed: number; archived: number }[]),
-        averageProjectAge: projects.length
-            ? Math.round(projects.reduce((sum, p) => {
+        averageProjectAge: safeProjects.length
+            ? Math.round(safeProjects.reduce((sum, p) => {
                 const age = Date.now() - new Date(p.createdAt).getTime();
                 return sum + age;
-            }, 0) / projects.length / (1000 * 60 * 60 * 24)) // Convert to days
+            }, 0) / safeProjects.length / (1000 * 60 * 60 * 24)) // Convert to days
             : 0,
-        mostActiveProjects: projects
+        mostActiveProjects: safeProjects
             .map(p => ({
                 name: p.name,
                 activityCount: p.members + (p.tags?.length || 0) + (p.status === 'active' ? 1 : 0)
