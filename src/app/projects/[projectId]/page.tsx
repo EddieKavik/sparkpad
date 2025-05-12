@@ -124,6 +124,7 @@ export default function ProjectViewPage() {
     const [isFollowup, setIsFollowup] = useState(false);
     const [editQAPair, setEditQAPair] = useState<any | null>(null);
     const [editQALoading, setEditQALoading] = useState(false);
+    const [qaSearch, setQaSearch] = useState("");
 
     useEffect(() => {
         const user = localStorage.getItem("user");
@@ -819,12 +820,17 @@ export default function ProjectViewPage() {
             setQaAnswer(answer);
             // Save to backend
             const user = localStorage.getItem("user");
-            const createdBy = user ? JSON.parse(user).name : "anonymous";
+            const userName = user ? JSON.parse(user).name : "anonymous";
             const res = await fetch(`/api/projects/${projectId}/research/qa`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ question: qaQuestion, answer, createdBy }),
+                headers: { "Content-Type": "application/json", user: userName },
+                body: JSON.stringify({ question: qaQuestion, answer, createdBy: userName }),
             });
+            if (res.status === 401 || res.status === 403) {
+                showNotification({ title: "Unauthorized", message: "You are not allowed to add Q&A.", color: "red" });
+                setQaLoading(false);
+                return;
+            }
             if (res.ok) {
                 const newPair = await res.json();
                 setQaHistory(h => [...h, newPair]);
@@ -847,7 +853,9 @@ export default function ProjectViewPage() {
     // Handler to delete a Q&A pair
     const handleDeleteQAPair = async (id: string) => {
         if (!window.confirm("Delete this Q&A pair?")) return;
-        const res = await fetch(`/api/projects/${projectId}/research/qa?id=${id}`, { method: "DELETE" });
+        const user = localStorage.getItem("user");
+        const userName = user ? JSON.parse(user).name : "anonymous";
+        const res = await fetch(`/api/projects/${projectId}/research/qa?id=${id}`, { method: "DELETE", headers: { user: userName } });
         if (res.ok) {
             setQaHistory(h => h.filter(pair => pair.id !== id));
         }
@@ -858,11 +866,18 @@ export default function ProjectViewPage() {
     const handleSaveEditQAPair = async () => {
         if (!editQAPair) return;
         setEditQALoading(true);
+        const user = localStorage.getItem("user");
+        const userName = user ? JSON.parse(user).name : "anonymous";
         const res = await fetch(`/api/projects/${projectId}/research/qa?id=${editQAPair.id}`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', user: userName },
             body: JSON.stringify({ question: editQAPair.question, answer: editQAPair.answer, createdBy: editQAPair.createdBy }),
         });
+        if (res.status === 401 || res.status === 403) {
+            showNotification({ title: "Unauthorized", message: "You are not allowed to edit this Q&A.", color: "red" });
+            setEditQALoading(false);
+            return;
+        }
         setEditQALoading(false);
         if (res.ok) {
             const updated = await res.json();
@@ -1193,11 +1208,22 @@ export default function ProjectViewPage() {
                                             <Text size="sm" style={{ whiteSpace: 'pre-line' }}>{qaAnswer}</Text>
                                         </Paper>
                                     )}
+                                    {/* Q&A Search/Filter */}
+                                    <TextInput
+                                        placeholder="Search Q&A..."
+                                        value={qaSearch}
+                                        onChange={e => setQaSearch(e.target.value)}
+                                        mb={12}
+                                    />
                                     {/* Q&A History */}
                                     {qaHistory.length > 0 && (
                                         <Stack mt={24}>
                                             <Title order={5} mb={4} style={{ color: styles.secondaryTextColor }}>Q&A History</Title>
-                                            {qaHistory.map((pair, idx) => (
+                                            {qaHistory.filter(pair =>
+                                                !qaSearch.trim() ||
+                                                pair.question.toLowerCase().includes(qaSearch.toLowerCase()) ||
+                                                pair.answer.toLowerCase().includes(qaSearch.toLowerCase())
+                                            ).map((pair, idx) => (
                                                 <Paper key={pair.id} p="sm" radius="md" style={{ background: styles.tabBackground, color: styles.textColor, marginBottom: 8, position: 'relative' }}>
                                                     <Text size="sm" fw={600}>Q: {pair.question}</Text>
                                                     <Text size="sm" style={{ whiteSpace: 'pre-line', marginTop: 4 }}>A: {pair.answer}</Text>

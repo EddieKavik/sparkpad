@@ -7,6 +7,7 @@ import { useState, useEffect } from "react";
 import { showNotification } from "@mantine/notifications";
 import Link from "next/link";
 import { useTheme } from '@/contexts/ThemeContext';
+import "./Notification.css";
 
 interface Notification {
     id: number;
@@ -376,8 +377,8 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                                 variant="subtle"
                                 color="gray"
                                 size="lg"
+                                className="notification-bell"
                                 style={{
-                                    position: 'relative',
                                     marginRight: 16,
                                     marginLeft: 8,
                                     background: 'transparent',
@@ -386,28 +387,9 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                             >
                                 <IconBell size={22} color="#b0b7ff" />
                                 {notifications.filter(n => !n.read).length > 0 && (
-                                    <Badge
-                                        size="sm"
-                                        color="red"
-                                        style={{
-                                            position: 'absolute',
-                                            top: -8,
-                                            right: -8,
-                                            minWidth: 20,
-                                            height: 20,
-                                            borderRadius: 10,
-                                            fontWeight: 700,
-                                            fontSize: 12,
-                                            background: 'linear-gradient(90deg, #ff3b6b 0%, #ffb86b 100%)',
-                                            boxShadow: '0 0 8px #ff3b6b88',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            zIndex: 3
-                                        }}
-                                    >
+                                    <span className="notification-badge">
                                         {notifications.filter(n => !n.read).length}
-                                    </Badge>
+                                    </span>
                                 )}
                             </ActionIcon>
                         </Menu.Target>
