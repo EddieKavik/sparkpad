@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "SparkPad - Your Collaborative Workspace",
+  title: "Sparkpad",
   description: "A modern workspace for collaborative innovation and project management",
   keywords: ["project management", "collaboration", "workspace", "innovation"],
   authors: [{ name: "SparkPad Team" }],
