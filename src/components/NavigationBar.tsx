@@ -63,7 +63,9 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                     const text = await res.text();
                     const data = text ? JSON.parse(text) : [];
                     if (Array.isArray(data)) {
-                        setNotifications(data.map(notification => ({
+                        setNotifications(data
+                            .filter(notification => notification.message && notification.message.trim() !== "")
+                            .map(notification => ({
                             ...notification,
                             id: notification.id || Date.now(),
                             read: notification.read || false
@@ -416,7 +418,9 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                                                 size="sm"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
+                                                    if (window.confirm('Clear all notifications? This cannot be undone.')) {
                                                     clearNotifications();
+                                                    }
                                                 }}
                                             >
                                                 <IconX size={16} />
@@ -431,7 +435,9 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                                         No notifications
                                     </Text>
                                 ) : (
-                                    notifications.map((notification) => (
+                                    notifications
+                                        .filter(notification => notification.message && notification.message.trim() !== "")
+                                        .map((notification) => (
                                         <Menu.Item
                                             key={notification.id}
                                             onClick={() => handleNotificationClick(notification)}
@@ -441,7 +447,7 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                                         >
                                             <Group>
                                                 <div style={{ flex: 1 }}>
-                                                    <Text size="sm">{notification.message}</Text>
+                                                        <Text size="sm">{notification.message || "No details"}</Text>
                                                     <Text size="xs" c="dimmed">{notification.time}</Text>
                                                 </div>
                                                 {!notification.read && (
@@ -457,7 +463,7 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                     {userName && (
                         <Menu shadow="md" width={200} position="bottom-end">
                             <Menu.Target>
-                                <Group style={{ cursor: 'pointer', marginLeft: 12, color: '#fff', fontWeight: 600, textShadow: '0 2px 8px #232b4d' }} gap={8} onClick={handleNameClick}>
+                                <Group style={{ cursor: 'pointer', marginLeft: 12, color: '#fff', fontWeight: 600, textShadow: '0 2px 8px #232b4d' }} gap={8}>
                                     <Avatar radius="xl" color="violet" size={32} style={{ boxShadow: '0 0 8px #7f5fff88', border: '2px solid #232b4d' }}>
                                         {getInitials(userName)}
                                     </Avatar>

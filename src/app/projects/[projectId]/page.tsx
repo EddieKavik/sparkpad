@@ -1,7 +1,7 @@
 "use client";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
-import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack, Modal, ActionIcon, rem, Menu, Avatar, Paper, MultiSelect } from "@mantine/core";
+import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack, Modal, ActionIcon, rem, Menu, Avatar, Paper, MultiSelect, Textarea, Badge, Divider } from "@mantine/core";
 import { showNotification } from "@mantine/notifications";
 import { IconSettings, IconDots, IconTrash, IconArrowLeft, IconSend, IconFile, IconMoodSmile, IconRobot, IconEdit, IconSparkles, IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 import { getGeminiClient } from "@/utils/gemini";
@@ -960,15 +960,15 @@ export default function ProjectViewPage() {
                         }}
                     >
                         <form onSubmit={e => { e.preventDefault(); handleRename(); }}>
-                            <TextInput
-                                label="Project Name"
-                                value={renameValue}
-                                onChange={(e) => setRenameValue(e.currentTarget.value)}
-                                mb="md"
-                            />
+                        <TextInput
+                            label="Project Name"
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.currentTarget.value)}
+                            mb="md"
+                        />
                             <Button type="submit" loading={renaming} fullWidth disabled={!renameValue} variant={styles.buttonGradient} style={{ fontWeight: 700, color: '#fff', boxShadow: '0 2px 16px #232b4d44' }}>
-                                Save
-                            </Button>
+                            Save
+                        </Button>
                         </form>
                     </Modal>
                     <Tabs value={activeTab} onChange={value => setActiveTab(value || "default")} style={{ flex: 1 }}
@@ -1036,17 +1036,19 @@ export default function ProjectViewPage() {
                                                 <Group key={idx} justify="space-between" align="center" style={{ position: "relative" }}>
                                                     {isEditing ? (
                                                         <>
-                                                            <TextInput
+                                                            <Textarea
                                                                 value={editRowValue}
                                                                 onChange={e => setEditRowValue(e.currentTarget.value)}
                                                                 autoFocus
                                                                 style={{ flex: 1 }}
+                                                                minRows={2}
                                                                 disabled={!!isAI}
                                                                 onKeyDown={e => {
-                                                                    if (e.key === "Enter") {
-                                                                        handleSaveRow(tab.id);
+                                                                    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                                                                        handleSaveEditRow();
                                                                     }
                                                                 }}
+                                                                placeholder="Type your Markdown here... (Ctrl+Enter to save)"
                                                             />
                                                             <Button size="xs" color={styles.accentColor} onClick={handleSaveEditRow} loading={savingEdit || !!isAI} disabled={!!isAI} style={{ background: styles.buttonGradient, color: '#fff', fontWeight: 700, borderRadius: 12 }}>
                                                                 Save
@@ -1099,14 +1101,15 @@ export default function ProjectViewPage() {
                                         })}
                                         {addingRowFor === tab.id ? (
                                             <Group>
-                                                <TextInput
+                                                <Textarea
                                                     value={newRowValue}
                                                     onChange={e => setNewRowValue(e.currentTarget.value)}
-                                                    placeholder="Enter row text"
+                                                    placeholder="Enter row text (Ctrl+Enter to save)"
                                                     autoFocus
                                                     style={{ flex: 1 }}
+                                                    minRows={2}
                                                     onKeyDown={e => {
-                                                        if (e.key === "Enter") {
+                                                        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
                                                             handleSaveRow(tab.id);
                                                         }
                                                     }}
@@ -1198,7 +1201,10 @@ export default function ProjectViewPage() {
                                                     {msg.sender === "ai" ? <IconRobot size={18} /> : getInitials(msg.senderName)}
                                                 </Avatar>
                                                 <Paper shadow="xs" p="sm" radius="md" style={{ background: '#232b4d', color: '#b0b7ff', minWidth: 80, maxWidth: 360 }}>
-                                                    <Text size="sm" fw={msg.sender === "ai" ? 600 : 500} style={{ wordBreak: "break-word" }}>{msg.content}</Text>
+                                                    {msg.sender === "ai"
+                                                        ? <ReactMarkdown>{msg.content}</ReactMarkdown>
+                                                        : <Text size="sm" fw={msg.sender === "ai" ? 600 : 500} style={{ wordBreak: "break-word" }}>{msg.content}</Text>
+                                                    }
                                                     <Group gap={4} mt={4} align="center">
                                                         <Text size="xs" c="dimmed">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
                                                         {msg.reactions && msg.reactions.length > 0 && (
@@ -1406,41 +1412,49 @@ export default function ProjectViewPage() {
                                                     </Group>
                                                     {isOpen && (
                                                         <Box mt={12}>
-                                                            <Text mt="sm">{item.content}</Text>
+                                                            <Title order={5} mb={4}>{item.title}</Title>
+                                                            <Text size="sm" c={styles.secondaryTextColor} mb={8}>{item.type}</Text>
+                                                            <Group mb={8}>
+                                                                {item.tags && item.tags.map(tag => (
+                                                                    <Badge key={tag} color="violet" variant="light">{tag}</Badge>
+                                                                ))}
+                                                            </Group>
+                                                            <Box mb={12}>
+                                                                <ReactMarkdown>{item.content}</ReactMarkdown>
+                                                            </Box>
                                                             {item.fileUrl && (
-                                                                <Box mt={8} mb={4}>
+                                                                <Box mb={8}>
                                                                     <a href={item.fileUrl} target="_blank" rel="noopener noreferrer" style={{ color: styles.accentColor, textDecoration: 'underline', fontSize: 14 }}>
-                                                                        View Attachment
+                                                                        📎 View Attachment
                                                                     </a>
                                                                 </Box>
                                                             )}
                                                             {item.summary && (
                                                                 <Paper
-                                                                    p="sm"
+                                                                    p="md"
                                                                     mt="sm"
                                                                     radius="md"
                                                                     style={{
-                                                                        background: theme === 'classic' ? '#f6f8fa' : 'rgba(35,43,77,0.12)',
+                                                                        background: 'rgba(127,95,255,0.08)',
+                                                                        borderLeft: '4px solid #7f5fff',
                                                                         color: styles.secondaryTextColor,
-                                                                        border: 'none',
-                                                                        boxShadow: 'none',
-                                                                        fontSize: 14,
-                                                                        marginTop: 8,
-                                                                        marginBottom: 0,
+                                                                        marginBottom: 12,
                                                                     }}
                                                                 >
-                                                                    <Text size="xs" fw={600} mb={4} c={styles.secondaryTextColor} style={{ letterSpacing: 0.5 }}>
-                                                                        AI Summary:
-                                                                    </Text>
-                                                                    <Text size="sm" c={styles.secondaryTextColor} style={{ fontWeight: 400 }}>
-                                                                        {item.summary}
-                                                                    </Text>
+                                                                    <Group gap={6} mb={4} align="center">
+                                                                        <IconRobot size={16} color="#7f5fff" />
+                                                                        <Text size="xs" fw={700} c={styles.accentColor}>AI Summary</Text>
+                                                                    </Group>
+                                                                    <ReactMarkdown>{item.summary}</ReactMarkdown>
                                                                 </Paper>
                                                             )}
                                                             {item.annotations && item.annotations.length > 0 && (
-                                                                <Stack mt={8} spacing={4}>
+                                                                <Stack mt={16} spacing={8}>
+                                                                    <Divider label="Comments" labelPosition="left" my={4} />
                                                                     {item.annotations.map((c: any) => (
-                                                                        <Group key={c.id} align="flex-start" gap={8}>
+                                                                        <Paper key={c.id} p="xs" radius="sm" style={{ background: styles.tabBackground }}>
+                                                                            <Group align="center" gap={8}>
+                                                                                <Avatar radius="xl" size={20}>{getInitials(c.author)}</Avatar>
                                                                             <Text size="xs" fw={600}>{c.author}</Text>
                                                                             <Text size="xs" c="dimmed">{new Date(c.createdAt).toLocaleString()}</Text>
                                                                             <Text size="sm" style={{ flex: 1 }}>{c.content}</Text>
@@ -1450,34 +1464,10 @@ export default function ProjectViewPage() {
                                                                                 </ActionIcon>
                                                                             )}
                                                                         </Group>
+                                                                        </Paper>
                                                                     ))}
                                                                 </Stack>
                                                             )}
-                                                            <Group mt={4} gap={4} align="flex-end">
-                                                                <TextInput
-                                                                    placeholder="Add a comment..."
-                                                                    value={commentInputs[item.id] || ''}
-                                                                    onChange={e => setCommentInputs(inputs => ({ ...inputs, [item.id]: e.target.value }))}
-                                                                    style={{ flex: 1 }}
-                                                                    size="xs"
-                                                                    disabled={commentLoading[item.id]}
-                                                                    onClick={e => e.stopPropagation()}
-                                                                />
-                                                                <Button size="xs" onClick={e => { e.stopPropagation(); handleAddComment(item); }} loading={commentLoading[item.id]} disabled={!(commentInputs[item.id] || '').trim()}>
-                                                                    Comment
-                                                                </Button>
-                                                            </Group>
-                                                            <Group gap={4} mt={8}>
-                                                                <ActionIcon variant="light" color={styles.accentColor} onClick={e => { e.stopPropagation(); handleEditResearch(item); }} title="Edit">
-                                                                    <IconEdit size={18} />
-                                                                </ActionIcon>
-                                                                <ActionIcon variant="light" color="red" onClick={e => { e.stopPropagation(); handleDeleteResearch(item.id); }} title="Delete">
-                                                                    <IconTrash size={18} />
-                                                                </ActionIcon>
-                                                                <ActionIcon variant="light" color="yellow" loading={summarizingId === item.id} onClick={e => { e.stopPropagation(); handleSummarizeResearch(item); }} title="Summarize with AI">
-                                                                    <IconSparkles size={18} />
-                                                                </ActionIcon>
-                                                            </Group>
                                                             <Text size="xs" c="dimmed" mt={8}>{new Date(item.createdAt).toLocaleString()}</Text>
                                                         </Box>
                                                     )}
