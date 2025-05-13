@@ -8,6 +8,7 @@ import { getGeminiClient } from "@/utils/gemini";
 import { NavigationBar } from "@/components/NavigationBar";
 import { useTheme } from '@/contexts/ThemeContext';
 import { useDisclosure } from '@mantine/hooks';
+import ReactMarkdown from 'react-markdown';
 
 // Helper to get up to 3 initials from a name or email
 function getInitials(nameOrEmail: string) {
@@ -63,6 +64,14 @@ const themeStyles = {
     },
 };
 
+// Utility to load projects from localStorage as fallback
+function loadProjectsFromLocal() {
+    try {
+        const data = localStorage.getItem('projects:backup');
+        return data ? JSON.parse(data) : [];
+    } catch { return []; }
+}
+
 export default function ProjectViewPage() {
     const params = useParams();
     const router = useRouter();
@@ -75,7 +84,8 @@ export default function ProjectViewPage() {
     const [renameValue, setRenameValue] = useState("");
     const [renaming, setRenaming] = useState(false);
     // Document tabs state
-    const [docTabs, setDocTabs] = useState([
+    type DocTab = { id: string; title: string };
+    const [docTabs, setDocTabs] = useState<DocTab[]>([
         { id: "default", title: "Documents" }
     ]);
     const [activeTab, setActiveTab] = useState("default");
@@ -125,6 +135,9 @@ export default function ProjectViewPage() {
     const [editQAPair, setEditQAPair] = useState<any | null>(null);
     const [editQALoading, setEditQALoading] = useState(false);
     const [qaSearch, setQaSearch] = useState("");
+    // Add state for renaming document
+    const [renamingDocId, setRenamingDocId] = useState<string | null>(null);
+    const [renameDocValue, setRenameDocValue] = useState("");
 
     useEffect(() => {
         const user = localStorage.getItem("user");
@@ -145,12 +158,25 @@ export default function ProjectViewPage() {
                     return;
                 }
                 const res = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`);
-                if (!res.ok) throw new Error("Failed to fetch project");
-                const projects = await res.json();
-                const project = Array.isArray(projects)
-                    ? projects.find((p) => p.id === projectId)
-                    : null;
-                if (!project) throw new Error("Project not found");
+                if (!res.ok) throw new Error("Failed to fetch projects");
+                let projects = await res.json();
+                if (!Array.isArray(projects) || projects.length === 0) {
+                    // Try to restore from localStorage
+                    projects = loadProjectsFromLocal();
+                    if (Array.isArray(projects) && projects.length > 0) {
+                        // Restore to backend
+                        await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`,
+                            { method: "POST", body: JSON.stringify(projects) });
+                        // Reload to pick up restored projects
+                        window.location.reload();
+                        return;
+                    }
+                }
+                const project = projects.find((p: any) => String(p.id).trim() === String(projectId).trim());
+                if (!project) {
+                    console.error('Project not found. projectId:', projectId, 'projects:', projects.map((p: any) => p.id));
+                    throw new Error("Project not found");
+                }
                 setProject(project);
                 setRenameValue(project.name || "");
             } catch (err: any) {
@@ -282,9 +308,15 @@ export default function ProjectViewPage() {
             }
             const res = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`);
             if (!res.ok) throw new Error("Failed to fetch projects");
-            const projects = await res.json();
-            const idx = projects.findIndex((p: any) => String(p.id) === String(projectId));
-            if (idx === -1) throw new Error("Project not found");
+            let projects = await res.json();
+            if (!Array.isArray(projects) || projects.length === 0) {
+                projects = loadProjectsFromLocal();
+            }
+            const idx = projects.findIndex((p: any) => String(p.id).trim() === String(projectId).trim());
+            if (idx === -1) {
+                console.error('Project not found. projectId:', projectId, 'projects:', projects.map((p: any) => p.id));
+                throw new Error("Project not found");
+            }
             const updatedProject = { ...projects[idx], name: renameValue };
             projects[idx] = updatedProject;
             const saveRes = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`, {
@@ -927,15 +959,17 @@ export default function ProjectViewPage() {
                             },
                         }}
                     >
-                        <TextInput
-                            label="Project Name"
-                            value={renameValue}
-                            onChange={(e) => setRenameValue(e.currentTarget.value)}
-                            mb="md"
-                        />
-                        <Button onClick={handleRename} loading={renaming} fullWidth disabled={!renameValue} variant={styles.buttonGradient} style={{ fontWeight: 700, color: '#fff', boxShadow: '0 2px 16px #232b4d44' }}>
-                            Save
-                        </Button>
+                        <form onSubmit={e => { e.preventDefault(); handleRename(); }}>
+                            <TextInput
+                                label="Project Name"
+                                value={renameValue}
+                                onChange={(e) => setRenameValue(e.currentTarget.value)}
+                                mb="md"
+                            />
+                            <Button type="submit" loading={renaming} fullWidth disabled={!renameValue} variant={styles.buttonGradient} style={{ fontWeight: 700, color: '#fff', boxShadow: '0 2px 16px #232b4d44' }}>
+                                Save
+                            </Button>
+                        </form>
                     </Modal>
                     <Tabs value={activeTab} onChange={value => setActiveTab(value || "default")} style={{ flex: 1 }}
                         styles={{
@@ -962,7 +996,28 @@ export default function ProjectViewPage() {
                     >
                         <Tabs.List>
                             {docTabs.map(tab => (
-                                <Tabs.Tab key={tab.id} value={tab.id}>{tab.title}</Tabs.Tab>
+                                <Tabs.Tab key={tab.id} value={tab.id}>
+                                    <Group gap={4} align="center">
+                                        <span>{tab.title}</span>
+                                        {tab.id !== "default" && (
+                                            <Menu shadow="md" width={140} position="bottom-end">
+                                                <Menu.Target>
+                                                    <ActionIcon size={18} variant="subtle" color="gray" style={{ marginLeft: 4 }}>
+                                                        <IconEdit size={14} />
+                                                    </ActionIcon>
+                                                </Menu.Target>
+                                                <Menu.Dropdown>
+                                                    <Menu.Item leftSection={<IconEdit size={14} />} onClick={() => {
+                                                        setRenamingDocId(tab.id);
+                                                        setRenameDocValue(tab.title);
+                                                    }}>
+                                                        Rename
+                                                    </Menu.Item>
+                                                </Menu.Dropdown>
+                                            </Menu>
+                                        )}
+                                    </Group>
+                                </Tabs.Tab>
                             ))}
                             <Tabs.Tab value="templates">Templates</Tabs.Tab>
                             <Tabs.Tab value="members">Members</Tabs.Tab>
@@ -987,6 +1042,11 @@ export default function ProjectViewPage() {
                                                                 autoFocus
                                                                 style={{ flex: 1 }}
                                                                 disabled={!!isAI}
+                                                                onKeyDown={e => {
+                                                                    if (e.key === "Enter") {
+                                                                        handleSaveRow(tab.id);
+                                                                    }
+                                                                }}
                                                             />
                                                             <Button size="xs" color={styles.accentColor} onClick={handleSaveEditRow} loading={savingEdit || !!isAI} disabled={!!isAI} style={{ background: styles.buttonGradient, color: '#fff', fontWeight: 700, borderRadius: 12 }}>
                                                                 Save
@@ -1015,7 +1075,7 @@ export default function ProjectViewPage() {
                                                             onClick={() => handleStartEditRow(tab.id, idx, row)}
                                                             title="Click to edit"
                                                         >
-                                                            {row}
+                                                            <ReactMarkdown>{row}</ReactMarkdown>
                                                         </Paper>
                                                     )}
                                                     <Menu shadow="md" width={120} position="bottom-end" withinPortal>
@@ -1045,6 +1105,11 @@ export default function ProjectViewPage() {
                                                     placeholder="Enter row text"
                                                     autoFocus
                                                     style={{ flex: 1 }}
+                                                    onKeyDown={e => {
+                                                        if (e.key === "Enter") {
+                                                            handleSaveRow(tab.id);
+                                                        }
+                                                    }}
                                                 />
                                                 <Button size="xs" color={styles.accentColor} onClick={() => handleSaveRow(tab.id)} loading={savingRow} style={{ background: styles.buttonGradient, color: '#fff', fontWeight: 700, borderRadius: 12 }}>
                                                     Save
@@ -1289,14 +1354,6 @@ export default function ProjectViewPage() {
                                             value={newResearch.tags || []}
                                             onChange={tags => setNewResearch(r => ({ ...r, tags }))}
                                             searchable
-                                            creatable
-                                            onCreate={query => {
-                                                const newTag = query.trim();
-                                                if (newTag && !allTags.includes(newTag)) {
-                                                    setNewResearch(r => ({ ...r, tags: [...(r.tags || []), newTag] }));
-                                                }
-                                                return newTag;
-                                            }}
                                             style={{ flex: 2 }}
                                         />
                                         <input type="file" onChange={e => handleFileChange(e, setNewResearchFile)} style={{ flex: 2 }} />
@@ -1455,14 +1512,6 @@ export default function ProjectViewPage() {
                                                 value={editResearch.tags || []}
                                                 onChange={tags => setEditResearch((r: any) => ({ ...r, tags }))}
                                                 searchable
-                                                creatable
-                                                onCreate={query => {
-                                                    const newTag = query.trim();
-                                                    if (newTag && !allTags.includes(newTag)) {
-                                                        setEditResearch((r: any) => ({ ...r, tags: [...(r.tags || []), newTag] }));
-                                                    }
-                                                    return newTag;
-                                                }}
                                             />
                                             <input type="file" onChange={e => handleFileChange(e, setEditResearchFile)} />
                                             <Button variant="light" color="yellow" onClick={handleEditSuggestTags} loading={editSuggestingTags} style={{ alignSelf: 'flex-start', marginBottom: 8 }}>
@@ -1490,6 +1539,27 @@ export default function ProjectViewPage() {
                     </ActionIcon>
                 </Container>
             </Box>
+            {renamingDocId && (
+                <Modal opened={!!renamingDocId} onClose={() => setRenamingDocId(null)} title="Rename Document" centered>
+                    <form onSubmit={e => {
+                        e.preventDefault();
+                        if (!renamingDocId || !renameDocValue.trim()) return;
+                        setDocTabs(tabs => tabs.map(tab => tab.id === renamingDocId ? { ...tab, title: renameDocValue.trim() } : tab));
+                        setRenamingDocId(null);
+                    }}>
+                        <TextInput
+                            label="Document Name"
+                            value={renameDocValue}
+                            onChange={e => setRenameDocValue(e.currentTarget.value)}
+                            mb="md"
+                            autoFocus
+                        />
+                        <Button type="submit" fullWidth disabled={!renameDocValue.trim()}>
+                            Save
+                        </Button>
+                    </form>
+                </Modal>
+            )}
         </>
     );
 } 

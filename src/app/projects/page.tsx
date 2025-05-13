@@ -67,6 +67,20 @@ const themeStyles = {
     },
 };
 
+// Utility to sync projects to localStorage
+function saveProjectsToLocal(projects) {
+    try {
+        localStorage.setItem('projects:backup', JSON.stringify(projects));
+    } catch { }
+}
+
+function loadProjectsFromLocal() {
+    try {
+        const data = localStorage.getItem('projects:backup');
+        return data ? JSON.parse(data) : [];
+    } catch { return []; }
+}
+
 export default function ProjectsPage() {
     const router = useRouter();
     const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
@@ -110,9 +124,21 @@ export default function ProjectsPage() {
                     `http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`
                 );
                 if (!res.ok) throw new Error("Failed to fetch projects");
-                const text = await res.text();
-                const data = text ? JSON.parse(text) : [];
-                setProjects(Array.isArray(data) ? data : []);
+                let data = await res.text();
+                let projects = data ? JSON.parse(data) : [];
+                if (!Array.isArray(projects) || projects.length === 0) {
+                    // Try to restore from localStorage
+                    projects = loadProjectsFromLocal();
+                    if (Array.isArray(projects) && projects.length > 0) {
+                        // Restore to backend
+                        await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`,
+                            { method: "POST", body: JSON.stringify(projects) });
+                        // Reload to pick up restored projects
+                        window.location.reload();
+                        return;
+                    }
+                }
+                setProjects(projects);
             } catch (err: any) {
                 setError(err.message);
                 showNotification({
@@ -127,7 +153,8 @@ export default function ProjectsPage() {
         fetchProjects();
     }, [router]);
 
-    const handleCreateProject = async () => {
+    const handleCreateProject = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
         if (!newProjectName.trim()) return;
         setCreatingProject(true);
         try {
@@ -141,6 +168,9 @@ export default function ProjectsPage() {
             if (res.ok) {
                 const text = await res.text();
                 projects = text ? JSON.parse(text) : [];
+                if (!Array.isArray(projects)) {
+                    projects = [];
+                }
             }
             const newProject = {
                 id: Date.now().toString(),
@@ -174,6 +204,9 @@ export default function ProjectsPage() {
                     message: `New project "${newProject.name}" has been created`
                 }
             }));
+
+            // Save projects to localStorage
+            saveProjectsToLocal(projects);
         } catch (err: any) {
             showNotification({ title: "Error", message: err.message || "Failed to create project", color: "red" });
         } finally {
@@ -190,7 +223,8 @@ export default function ProjectsPage() {
         setModalOpened(true);
     };
 
-    const handleUpdateProject = async () => {
+    const handleUpdateProject = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
         if (!editingProject) return;
         try {
             const userEmail = localStorage.getItem("user:username");
@@ -234,6 +268,9 @@ export default function ProjectsPage() {
                 message: "Project updated successfully!",
                 color: "green",
             });
+
+            // Save projects to localStorage
+            saveProjectsToLocal(updatedProjects);
         } catch (err: any) {
             showNotification({
                 title: "Error",
@@ -275,6 +312,9 @@ export default function ProjectsPage() {
                 message: "Project deleted successfully!",
                 color: "green",
             });
+
+            // Save projects to localStorage
+            saveProjectsToLocal(updatedProjects);
         } catch (err: any) {
             showNotification({
                 title: "Error",
@@ -322,6 +362,9 @@ export default function ProjectsPage() {
                 message: "Project shared successfully!",
                 color: "green",
             });
+
+            // Save projects to localStorage
+            saveProjectsToLocal(updatedProjects);
         } catch (err: any) {
             showNotification({
                 title: "Error",
@@ -730,17 +773,17 @@ export default function ProjectsPage() {
                         gap: '1rem'
                     }}>
                         {(filteredAndSortedProjects || []).map((project) => (
-                            <Card key={project.id} withBorder shadow="md" radius="md" p="lg" style={{ 
-                                background: styles.cardBackground, 
-                                border: styles.cardBorder, 
-                                color: styles.textColor, 
-                                minHeight: 180, 
-                                display: 'flex', 
-                                flexDirection: 'column', 
-                                justifyContent: 'center', 
-                                cursor: 'pointer', 
-                                transition: 'box-shadow 0.2s', 
-                                boxShadow: styles.cardShadow 
+                            <Card key={project.id} withBorder shadow="md" radius="md" p="lg" style={{
+                                background: styles.cardBackground,
+                                border: styles.cardBorder,
+                                color: styles.textColor,
+                                minHeight: 180,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                transition: 'box-shadow 0.2s',
+                                boxShadow: styles.cardShadow
                             }}>
                                 <Group justify="space-between" mb="md">
                                     <div>
@@ -822,42 +865,44 @@ export default function ProjectsPage() {
                     },
                 }}
             >
-                <Stack>
-                    <TextInput
-                        label="Project Name"
-                        value={newProjectName}
-                        onChange={(e) => setNewProjectName(e.currentTarget.value)}
-                        required
-                    />
-                    <Textarea
-                        label="Description"
-                        value={newProjectDescription}
-                        onChange={(e) => setNewProjectDescription(e.currentTarget.value)}
-                        minRows={3}
-                    />
-                    <Select
-                        label="Status"
-                        value={newProjectStatus}
-                        onChange={(value) => setNewProjectStatus(value as 'active' | 'archived' | 'completed')}
-                        data={[
-                            { value: 'active', label: 'Active' },
-                            { value: 'archived', label: 'Archived' },
-                            { value: 'completed', label: 'Completed' },
-                        ]}
-                    />
-                    <TextInput
-                        label="Tags (comma-separated)"
-                        value={newProjectTags}
-                        onChange={(e) => setNewProjectTags(e.currentTarget.value)}
-                        placeholder="e.g. web, design, marketing"
-                    />
-                    <Button
-                        onClick={editingProject ? handleUpdateProject : handleCreateProject}
-                        fullWidth
-                    >
-                        {editingProject ? "Update Project" : "Create Project"}
-                    </Button>
-                </Stack>
+                <form onSubmit={editingProject ? handleUpdateProject : handleCreateProject}>
+                    <Stack>
+                        <TextInput
+                            label="Project Name"
+                            value={newProjectName}
+                            onChange={(e) => setNewProjectName(e.currentTarget.value)}
+                            required
+                        />
+                        <Textarea
+                            label="Description"
+                            value={newProjectDescription}
+                            onChange={(e) => setNewProjectDescription(e.currentTarget.value)}
+                            minRows={3}
+                        />
+                        <Select
+                            label="Status"
+                            value={newProjectStatus}
+                            onChange={(value) => setNewProjectStatus(value as 'active' | 'archived' | 'completed')}
+                            data={[
+                                { value: 'active', label: 'Active' },
+                                { value: 'archived', label: 'Archived' },
+                                { value: 'completed', label: 'Completed' },
+                            ]}
+                        />
+                        <TextInput
+                            label="Tags (comma-separated)"
+                            value={newProjectTags}
+                            onChange={(e) => setNewProjectTags(e.currentTarget.value)}
+                            placeholder="e.g. web, design, marketing"
+                        />
+                        <Button
+                            type="submit"
+                            fullWidth
+                        >
+                            {editingProject ? "Update Project" : "Create Project"}
+                        </Button>
+                    </Stack>
+                </form>
             </Modal>
 
             <Modal
