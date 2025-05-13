@@ -1,13 +1,13 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Container, Group, Button, Title, Box, Text, Modal, TextInput, Card, Stack, Loader, Badge } from "@mantine/core";
+import { Container, Group, Button, Title, Box, Text, Modal, TextInput, Card, Stack, Loader, Badge, Textarea } from "@mantine/core";
 import { showNotification } from "@mantine/notifications";
 import Link from "next/link";
 import { NavigationBar } from "@/components/NavigationBar";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import { useTheme } from "@/contexts/ThemeContext";
-import { IconRocket, IconUserPlus, IconBell, IconSearch, IconStar, IconRobot, IconUsersGroup, IconSparkles } from "@tabler/icons-react";
+import { IconRocket, IconUserPlus, IconBell, IconSearch, IconStar, IconRobot, IconUsersGroup, IconSparkles, IconUsers, IconTag } from "@tabler/icons-react";
 import { Carousel } from '@mantine/carousel';
 import '@mantine/carousel/styles.css';
 
@@ -51,6 +51,44 @@ const themeStyles = {
   },
 };
 
+function AnimatedSVGBackground() {
+  return (
+    <svg className="animated-svg-bg" viewBox="0 0 1920 1080" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <radialGradient id="glow1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%" gradientTransform="rotate(45)">
+          <stop offset="0%" stopColor="#0a0a1a" stopOpacity="0.7" />
+          <stop offset="100%" stopColor="#181c2b" stopOpacity="0.1" />
+        </radialGradient>
+        <radialGradient id="glow2" cx="50%" cy="50%" r="50%" fx="50%" fy="50%" gradientTransform="rotate(90)">
+          <stop offset="0%" stopColor="#23243a" stopOpacity="0.5" />
+          <stop offset="100%" stopColor="#0a0a1a" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      <circle cx="400" cy="300" r="320" fill="url(#glow1)" />
+      <circle cx="1600" cy="800" r="260" fill="url(#glow2)" />
+      <rect x="900" y="100" width="120" height="120" rx="32" fill="#181c2b" opacity="0.12">
+        <animateTransform attributeName="transform" type="rotate" from="0 960 160" to="360 960 160" dur="18s" repeatCount="indefinite" />
+      </rect>
+      <rect x="200" y="700" width="80" height="80" rx="20" fill="#23243a" opacity="0.10">
+        <animateTransform attributeName="transform" type="rotate" from="0 240 740" to="360 240 740" dur="24s" repeatCount="indefinite" />
+      </rect>
+    </svg>
+  );
+}
+
+function OnboardingModal({ open, onClose }: { open: boolean, onClose: () => void }) {
+  if (!open) return null;
+  return (
+    <div className="onboarding-modal glass-strong" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(24,28,43,0.85)', zIndex: 10000 }}>
+      <div>
+        <h2 className="holo-strong">Welcome to Sparkpad</h2>
+        <p style={{ color: '#b0b7ff', fontSize: 18, marginBottom: 24 }}>Experience the future of collaboration.<br />Organize, create, and innovate with Sparkpad's AI-powered workspace.</p>
+        <button className="futuristic-btn" onClick={onClose}>Let&apos;s Go!</button>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const router = useRouter();
   const { theme } = useTheme();
@@ -74,6 +112,7 @@ export default function Home() {
   const [newProjectTags, setNewProjectTags] = useState("");
   const [creatingProject, setCreatingProject] = useState(false);
   const [activityFeed, setActivityFeed] = useState<any[]>([]);
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -89,6 +128,9 @@ export default function Home() {
       }
     }
     fetchProjects();
+    if (typeof window !== "undefined" && !window.localStorage.getItem("sparkpadOnboarded")) {
+      setShowOnboarding(true);
+    }
     // eslint-disable-next-line
   }, [router]);
 
@@ -263,350 +305,75 @@ export default function Home() {
   const completedProjects = projects.filter((p) => p.status === 'completed').length;
   const teamMembers = Array.from(new Set(projects.flatMap(p => Array.isArray(p.members) ? p.members : []))).length;
 
+  const handleCloseOnboarding = () => {
+    setShowOnboarding(false);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("sparkpadOnboarded", "1");
+    }
+  };
+
   return (
-    <Box style={{ minHeight: "100vh", background: styles.background, position: 'relative', overflow: 'hidden' }}>
-      {/* Theme-specific Glow Overlay */}
-      <div style={{
-        position: 'absolute',
-        top: 0, left: 0, right: 0, bottom: 0,
-        pointerEvents: 'none',
-        zIndex: 0,
-        ...styles.glowOverlay,
-      }} />
-      <NavigationBar userName={userName} onLogout={handleLogout} />
+    <main style={{ position: 'relative', minHeight: '100vh', overflow: 'hidden' }}>
+      <AnimatedSVGBackground />
+      <div className="futuristic-hero-bg" />
+      <OnboardingModal open={showOnboarding} onClose={handleCloseOnboarding} />
       <ThemeSwitcher />
-
-      {/* Welcome Banner */}
-      <Box style={{
-        margin: '0 auto',
-        marginTop: 40,
-        marginBottom: 32,
-        maxWidth: 700,
-        padding: 32,
-        borderRadius: 32,
-        background: styles.cardBackground,
-        boxShadow: styles.cardShadow,
-        backdropFilter: 'none',
-        textAlign: 'center',
-        position: 'relative',
-        zIndex: 1
-      }}>
-        <Group justify="center" align="center" gap={8}>
-          <IconSparkles size={32} color={styles.accentColor} />
-          <Title order={2} style={{ color: styles.textColor, fontWeight: 800, letterSpacing: 1 }}>
-            Welcome{userName ? `, ${userName}` : ''} to SparkPad
-          </Title>
-        </Group>
-        <Text mt="sm" c={styles.secondaryTextColor} size="lg" style={{ fontWeight: 500, letterSpacing: 0.5 }}>
-          Your {theme === 'futuristic' ? 'futuristic AI' : 'collaborative'} workspace for innovation.
-        </Text>
-      </Box>
-
-      {/* Quick Actions */}
-      <Group justify="center" gap={24} mb={32}>
-        <Button
-          leftSection={<IconRocket size={18} />}
-          variant="gradient"
-          gradient={styles.buttonGradient}
-          size="md"
-          radius="xl"
-          style={{
-            fontWeight: 700,
-            boxShadow: styles.cardShadow,
-            color: '#fff'
-          }}
-          onClick={() => setProjectModal(true)}
-        >
-          New Project
-        </Button>
-        <Button
-          leftSection={<IconUserPlus size={18} />}
-          variant="gradient"
-          gradient={styles.buttonGradient}
-          size="md"
-          radius="xl"
-          style={{
-            fontWeight: 700,
-            boxShadow: styles.cardShadow,
-            color: '#fff'
-          }}
-          onClick={() => setInviteModal(true)}
-        >
-          Invite Member
-        </Button>
-        <Button
-          leftSection={<IconSearch size={18} />}
-          variant="gradient"
-          gradient={styles.buttonGradient}
-          size="md"
-          radius="xl"
-          style={{
-            fontWeight: 700,
-            boxShadow: styles.cardShadow,
-            color: '#fff'
-          }}
-          onClick={() => setSearchModal(true)}
-        >
-          Search Projects
-        </Button>
-      </Group>
-
-      {/* Stats Cards */}
-      <Group justify="center" gap={32} mb={40}>
-        {[
-          { icon: <IconRocket size={32} color={styles.accentColor} />, value: totalProjects, label: "Total Projects" },
-          { icon: <IconBell size={32} color={styles.accentColor} />, value: activeProjects, label: "Active Projects" },
-          { icon: <IconStar size={32} color={styles.accentColor} />, value: completedProjects, label: "Completed" },
-          { icon: <IconUsersGroup size={32} color={styles.accentColor} />, value: teamMembers, label: "Team Members" },
-        ].map((stat, index) => (
-          <Box
-            key={index}
-            style={{
-              minWidth: 180,
-              borderRadius: 24,
-              background: styles.cardBackground,
-              border: styles.cardBorder,
-              boxShadow: styles.cardShadow,
-              padding: 24,
-              textAlign: 'center',
-              color: styles.accentColor,
-              backdropFilter: 'none',
-            }}
-          >
-            {stat.icon}
-            <Title order={3} style={{ color: styles.accentColor, fontWeight: 700 }}>{stat.value}</Title>
-            <Text size="sm" c={styles.secondaryTextColor}>{stat.label}</Text>
-          </Box>
-        ))}
-      </Group>
-
-      {/* Recent Projects Carousel */}
-      <Box mb={40} style={{ maxWidth: 900, margin: '0 auto', zIndex: 1, position: 'relative' }}>
-        <Title order={4} mb={16} style={{ color: styles.textColor, fontWeight: 700, letterSpacing: 1 }}>Recent Projects</Title>
-        {projects.length === 0 ? (
-          <Text c={styles.secondaryTextColor} ta="center">No projects yet. Start your first project!</Text>
-        ) : (
-          <Carousel slideSize="33.3333%" height={180} slideGap="md">
-            {(projects.slice(-6).reverse() || []).map((project, idx) => (
-              <Carousel.Slide key={project.id || idx}>
-                <Card shadow="md" p="lg" radius="lg" withBorder style={{
-                  background: styles.cardBackground,
-                  border: styles.cardBorder,
-                  color: styles.textColor,
-                  minHeight: 160,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  transition: 'box-shadow 0.2s',
-                  boxShadow: styles.cardShadow
-                }}>
-                  <Group justify="space-between" align="center">
-                    <Text fw={700} size="lg" style={{ color: styles.accentColor }}>{project.name || "Untitled Project"}</Text>
-                    <IconStar size={20} color="#fff7b0" style={{ filter: 'drop-shadow(0 0 6px #fff7b088)' }} />
-                  </Group>
-                  <Text size="sm" c={styles.secondaryTextColor} mt={8} mb={8} lineClamp={2}>{project.description || "No description."}</Text>
-                  <Group gap={6} mt={8}>
-                    {(project.tags || []).map((tag: string, i: number) => (
-                      <Badge key={i} color={styles.badgeColor} variant="light" size="xs">{tag}</Badge>
-                    ))}
-                  </Group>
-                  <Button mt={16}
-                    variant={theme === 'futuristic' ? 'gradient' : 'filled'}
-                    gradient={theme === 'futuristic' ? styles.buttonGradient : undefined}
-                    color={theme === 'classic' ? 'blue' : undefined}
-                    size="xs"
-                    radius="xl"
-                    style={{ fontWeight: 700, color: theme === 'classic' ? '#fff' : '#fff' }}
-                    component={Link}
-                    href={`/projects/${project.id}`}
-                  >
-                    Open Project
-                  </Button>
-                </Card>
-              </Carousel.Slide>
-            ))}
-          </Carousel>
-        )}
-      </Box>
-      {/* Activity Feed */}
-      <Box mb={40} style={{
-        maxWidth: 700,
-        margin: '0 auto',
-        zIndex: 1,
-        position: 'relative',
-        background: styles.cardBackground,
-        borderRadius: 24,
-        border: styles.cardBorder,
-        boxShadow: styles.cardShadow,
-        padding: 24
-      }}>
-        <Title order={4} mb={16} style={{ color: styles.textColor, fontWeight: 700, letterSpacing: 1 }}>Activity Feed</Title>
-        {activityFeed.length === 0 ? (
-          <Text c={styles.secondaryTextColor} ta="center">No recent activity.</Text>
-        ) : (
-          <Stack gap={12}>
-            {activityFeed.map((item, idx) => (
-              <Group key={idx} gap={10} align="center">
-                {item.icon}
-                <Text size="sm" c={styles.secondaryTextColor}>{item.message}</Text>
-                <Text size="xs" c={styles.accentColor} ml="auto">{item.time}</Text>
-              </Group>
-            ))}
-          </Stack>
-        )}
-      </Box>
-      {/* Project Create Modal */}
-      <Modal opened={projectModal} onClose={() => setProjectModal(false)} title="Create Project" centered>
-        <TextInput
-          label="Project Name"
-          value={newProjectName}
-          onChange={(e) => setNewProjectName(e.currentTarget.value)}
-          mb="md"
-        />
-        <TextInput
-          label="Description"
-          value={newProjectDescription}
-          onChange={(e) => setNewProjectDescription(e.currentTarget.value)}
-          mb="md"
-        />
-        <TextInput
-          label="Tags (comma-separated)"
-          value={newProjectTags}
-          onChange={(e) => setNewProjectTags(e.currentTarget.value)}
-          mb="md"
-          placeholder="e.g. web, design, marketing"
-        />
-        <select
-          value={newProjectStatus}
-          onChange={e => setNewProjectStatus(e.target.value as 'active' | 'archived' | 'completed')}
-          style={{ width: '100%', marginBottom: 16, padding: 8, borderRadius: 4, border: styles.inputBorder }}
-        >
-          <option value="active">Active</option>
-          <option value="archived">Archived</option>
-          <option value="completed">Completed</option>
-        </select>
-        <Button onClick={handleCreateProject} loading={creatingProject} fullWidth>
-          Create
-        </Button>
-      </Modal>
-      {/* Invite Member Modal */}
-      <Modal
-        opened={inviteModal}
-        onClose={() => setInviteModal(false)}
-        title="Invite Team Member"
-        centered
-        size="md"
-        styles={{
-          title: { color: styles.textColor, fontWeight: 700 },
-          header: { background: styles.modalBackground },
-          body: { background: styles.modalBackground },
-        }}
-      >
-        <Stack>
-          <TextInput
-            label="Member Email"
-            placeholder="Enter member's email"
-            value={inviteEmail}
-            onChange={(e) => setInviteEmail(e.target.value)}
-            styles={{
-              label: { color: styles.secondaryTextColor },
-              input: { background: styles.inputBackground, borderColor: styles.inputBorder, color: styles.textColor },
-            }}
-          />
-          <select
-            value={inviteProjectId}
-            onChange={(e) => setInviteProjectId(e.target.value)}
-            style={{
-              background: styles.inputBackground,
-              border: styles.inputBorder,
-              borderRadius: '4px',
-              padding: '8px 12px',
-              color: styles.textColor,
-              width: '100%',
-            }}
-          >
-            <option value="">Select Project</option>
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
-          <Button
-            onClick={handleInviteMember}
-            loading={invitingMember}
-            variant="gradient"
-            gradient={{ from: '#3a2e5d', to: '#232b4d', deg: 90 }}
-            fullWidth
-          >
-            Invite Member
-          </Button>
-        </Stack>
-      </Modal>
-      {/* Search Projects Modal */}
-      <Modal
-        opened={searchModal}
-        onClose={() => setSearchModal(false)}
-        title="Search Projects"
-        centered
-        size="lg"
-        styles={{
-          title: { color: styles.textColor, fontWeight: 700 },
-          header: { background: styles.modalBackground },
-          body: { background: styles.modalBackground },
-        }}
-      >
-        <Stack>
-          <TextInput
-            placeholder="Search by project name, description, or tags..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            styles={{
-              input: { background: styles.inputBackground, borderColor: styles.inputBorder, color: styles.textColor },
-            }}
-          />
-          <Box>
-            {searchResults.length > 0 ? (
-              <Stack>
-                {searchResults.map((project) => (
-                  <Card
-                    key={project.id}
-                    style={{
-                      background: styles.cardBackground,
-                      border: styles.cardBorder,
-                      cursor: 'pointer',
-                    }}
-                    onClick={() => {
-                      router.push(`/projects/${project.id}`);
-                      setSearchModal(false);
-                    }}
-                  >
-                    <Group justify="space-between">
-                      <Box>
-                        <Text fw={700} c={styles.textColor}>{project.name}</Text>
-                        <Text size="sm" c={styles.secondaryTextColor}>{project.description}</Text>
-                      </Box>
-                      <Badge color={project.status === 'active' ? 'green' : project.status === 'completed' ? 'blue' : 'gray'}>
-                        {project.status}
-                      </Badge>
-                    </Group>
-                    <Group mt="xs" gap="xs">
-                      {project.tags.map((tag: string) => (
-                        <Badge key={tag} variant="light" color={styles.badgeColor}>
-                          {tag}
-                        </Badge>
-                      ))}
-                    </Group>
-                  </Card>
-                ))}
-              </Stack>
-            ) : searchQuery ? (
-              <Text c={styles.secondaryTextColor} ta="center">No projects found</Text>
-            ) : null}
-          </Box>
-        </Stack>
-      </Modal>
-    </Box>
+      <section className="futuristic-section" style={{ paddingTop: 120, paddingBottom: 80, textAlign: 'center', position: 'relative', zIndex: 1 }}>
+        <h1 className="holo-text futuristic-shimmer" style={{ fontSize: '3.5rem', fontWeight: 900, letterSpacing: 2, marginBottom: 16 }}>Sparkpad</h1>
+        <h2 className="neon-text futuristic-pulse" style={{ fontSize: '1.7rem', fontWeight: 600, marginBottom: 32, letterSpacing: 1 }}>
+          Welcome 2090: The Future of Collaboration
+        </h2>
+        <div style={{ maxWidth: 700, margin: '0 auto', marginBottom: 48 }}>
+          <div className="glass futuristic-3d" style={{ padding: 32, borderRadius: 32, boxShadow: '0 8px 32px #232b4d44', position: 'relative' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 32 }}>
+              <div className="futuristic-animate" style={{ flex: 1 }}>
+                <IconRocket size={64} className="futuristic-icon" />
+                <h3 className="holo-text" style={{ fontWeight: 700, fontSize: 24, margin: '16px 0 8px' }}>Lightning Fast</h3>
+                <p style={{ color: '#b0b7ff', fontSize: 16 }}>Instant project creation, real-time sync, and blazing speed for your workflow.</p>
+              </div>
+              <div className="futuristic-animate" style={{ flex: 1, animationDelay: '0.7s' }}>
+                <IconRobot size={64} className="futuristic-icon" />
+                <h3 className="holo-text" style={{ fontWeight: 700, fontSize: 24, margin: '16px 0 8px' }}>AI-Powered</h3>
+                <p style={{ color: '#b0b7ff', fontSize: 16 }}>Smart suggestions, AI chat, and intelligent tagging to supercharge your team.</p>
+              </div>
+              <div className="futuristic-animate" style={{ flex: 1, animationDelay: '1.4s' }}>
+                <IconUsers size={64} className="futuristic-icon" />
+                <h3 className="holo-text" style={{ fontWeight: 700, fontSize: 24, margin: '16px 0 8px' }}>Seamless Collaboration</h3>
+                <p style={{ color: '#b0b7ff', fontSize: 16 }}>Effortless teamwork, live editing, and secure sharing for the next era.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <Link href="/login">
+          <button className="futuristic-btn futuristic-shimmer" style={{ marginTop: 32, fontSize: '1.3rem' }}>
+            Get Started with Sparkpad
+          </button>
+        </Link>
+      </section>
+      <div className="futuristic-divider" />
+      <section className="futuristic-section" style={{ textAlign: 'center', zIndex: 1 }}>
+        <h2 className="holo-text" style={{ fontSize: '2.2rem', fontWeight: 800, marginBottom: 24 }}>What is Sparkpad?</h2>
+        <p style={{ color: '#b0b7ff', fontSize: 20, maxWidth: 700, margin: '0 auto 32px' }}>
+          Sparkpad is your all-in-one futuristic workspace, designed for innovators, creators, and teams who want to work at the speed of tomorrow. Organize, collaborate, and create with AI-powered tools, real-time sync, and a stunning interface that feels like the future.
+        </p>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 48, flexWrap: 'wrap' }}>
+          <div className="glass futuristic-animate futuristic-3d" style={{ flex: 1, minWidth: 220, margin: 12, padding: 32 }}>
+            <IconSparkles size={48} className="futuristic-icon" />
+            <h3 className="holo-text" style={{ fontWeight: 700, fontSize: 20, margin: '16px 0 8px' }}>Next-Gen UI</h3>
+            <p style={{ color: '#b0b7ff', fontSize: 16 }}>A visually stunning, intuitive interface that inspires productivity and creativity.</p>
+          </div>
+          <div className="glass futuristic-animate futuristic-3d" style={{ flex: 1, minWidth: 220, margin: 12, padding: 32 }}>
+            <IconTag size={48} className="futuristic-icon" />
+            <h3 className="holo-text" style={{ fontWeight: 700, fontSize: 20, margin: '16px 0 8px' }}>Smart Tagging</h3>
+            <p style={{ color: '#b0b7ff', fontSize: 16 }}>Organize everything with intelligent tags and instant search.</p>
+          </div>
+          <div className="glass futuristic-animate futuristic-3d" style={{ flex: 1, minWidth: 220, margin: 12, padding: 32 }}>
+            <IconUsers size={48} className="futuristic-icon" />
+            <h3 className="holo-text" style={{ fontWeight: 700, fontSize: 20, margin: '16px 0 8px' }}>Team-Ready</h3>
+            <p style={{ color: '#b0b7ff', fontSize: 16 }}>Built for teams of any size, with secure sharing and real-time updates.</p>
+          </div>
+        </div>
+      </section>
+    </main>
   );
 }
