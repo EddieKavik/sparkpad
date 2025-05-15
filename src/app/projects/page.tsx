@@ -113,6 +113,15 @@ export default function ProjectsPage() {
     }, []);
 
     useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                router.replace('/login');
+            }
+        }
+    }, [router]);
+
+    useEffect(() => {
         const fetchProjects = async () => {
             try {
                 const userEmail = localStorage.getItem("user:username");

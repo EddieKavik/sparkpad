@@ -17,6 +17,14 @@ import { IconSparkles } from "@tabler/icons-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
+function uint8ToBase64(uint8: Uint8Array): string {
+    let binary = '';
+    for (let i = 0; i < uint8.length; i++) {
+        binary += String.fromCharCode(uint8[i]);
+    }
+    return btoa(binary);
+}
+
 async function encryptPassword(password: string): Promise<string> {
     const salt = window.crypto.getRandomValues(new Uint8Array(16));
     const enc = new TextEncoder();
@@ -43,7 +51,7 @@ async function encryptPassword(password: string): Promise<string> {
     const combined = new Uint8Array(salt.length + rawKey.byteLength);
     combined.set(salt, 0);
     combined.set(new Uint8Array(rawKey), salt.length);
-    return btoa(String.fromCharCode(...combined));
+    return uint8ToBase64(combined);
 }
 
 export default function SignupPage() {
@@ -57,11 +65,27 @@ export default function SignupPage() {
         e.preventDefault();
         setLoading(true);
         try {
+            // Check if user already exists
+            const checkRes = await fetch(
+                "http://localhost:3333/users?mode=disk&key=" + encodeURIComponent("user:" + email)
+            );
+            if (checkRes.ok) {
+                const text = await checkRes.text();
+                // Only treat as existing if it looks like a base64 string (not JSON)
+                if (/^[A-Za-z0-9+/=]+$/.test(text) && text.length > 20) {
+                    showNotification({
+                        title: "Error",
+                        message: "User already exists. Please log in.",
+                        color: "red",
+                    });
+                    setLoading(false);
+                    return;
+                }
+            }
             const encryptedPassword = await encryptPassword(password);
-
             // Store encrypted password
             const passwordRes = await fetch(
-                "http://localhost:3333/users?mode=volatile&key=" + encodeURIComponent(email),
+                "http://localhost:3333/users?mode=disk&key=" + encodeURIComponent("user:" + email),
                 {
                     method: "POST",
                     body: encryptedPassword,
@@ -72,10 +96,9 @@ export default function SignupPage() {
                 console.error("Password storage failed:", passwordRes.status, passwordResText);
                 throw new Error(`Failed to store password: ${passwordResText || passwordRes.status}`);
             }
-
             // Store username
             const usernameRes = await fetch(
-                "http://localhost:3333/users?mode=volatile&key=" + encodeURIComponent(email + ':username'),
+                "http://localhost:3333/users?mode=disk&key=" + encodeURIComponent("user:" + email + ':username'),
                 {
                     method: "POST",
                     body: email,
@@ -86,7 +109,6 @@ export default function SignupPage() {
                 console.error("Username storage failed:", usernameRes.status, usernameResText);
                 throw new Error(`Failed to store username: ${usernameResText || usernameRes.status}`);
             }
-
             showNotification({
                 title: "Success",
                 message: "Registration successful!",

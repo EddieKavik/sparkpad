@@ -66,10 +66,10 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                         setNotifications(data
                             .filter(notification => notification.message && notification.message.trim() !== "")
                             .map(notification => ({
-                            ...notification,
-                            id: notification.id || Date.now(),
-                            read: notification.read || false
-                        })));
+                                ...notification,
+                                id: notification.id || Date.now(),
+                                read: notification.read || false
+                            })));
                     } else {
                         setNotifications([]);
                     }
@@ -312,24 +312,6 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                     <Group gap="md">
                         <Button
                             component={Link}
-                            href="/"
-                            variant={pathname === "/" ? "filled" : "subtle"}
-                            color={theme === 'futuristic' ? 'violet' : 'blue'}
-                            size="sm"
-                            style={{
-                                background: pathname === "/" ? (theme === 'futuristic' ? 'linear-gradient(90deg, #232b4d 0%, #3a2e5d 100%)' : '#228be6') : undefined,
-                                color: pathname === "/" ? '#fff' : (theme === 'classic' ? '#1a1b1e' : undefined),
-                                boxShadow: pathname === "/" ? (theme === 'futuristic' ? '0 2px 12px #232b4d88' : '0 2px 8px rgba(0,0,0,0.06)') : undefined,
-                                borderRadius: 16,
-                                fontWeight: 700,
-                                letterSpacing: 0.5,
-                                border: pathname === "/" ? (theme === 'futuristic' ? '1.5px solid #4f5b93' : '1px solid #228be6') : undefined
-                            }}
-                        >
-                            Dashboard
-                        </Button>
-                        <Button
-                            component={Link}
                             href="/projects"
                             variant={pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? "filled" : "subtle"}
                             color={theme === 'futuristic' ? 'violet' : 'blue'}
@@ -345,6 +327,24 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                             }}
                         >
                             Projects
+                        </Button>
+                        <Button
+                            component={Link}
+                            href="/research"
+                            variant={pathname.startsWith("/research") ? "filled" : "subtle"}
+                            color={theme === 'futuristic' ? 'violet' : 'blue'}
+                            size="sm"
+                            style={{
+                                background: pathname.startsWith("/research") ? (theme === 'futuristic' ? 'linear-gradient(90deg, #3a2e5d 0%, #7f5fff 100%)' : '#7f5fff') : undefined,
+                                color: pathname.startsWith("/research") ? '#fff' : (theme === 'classic' ? '#1a1b1e' : undefined),
+                                boxShadow: pathname.startsWith("/research") ? (theme === 'futuristic' ? '0 2px 12px #7f5fff88' : '0 2px 8px rgba(0,0,0,0.06)') : undefined,
+                                borderRadius: 16,
+                                fontWeight: 700,
+                                letterSpacing: 0.5,
+                                border: pathname.startsWith("/research") ? (theme === 'futuristic' ? '1.5px solid #7f5fff' : '1px solid #7f5fff') : undefined
+                            }}
+                        >
+                            Research
                         </Button>
                         <Button
                             component={Link}
@@ -419,7 +419,7 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     if (window.confirm('Clear all notifications? This cannot be undone.')) {
-                                                    clearNotifications();
+                                                        clearNotifications();
                                                     }
                                                 }}
                                             >
@@ -438,24 +438,24 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                                     notifications
                                         .filter(notification => notification.message && notification.message.trim() !== "")
                                         .map((notification) => (
-                                        <Menu.Item
-                                            key={notification.id}
-                                            onClick={() => handleNotificationClick(notification)}
-                                            style={{
-                                                backgroundColor: notification.read ? 'transparent' : 'var(--mantine-color-blue-0)',
-                                            }}
-                                        >
-                                            <Group>
-                                                <div style={{ flex: 1 }}>
+                                            <Menu.Item
+                                                key={notification.id}
+                                                onClick={() => handleNotificationClick(notification)}
+                                                style={{
+                                                    backgroundColor: notification.read ? 'transparent' : 'var(--mantine-color-blue-0)',
+                                                }}
+                                            >
+                                                <Group>
+                                                    <div style={{ flex: 1 }}>
                                                         <Text size="sm">{notification.message || "No details"}</Text>
-                                                    <Text size="xs" c="dimmed">{notification.time}</Text>
-                                                </div>
-                                                {!notification.read && (
-                                                    <Badge size="xs" color="blue">New</Badge>
-                                                )}
-                                            </Group>
-                                        </Menu.Item>
-                                    ))
+                                                        <Text size="xs" c="dimmed">{notification.time}</Text>
+                                                    </div>
+                                                    {!notification.read && (
+                                                        <Badge size="xs" color="blue">New</Badge>
+                                                    )}
+                                                </Group>
+                                            </Menu.Item>
+                                        ))
                                 )}
                             </ScrollArea>
                         </Menu.Dropdown>

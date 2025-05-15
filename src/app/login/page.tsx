@@ -17,6 +17,14 @@ import { IconLogin2, IconBrandGoogle, IconBrandTwitter, IconBrandFacebook, IconB
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 
+function uint8ToBase64(uint8: Uint8Array): string {
+    let binary = '';
+    for (let i = 0; i < uint8.length; i++) {
+        binary += String.fromCharCode(uint8[i]);
+    }
+    return btoa(binary);
+}
+
 async function encryptPassword(password: string, saltB64: string): Promise<string> {
     // Decode base64 salt
     const salt = Uint8Array.from(atob(saltB64), c => c.charCodeAt(0));
@@ -44,14 +52,26 @@ async function encryptPassword(password: string, saltB64: string): Promise<strin
     const combined = new Uint8Array(salt.length + rawKey.byteLength);
     combined.set(salt, 0);
     combined.set(new Uint8Array(rawKey), salt.length);
-    return btoa(String.fromCharCode(...combined));
+    return uint8ToBase64(combined);
 }
 
 function extractSaltFromEncrypted(encrypted: string): string {
-    // The salt is the first 16 bytes (base64-encoded)
-    const bytes = Uint8Array.from(atob(encrypted), c => c.charCodeAt(0));
-    const salt = bytes.slice(0, 16);
-    return btoa(String.fromCharCode(...salt));
+    try {
+        // The salt is the first 16 bytes (base64-encoded)
+        const bytes = Uint8Array.from(atob(encrypted), c => c.charCodeAt(0));
+        const salt = bytes.slice(0, 16);
+        return btoa(String.fromCharCode(...salt));
+    } catch (err) {
+        console.error('Failed to extract salt from encrypted password. Value:', encrypted, err);
+        if (typeof window !== 'undefined' && window?.showNotification) {
+            showNotification({
+                title: 'Error',
+                message: 'Corrupted password data. Please re-register.',
+                color: 'red',
+            });
+        }
+        throw new Error('Corrupted password data. Please re-register.');
+    }
 }
 
 export default function LoginPage() {
@@ -66,14 +86,36 @@ export default function LoginPage() {
         try {
             // Fetch encrypted password from Civil Memory
             const res = await fetch(
-                "http://localhost:3333/users?mode=volatile&key=" + encodeURIComponent(email)
+                "http://localhost:3333/users?mode=disk&key=" + encodeURIComponent("user:" + email)
             );
             if (!res.ok) throw new Error("Invalid email or password");
             const encryptedPassword = await res.text();
-            // Extract salt from stored encrypted password
-            const saltB64 = extractSaltFromEncrypted(encryptedPassword);
+            let saltB64;
+            try {
+                saltB64 = extractSaltFromEncrypted(encryptedPassword);
+            } catch (err) {
+                showNotification({
+                    title: 'Error',
+                    message: 'Stored password is corrupted. Please re-register.',
+                    color: 'red',
+                });
+                setLoading(false);
+                return;
+            }
             // Encrypt entered password with extracted salt
-            const encryptedInput = await encryptPassword(password, saltB64);
+            let encryptedInput;
+            try {
+                encryptedInput = await encryptPassword(password, saltB64);
+            } catch (err) {
+                console.error('Failed to encrypt input password', err);
+                showNotification({
+                    title: 'Error',
+                    message: 'Password encryption failed. Please try again.',
+                    color: 'red',
+                });
+                setLoading(false);
+                return;
+            }
             if (encryptedInput !== encryptedPassword) throw new Error("Invalid email or password");
             // Simulate token and user object
             const token = "dummy-token";
@@ -86,7 +128,7 @@ export default function LoginPage() {
                 message: "Login successful!",
                 color: "green",
             });
-            router.push("/");
+            router.push("/projects");
         } catch (err: any) {
             showNotification({
                 title: "Error",
