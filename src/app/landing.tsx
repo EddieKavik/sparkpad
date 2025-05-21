@@ -58,64 +58,59 @@ export default function Landing() {
         }
     };
     return (
-        <main style={{ position: 'relative', minHeight: '100vh', overflow: 'hidden' }}>
-            <AnimatedSVGBackground />
-            <div className="futuristic-hero-bg" />
-            <OnboardingModal open={showOnboarding} onClose={handleCloseOnboarding} />
-            <ThemeSwitcher />
-            <section className="futuristic-section" style={{ paddingTop: 120, paddingBottom: 80, textAlign: 'center', position: 'relative', zIndex: 1 }}>
-                <h1 className="holo-text futuristic-shimmer" style={{ fontSize: '3.5rem', fontWeight: 900, letterSpacing: 2, marginBottom: 16 }}>Sparkpad</h1>
-                <h2 className="neon-text futuristic-pulse" style={{ fontSize: '1.7rem', fontWeight: 600, marginBottom: 32, letterSpacing: 1 }}>
-                    Welcome 2090: The Future of Collaboration
+        <main style={{ position: 'relative', minHeight: '100vh', overflow: 'hidden', background: '#f5f7fa', fontFamily: 'Inter, Roboto, Arial, sans-serif', color: '#1a1b1e' }}>
+            <section style={{ paddingTop: 120, paddingBottom: 80, textAlign: 'center', position: 'relative', zIndex: 1 }}>
+                <h1 style={{ fontSize: '3.5rem', fontWeight: 900, letterSpacing: 2, marginBottom: 16, color: '#1769aa' }}>Sparkpad</h1>
+                <h2 style={{ fontSize: '1.7rem', fontWeight: 600, marginBottom: 32, letterSpacing: 1, color: '#1769aa' }}>
+                    Welcome: Executive Collaboration
                 </h2>
                 <div style={{ maxWidth: 700, margin: '0 auto', marginBottom: 48 }}>
-                    <div className="glass futuristic-3d" style={{ padding: 32, borderRadius: 32, boxShadow: '0 8px 32px #232b4d44', position: 'relative' }}>
+                    <div style={{ padding: 32, borderRadius: 32, boxShadow: '0 8px 32px #e3e8ee', background: '#fff', position: 'relative' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 32 }}>
-                            <div className="futuristic-animate" style={{ flex: 1 }}>
-                                <IconRocket size={64} className="futuristic-icon" />
-                                <h3 className="holo-text" style={{ fontWeight: 700, fontSize: 24, margin: '16px 0 8px' }}>Lightning Fast</h3>
-                                <p style={{ color: '#b0b7ff', fontSize: 16 }}>Instant project creation, real-time sync, and blazing speed for your workflow.</p>
+                            <div style={{ flex: 1 }}>
+                                <IconRocket size={64} style={{ color: '#1769aa' }} />
+                                <h3 style={{ fontWeight: 700, fontSize: 24, margin: '16px 0 8px', color: '#1769aa' }}>Lightning Fast</h3>
+                                <p style={{ color: '#5c5f66', fontSize: 16 }}>Instant project creation, real-time sync, and blazing speed for your workflow.</p>
                             </div>
-                            <div className="futuristic-animate" style={{ flex: 1, animationDelay: '0.7s' }}>
-                                <IconRobot size={64} className="futuristic-icon" />
-                                <h3 className="holo-text" style={{ fontWeight: 700, fontSize: 24, margin: '16px 0 8px' }}>AI-Powered</h3>
-                                <p style={{ color: '#b0b7ff', fontSize: 16 }}>Smart suggestions, AI chat, and intelligent tagging to supercharge your team.</p>
+                            <div style={{ flex: 1 }}>
+                                <IconRobot size={64} style={{ color: '#1769aa' }} />
+                                <h3 style={{ fontWeight: 700, fontSize: 24, margin: '16px 0 8px', color: '#1769aa' }}>AI-Powered</h3>
+                                <p style={{ color: '#5c5f66', fontSize: 16 }}>Smart suggestions, AI chat, and intelligent tagging to supercharge your team.</p>
                             </div>
-                            <div className="futuristic-animate" style={{ flex: 1, animationDelay: '1.4s' }}>
-                                <IconUsers size={64} className="futuristic-icon" />
-                                <h3 className="holo-text" style={{ fontWeight: 700, fontSize: 24, margin: '16px 0 8px' }}>Seamless Collaboration</h3>
-                                <p style={{ color: '#b0b7ff', fontSize: 16 }}>Effortless teamwork, live editing, and secure sharing for the next era.</p>
+                            <div style={{ flex: 1 }}>
+                                <IconUsers size={64} style={{ color: '#1769aa' }} />
+                                <h3 style={{ fontWeight: 700, fontSize: 24, margin: '16px 0 8px', color: '#1769aa' }}>Seamless Collaboration</h3>
+                                <p style={{ color: '#5c5f66', fontSize: 16 }}>Effortless teamwork, live editing, and secure sharing for the next era.</p>
                             </div>
                         </div>
                     </div>
                 </div>
                 <Link href="/login">
-                    <button className="futuristic-btn futuristic-shimmer" style={{ marginTop: 32, fontSize: '1.3rem' }}>
+                    <button style={{ marginTop: 32, fontSize: '1.3rem', background: '#1769aa', color: '#fff', borderRadius: 24, padding: '16px 40px', fontWeight: 700, border: 'none', boxShadow: '0 2px 12px #e3e8ee' }}>
                         Get Started with Sparkpad
                     </button>
                 </Link>
             </section>
-            <div className="futuristic-divider" />
-            <section className="futuristic-section" style={{ textAlign: 'center', zIndex: 1 }}>
-                <h2 className="holo-text" style={{ fontSize: '2.2rem', fontWeight: 800, marginBottom: 24 }}>What is Sparkpad?</h2>
-                <p style={{ color: '#b0b7ff', fontSize: 20, maxWidth: 700, margin: '0 auto 32px' }}>
-                    Sparkpad is your all-in-one futuristic workspace, designed for innovators, creators, and teams who want to work at the speed of tomorrow. Organize, collaborate, and create with AI-powered tools, real-time sync, and a stunning interface that feels like the future.
+            <section style={{ textAlign: 'center', zIndex: 1 }}>
+                <h2 style={{ fontSize: '2.2rem', fontWeight: 800, marginBottom: 24, color: '#1769aa' }}>What is Sparkpad?</h2>
+                <p style={{ color: '#5c5f66', fontSize: 20, maxWidth: 700, margin: '0 auto 32px' }}>
+                    Sparkpad is your all-in-one executive workspace, designed for innovators, creators, and teams who want to work at the speed of tomorrow. Organize, collaborate, and create with AI-powered tools, real-time sync, and a stunning interface that feels like the future.
                 </p>
                 <div style={{ display: 'flex', justifyContent: 'center', gap: 48, flexWrap: 'wrap' }}>
-                    <div className="glass futuristic-animate futuristic-3d" style={{ flex: 1, minWidth: 220, margin: 12, padding: 32 }}>
-                        <IconSparkles size={48} className="futuristic-icon" />
-                        <h3 className="holo-text" style={{ fontWeight: 700, fontSize: 20, margin: '16px 0 8px' }}>Next-Gen UI</h3>
-                        <p style={{ color: '#b0b7ff', fontSize: 16 }}>A visually stunning, intuitive interface that inspires productivity and creativity.</p>
+                    <div style={{ flex: 1, minWidth: 220, margin: 12, padding: 32, background: '#fff', borderRadius: 24, boxShadow: '0 2px 12px #e3e8ee' }}>
+                        <IconSparkles size={48} style={{ color: '#1769aa' }} />
+                        <h3 style={{ fontWeight: 700, fontSize: 20, margin: '16px 0 8px', color: '#1769aa' }}>Next-Gen UI</h3>
+                        <p style={{ color: '#5c5f66', fontSize: 16 }}>A visually stunning, intuitive interface that inspires productivity and creativity.</p>
                     </div>
-                    <div className="glass futuristic-animate futuristic-3d" style={{ flex: 1, minWidth: 220, margin: 12, padding: 32 }}>
-                        <IconTag size={48} className="futuristic-icon" />
-                        <h3 className="holo-text" style={{ fontWeight: 700, fontSize: 20, margin: '16px 0 8px' }}>Smart Tagging</h3>
-                        <p style={{ color: '#b0b7ff', fontSize: 16 }}>Organize everything with intelligent tags and instant search.</p>
+                    <div style={{ flex: 1, minWidth: 220, margin: 12, padding: 32, background: '#fff', borderRadius: 24, boxShadow: '0 2px 12px #e3e8ee' }}>
+                        <IconTag size={48} style={{ color: '#1769aa' }} />
+                        <h3 style={{ fontWeight: 700, fontSize: 20, margin: '16px 0 8px', color: '#1769aa' }}>Smart Tagging</h3>
+                        <p style={{ color: '#5c5f66', fontSize: 16 }}>Organize everything with intelligent tags and instant search.</p>
                     </div>
-                    <div className="glass futuristic-animate futuristic-3d" style={{ flex: 1, minWidth: 220, margin: 12, padding: 32 }}>
-                        <IconUsers size={48} className="futuristic-icon" />
-                        <h3 className="holo-text" style={{ fontWeight: 700, fontSize: 20, margin: '16px 0 8px' }}>Team-Ready</h3>
-                        <p style={{ color: '#b0b7ff', fontSize: 16 }}>Built for teams of any size, with secure sharing and real-time updates.</p>
+                    <div style={{ flex: 1, minWidth: 220, margin: 12, padding: 32, background: '#fff', borderRadius: 24, boxShadow: '0 2px 12px #e3e8ee' }}>
+                        <IconUsers size={48} style={{ color: '#1769aa' }} />
+                        <h3 style={{ fontWeight: 700, fontSize: 20, margin: '16px 0 8px', color: '#1769aa' }}>Team-Ready</h3>
+                        <p style={{ color: '#5c5f66', fontSize: 16 }}>Built for teams of any size, with secure sharing and real-time updates.</p>
                     </div>
                 </div>
             </section>

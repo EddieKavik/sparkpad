@@ -1,7 +1,7 @@
 "use client";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
-import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack, Modal, ActionIcon, rem, Menu, Avatar, Paper, MultiSelect, Textarea, Badge, Divider } from "@mantine/core";
+import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack, Modal, ActionIcon, rem, Menu, Avatar, Paper, MultiSelect, Textarea, Badge, Divider, Select } from "@mantine/core";
 import { showNotification } from "@mantine/notifications";
 import { IconSettings, IconDots, IconTrash, IconArrowLeft, IconSend, IconFile, IconMoodSmile, IconRobot, IconEdit, IconSparkles, IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 import { getGeminiClient } from "@/utils/gemini";
@@ -26,23 +26,23 @@ function getInitials(nameOrEmail: string) {
 
 // Theme-specific styles
 const themeStyles = {
-    futuristic: {
-        background: "linear-gradient(135deg, #181c2b 0%, #23243a 100%)",
+    executive: {
+        background: "#f5f7fa",
         overlay: {
-            background: 'radial-gradient(circle at 80% 20%, #3a2e5d44 0%, transparent 60%), radial-gradient(circle at 20% 80%, #232b4d44 0%, transparent 60%)',
-            filter: 'blur(48px)',
+            background: 'none',
+            filter: 'none',
         },
-        cardBackground: "rgba(24,28,43,0.85)",
-        cardBorder: "1.5px solid #3a2e5d77",
-        cardShadow: '0 8px 32px 0 #232b4d44',
-        textColor: "#fff",
-        secondaryTextColor: "#b0b7ff",
-        accentColor: "#7f5fff",
-        buttonGradient: { from: '#232b4d', to: '#3a2e5d', deg: 90 },
-        badgeColor: 'violet',
-        tabBackground: 'rgba(35,43,77,0.18)',
-        tabListBackground: 'rgba(24,28,43,0.85)',
-        tabPanelBackground: 'rgba(24,28,43,0.92)',
+        cardBackground: "#fff",
+        cardBorder: "1px solid #e3e8ee",
+        cardShadow: '0 2px 12px rgba(44, 62, 80, 0.06)',
+        textColor: "#1a1b1e",
+        secondaryTextColor: "#5c5f66",
+        accentColor: "#1769aa",
+        buttonGradient: { from: '#1769aa', to: '#1e88e5', deg: 90 },
+        badgeColor: 'blue',
+        tabBackground: '#f5f7fa',
+        tabListBackground: '#fff',
+        tabPanelBackground: '#fff',
     },
     classic: {
         background: "#f8f9fa",
@@ -70,6 +70,19 @@ function loadProjectsFromLocal() {
         const data = localStorage.getItem('projects:backup');
         return data ? JSON.parse(data) : [];
     } catch { return []; }
+}
+
+// Task interface/type
+interface Task {
+    id: string;
+    title: string;
+    description: string;
+    assignee: string;
+    status: 'todo' | 'in-progress' | 'blocked' | 'done';
+    priority: 'low' | 'medium' | 'high' | 'critical';
+    dueDate: string;
+    createdAt: string;
+    updatedAt: string;
 }
 
 export default function ProjectViewPage() {
@@ -109,7 +122,8 @@ export default function ProjectViewPage() {
     const [aiThinking, setAiThinking] = useState(false);
     const chatEndRef = useRef<HTMLDivElement>(null);
     const { theme } = useTheme();
-    const styles = themeStyles[theme];
+    // Force the use of the executive theme
+    const styles = themeStyles['executive'];
     const [researchItems, setResearchItems] = useState([]);
     const [researchLoading, setResearchLoading] = useState(false);
     const [newResearch, setNewResearch] = useState({ title: '', type: 'web', content: '' });
@@ -138,6 +152,12 @@ export default function ProjectViewPage() {
     // Add state for renaming document
     const [renamingDocId, setRenamingDocId] = useState<string | null>(null);
     const [renameDocValue, setRenameDocValue] = useState("");
+    // Add state for tasks
+    const [tasks, setTasks] = useState<Task[]>(project?.tasks || []);
+    const [newTask, setNewTask] = useState<Partial<Task>>({ title: '', description: '', assignee: '', status: 'todo', priority: 'medium', dueDate: '' });
+    const [addingTask, setAddingTask] = useState(false);
+    const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+    const [editTask, setEditTask] = useState<Partial<Task>>({});
 
     useEffect(() => {
         const user = localStorage.getItem("user");
@@ -918,6 +938,77 @@ export default function ProjectViewPage() {
         }
     };
 
+    // Sync tasks with project
+    useEffect(() => {
+        if (project && Array.isArray(project.tasks)) {
+            setTasks(project.tasks);
+        }
+    }, [project]);
+
+    // Save tasks to backend/localStorage
+    const saveTasks = async (updatedTasks: Task[]) => {
+        setTasks(updatedTasks);
+        if (project) {
+            const updatedProject = { ...project, tasks: updatedTasks };
+            setProject(updatedProject);
+            // Save to backend
+            const userEmail = localStorage.getItem("user:username");
+            if (userEmail) {
+                await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`, {
+                    method: "POST",
+                    body: JSON.stringify([
+                        ...JSON.parse(localStorage.getItem('projects:backup') || '[]').filter((p: any) => p.id !== project.id),
+                        updatedProject
+                    ]),
+                });
+                localStorage.setItem('projects:backup', JSON.stringify([
+                    ...JSON.parse(localStorage.getItem('projects:backup') || '[]').filter((p: any) => p.id !== project.id),
+                    updatedProject
+                ]));
+            }
+        }
+    };
+
+    // Add task handler
+    const handleAddTask = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
+        if (!newTask.title?.trim()) return;
+        setAddingTask(true);
+        const now = new Date().toISOString();
+        const task: Task = {
+            id: Date.now().toString(),
+            title: newTask.title!,
+            description: newTask.description || '',
+            assignee: newTask.assignee || '',
+            status: newTask.status || 'todo',
+            priority: newTask.priority || 'medium',
+            dueDate: newTask.dueDate || '',
+            createdAt: now,
+            updatedAt: now,
+        };
+        const updatedTasks = [...tasks, task];
+        await saveTasks(updatedTasks);
+        setNewTask({ title: '', description: '', assignee: '', status: 'todo', priority: 'medium', dueDate: '' });
+        setAddingTask(false);
+    };
+
+    // Edit task handler
+    const handleEditTask = (task: Task) => {
+        setEditingTaskId(task.id);
+        setEditTask({ ...task });
+    };
+    const handleSaveEditTask = async () => {
+        if (!editTask.title?.trim() || !editingTaskId) return;
+        const updatedTasks = tasks.map(t => t.id === editingTaskId ? { ...t, ...editTask, updatedAt: new Date().toISOString() } : t);
+        await saveTasks(updatedTasks);
+        setEditingTaskId(null);
+        setEditTask({});
+    };
+    const handleDeleteTask = async (id: string) => {
+        const updatedTasks = tasks.filter(t => t.id !== id);
+        await saveTasks(updatedTasks);
+    };
+
     if (loading) {
         return (
             <Center style={{ minHeight: 200 }}>
@@ -960,15 +1051,15 @@ export default function ProjectViewPage() {
                         }}
                     >
                         <form onSubmit={e => { e.preventDefault(); handleRename(); }}>
-                        <TextInput
-                            label="Project Name"
-                            value={renameValue}
-                            onChange={(e) => setRenameValue(e.currentTarget.value)}
-                            mb="md"
-                        />
+                            <TextInput
+                                label="Project Name"
+                                value={renameValue}
+                                onChange={(e) => setRenameValue(e.currentTarget.value)}
+                                mb="md"
+                            />
                             <Button type="submit" loading={renaming} fullWidth disabled={!renameValue} variant={styles.buttonGradient} style={{ fontWeight: 700, color: '#fff', boxShadow: '0 2px 16px #232b4d44' }}>
-                            Save
-                        </Button>
+                                Save
+                            </Button>
                         </form>
                     </Modal>
                     <Tabs value={activeTab} onChange={value => setActiveTab(value || "default")} style={{ flex: 1 }}
@@ -1019,6 +1110,7 @@ export default function ProjectViewPage() {
                                     </Group>
                                 </Tabs.Tab>
                             ))}
+                            <Tabs.Tab value="tasks">Tasks</Tabs.Tab>
                             <Tabs.Tab value="templates">Templates</Tabs.Tab>
                             <Tabs.Tab value="members">Members</Tabs.Tab>
                             <Tabs.Tab value="chat">Chat</Tabs.Tab>
@@ -1455,15 +1547,15 @@ export default function ProjectViewPage() {
                                                                         <Paper key={c.id} p="xs" radius="sm" style={{ background: styles.tabBackground }}>
                                                                             <Group align="center" gap={8}>
                                                                                 <Avatar radius="xl" size={20}>{getInitials(c.author)}</Avatar>
-                                                                            <Text size="xs" fw={600}>{c.author}</Text>
-                                                                            <Text size="xs" c="dimmed">{new Date(c.createdAt).toLocaleString()}</Text>
-                                                                            <Text size="sm" style={{ flex: 1 }}>{c.content}</Text>
-                                                                            {(c.author === userName || project?.createdBy === userName) && (
-                                                                                <ActionIcon size={18} color="red" variant="subtle" onClick={e => { e.stopPropagation(); handleDeleteComment(item, c.id); }}>
-                                                                                    <IconTrash size={14} />
-                                                                                </ActionIcon>
-                                                                            )}
-                                                                        </Group>
+                                                                                <Text size="xs" fw={600}>{c.author}</Text>
+                                                                                <Text size="xs" c="dimmed">{new Date(c.createdAt).toLocaleString()}</Text>
+                                                                                <Text size="sm" style={{ flex: 1 }}>{c.content}</Text>
+                                                                                {(c.author === userName || project?.createdBy === userName) && (
+                                                                                    <ActionIcon size={18} color="red" variant="subtle" onClick={e => { e.stopPropagation(); handleDeleteComment(item, c.id); }}>
+                                                                                        <IconTrash size={14} />
+                                                                                    </ActionIcon>
+                                                                                )}
+                                                                            </Group>
                                                                         </Paper>
                                                                     ))}
                                                                 </Stack>
@@ -1514,6 +1606,153 @@ export default function ProjectViewPage() {
                                         </Stack>
                                     )}
                                 </Modal>
+                            </Box>
+                        </Tabs.Panel>
+                        <Tabs.Panel value="tasks" pt="md">
+                            <Box p="md" style={{ background: styles.cardBackground, border: styles.cardBorder, borderRadius: 16, boxShadow: styles.cardShadow }}>
+                                <Title order={3} style={{ color: styles.accentColor, marginBottom: 12 }}>Tasks</Title>
+                                <form onSubmit={handleAddTask} style={{ marginBottom: 16 }}>
+                                    <Group align="end" gap="xs">
+                                        <TextInput
+                                            label="Title"
+                                            value={newTask.title}
+                                            onChange={e => {
+                                                const value = e?.currentTarget?.value ?? '';
+                                                setNewTask(nt => ({ ...nt, title: value }));
+                                            }}
+                                            required
+                                            style={{ flex: 2 }}
+                                        />
+                                        <TextInput
+                                            label="Assignee"
+                                            value={newTask.assignee}
+                                            onChange={e => {
+                                                const value = e?.currentTarget?.value ?? '';
+                                                setNewTask(nt => ({ ...nt, assignee: value }));
+                                            }}
+                                            placeholder="Email or name"
+                                            style={{ flex: 1 }}
+                                        />
+                                        <TextInput
+                                            label="Due Date"
+                                            type="date"
+                                            value={newTask.dueDate}
+                                            onChange={e => {
+                                                const value = e?.currentTarget?.value ?? '';
+                                                setNewTask(nt => ({ ...nt, dueDate: value }));
+                                            }}
+                                            style={{ flex: 1 }}
+                                        />
+                                        <Select
+                                            label="Priority"
+                                            value={newTask.priority}
+                                            onChange={v => setNewTask(nt => ({ ...nt, priority: v as Task['priority'] }))}
+                                            data={[
+                                                { value: 'low', label: 'Low' },
+                                                { value: 'medium', label: 'Medium' },
+                                                { value: 'high', label: 'High' },
+                                                { value: 'critical', label: 'Critical' },
+                                            ]}
+                                            style={{ flex: 1 }}
+                                        />
+                                        <Button type="submit" loading={addingTask} style={{ flex: 1 }}>Add Task</Button>
+                                    </Group>
+                                    <Textarea
+                                        label="Description"
+                                        value={newTask.description}
+                                        onChange={e => {
+                                            const value = e?.currentTarget?.value ?? '';
+                                            setNewTask(nt => ({ ...nt, description: value }));
+                                        }}
+                                        minRows={2}
+                                        style={{ marginTop: 8 }}
+                                    />
+                                </form>
+                                <Stack gap="sm">
+                                    {tasks.length === 0 && <Text c="dimmed">No tasks yet. Add your first task!</Text>}
+                                    {tasks.map(task => (
+                                        <Paper key={task.id} withBorder p="md" radius="md" style={{ background: styles.tabPanelBackground, border: styles.cardBorder, color: styles.textColor, boxShadow: styles.cardShadow }}>
+                                            {editingTaskId === task.id ? (
+                                                <Stack gap="xs">
+                                                    <Group gap="xs">
+                                                        <TextInput
+                                                            value={editTask.title}
+                                                            onChange={e => {
+                                                                const value = e?.currentTarget?.value ?? '';
+                                                                setEditTask(et => ({ ...et, title: value }));
+                                                            }}
+                                                            required
+                                                            style={{ flex: 2 }}
+                                                        />
+                                                        <TextInput
+                                                            value={editTask.assignee}
+                                                            onChange={e => {
+                                                                const value = e?.currentTarget?.value ?? '';
+                                                                setEditTask(et => ({ ...et, assignee: value }));
+                                                            }}
+                                                            placeholder="Email or name"
+                                                            style={{ flex: 1 }}
+                                                        />
+                                                        <TextInput
+                                                            type="date"
+                                                            value={editTask.dueDate}
+                                                            onChange={e => {
+                                                                const value = e?.currentTarget?.value ?? '';
+                                                                setEditTask(et => ({ ...et, dueDate: value }));
+                                                            }}
+                                                            style={{ flex: 1 }}
+                                                        />
+                                                        <Select
+                                                            value={editTask.priority}
+                                                            onChange={v => setEditTask(et => ({ ...et, priority: v as Task['priority'] }))}
+                                                            data={[
+                                                                { value: 'low', label: 'Low' },
+                                                                { value: 'medium', label: 'Medium' },
+                                                                { value: 'high', label: 'High' },
+                                                                { value: 'critical', label: 'Critical' },
+                                                            ]}
+                                                            style={{ flex: 1 }}
+                                                        />
+                                                    </Group>
+                                                    <Textarea
+                                                        value={editTask.description}
+                                                        onChange={e => {
+                                                            const value = e?.currentTarget?.value ?? '';
+                                                            setEditTask(et => ({ ...et, description: value }));
+                                                        }}
+                                                        minRows={2}
+                                                    />
+                                                    <Group gap="xs">
+                                                        <Button onClick={handleSaveEditTask} style={{ flex: 1 }}>Save</Button>
+                                                        <Button variant="light" color="red" onClick={() => setEditingTaskId(null)} style={{ flex: 1 }}>Cancel</Button>
+                                                    </Group>
+                                                </Stack>
+                                            ) : (
+                                                <Group justify="space-between" align="flex-start">
+                                                    <div style={{ flex: 3 }}>
+                                                        <Group gap="xs">
+                                                            <Badge color={task.status === 'done' ? 'green' : task.status === 'in-progress' ? 'blue' : task.status === 'blocked' ? 'red' : 'gray'}>{task.status.replace(/-/g, ' ').toUpperCase()}</Badge>
+                                                            <Badge color={task.priority === 'critical' ? 'red' : task.priority === 'high' ? 'orange' : task.priority === 'medium' ? 'yellow' : 'gray'}>{task.priority.toUpperCase()}</Badge>
+                                                            {task.dueDate && <Badge color={new Date(task.dueDate) < new Date() ? 'red' : 'blue'}>{new Date(task.dueDate).toLocaleDateString()}</Badge>}
+                                                        </Group>
+                                                        <Title order={5} style={{ margin: '4px 0', color: styles.accentColor }}>{task.title}</Title>
+                                                        <Text size="sm" c={styles.secondaryTextColor}>{task.description}</Text>
+                                                        {task.assignee && (
+                                                            <Group gap={4} mt={4}>
+                                                                <Avatar size={24} color="blue" radius="xl">{getInitials(task.assignee)}</Avatar>
+                                                                <Text size="xs" c={styles.secondaryTextColor}>{task.assignee}</Text>
+                                                            </Group>
+                                                        )}
+                                                    </div>
+                                                    <Group gap="xs" style={{ flex: 1, justifyContent: 'flex-end' }}>
+                                                        <ActionIcon variant="subtle" color="blue" onClick={() => handleEditTask(task)}><IconEdit size={18} /></ActionIcon>
+                                                        <ActionIcon variant="subtle" color="red" onClick={() => handleDeleteTask(task.id)}><IconTrash size={18} /></ActionIcon>
+                                                    </Group>
+                                                </Group>
+                                            )}
+                                        </Paper>
+                                    ))}
+                                </Stack>
                             </Box>
                         </Tabs.Panel>
                     </Tabs>

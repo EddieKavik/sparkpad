@@ -15,6 +15,8 @@ interface Project {
     status: 'active' | 'archived' | 'completed';
     members: number;
     tags: string[];
+    goals?: string;
+    timeline?: { start: string; end: string };
 }
 
 interface ProjectStats {
@@ -35,34 +37,16 @@ interface ProjectStats {
 
 // Theme-specific styles
 const themeStyles = {
-    futuristic: {
-        background: "linear-gradient(135deg, #181c2b 0%, #23243a 100%)",
-        overlay: {
-            background: 'radial-gradient(circle at 80% 20%, #3a2e5d44 0%, transparent 60%), radial-gradient(circle at 20% 80%, #232b4d44 0%, transparent 60%)',
-            filter: 'blur(48px)',
-        },
-        cardBackground: "rgba(24,28,43,0.85)",
-        cardBorder: "1.5px solid #3a2e5d77",
-        cardShadow: '0 8px 32px 0 #232b4d44',
-        textColor: "#fff",
-        secondaryTextColor: "#b0b7ff",
-        accentColor: "#7f5fff",
-        buttonGradient: { from: '#232b4d', to: '#3a2e5d', deg: 90 },
-        badgeColor: 'violet',
-    },
-    classic: {
-        background: "#f8f9fa",
-        overlay: {
-            background: 'none',
-            filter: 'none',
-        },
+    executive: {
+        background: "#f5f7fa",
+        overlay: { background: 'none', filter: 'none' },
         cardBackground: "#fff",
-        cardBorder: "1px solid #e9ecef",
-        cardShadow: '0 2px 8px rgba(0,0,0,0.06)',
+        cardBorder: "1px solid #e3e8ee",
+        cardShadow: '0 2px 12px rgba(44, 62, 80, 0.06)',
         textColor: "#1a1b1e",
-        secondaryTextColor: "#868e96",
-        accentColor: "#228be6",
-        buttonGradient: { from: '#228be6', to: '#40c057', deg: 90 },
+        secondaryTextColor: "#5c5f66",
+        accentColor: "#1769aa",
+        buttonGradient: { from: '#1769aa', to: '#1e88e5', deg: 90 },
         badgeColor: 'blue',
     },
 };
@@ -92,6 +76,8 @@ export default function ProjectsPage() {
     const [newProjectDescription, setNewProjectDescription] = useState("");
     const [newProjectStatus, setNewProjectStatus] = useState<'active' | 'archived' | 'completed'>('active');
     const [newProjectTags, setNewProjectTags] = useState("");
+    const [newProjectGoals, setNewProjectGoals] = useState("");
+    const [newProjectTimeline, setNewProjectTimeline] = useState<{ start: string; end: string }>({ start: '', end: '' });
     const [editingProject, setEditingProject] = useState<Project | null>(null);
     const [shareModalOpened, setShareModalOpened] = useState(false);
     const [shareEmail, setShareEmail] = useState("");
@@ -104,7 +90,7 @@ export default function ProjectsPage() {
     const [showStats, setShowStats] = useState(false);
     const [creatingProject, setCreatingProject] = useState(false);
     const { theme } = useTheme();
-    const styles = themeStyles[theme];
+    const styles = themeStyles['executive'];
 
     useEffect(() => {
         if (searchParams && searchParams.get('showStats') === '1') {
@@ -189,6 +175,8 @@ export default function ProjectsPage() {
                 tags: newProjectTags.split(",").map(tag => tag.trim()).filter(Boolean),
                 createdAt: new Date().toISOString(),
                 members: [userEmail],
+                goals: newProjectGoals,
+                timeline: newProjectTimeline,
             };
             projects.push(newProject);
             const saveRes = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`, {
@@ -202,9 +190,9 @@ export default function ProjectsPage() {
             setNewProjectDescription("");
             setNewProjectStatus("active");
             setNewProjectTags("");
+            setNewProjectGoals("");
+            setNewProjectTimeline({ start: '', end: '' });
             showNotification({ title: "Success", message: "Project created!", color: "green" });
-
-            // Dispatch project notification event
             window.dispatchEvent(new CustomEvent('projectNotification', {
                 detail: {
                     type: 'project',
@@ -213,8 +201,6 @@ export default function ProjectsPage() {
                     message: `New project "${newProject.name}" has been created`
                 }
             }));
-
-            // Save projects to localStorage
             saveProjectsToLocal(projects);
         } catch (err: any) {
             showNotification({ title: "Error", message: err.message || "Failed to create project", color: "red" });
@@ -229,6 +215,8 @@ export default function ProjectsPage() {
         setNewProjectDescription(project.description);
         setNewProjectStatus(project.status);
         setNewProjectTags(project.tags.join(', '));
+        setNewProjectGoals(project.goals || "");
+        setNewProjectTimeline(project.timeline || { start: '', end: '' });
         setModalOpened(true);
     };
 
@@ -244,6 +232,8 @@ export default function ProjectsPage() {
                 description: newProjectDescription,
                 status: newProjectStatus,
                 tags: newProjectTags.split(',').map(tag => tag.trim()).filter(Boolean),
+                goals: newProjectGoals,
+                timeline: newProjectTimeline,
             };
             const updatedProjects = projects.map(p => p.id === editingProject.id ? updatedProject : p);
             const res = await fetch(
@@ -261,8 +251,8 @@ export default function ProjectsPage() {
             setNewProjectDescription("");
             setNewProjectStatus('active');
             setNewProjectTags("");
-
-            // Add notification for project update
+            setNewProjectGoals("");
+            setNewProjectTimeline({ start: '', end: '' });
             window.dispatchEvent(new CustomEvent('projectNotification', {
                 detail: {
                     type: 'update',
@@ -271,14 +261,11 @@ export default function ProjectsPage() {
                     message: `Project "${newProjectName}" has been updated`
                 }
             }));
-
             showNotification({
                 title: "Success",
                 message: "Project updated successfully!",
                 color: "green",
             });
-
-            // Save projects to localStorage
             saveProjectsToLocal(updatedProjects);
         } catch (err: any) {
             showNotification({
@@ -527,6 +514,8 @@ export default function ProjectsPage() {
                                 setNewProjectDescription("");
                                 setNewProjectStatus('active');
                                 setNewProjectTags("");
+                                setNewProjectGoals("");
+                                setNewProjectTimeline({ start: '', end: '' });
                                 setModalOpened(true);
                             }}
                         >
@@ -819,6 +808,12 @@ export default function ProjectsPage() {
                                     </Menu>
                                 </Group>
                                 <Text size="sm" c={styles.secondaryTextColor} mb="md" lineClamp={2}>{project.description}</Text>
+                                {project.goals && (
+                                    <Text size="xs" c="dimmed" mb="xs"><b>Goals:</b> {project.goals}</Text>
+                                )}
+                                {project.timeline && project.timeline.start && project.timeline.end && (
+                                    <Text size="xs" c="dimmed" mb="xs"><b>Timeline:</b> {new Date(project.timeline.start).toLocaleDateString()} - {new Date(project.timeline.end).toLocaleDateString()}</Text>
+                                )}
                                 <Group gap="xs" mb="md">
                                     {(project.tags || []).map((tag: string, index: number) => (
                                         <Badge key={index} variant="light" color={styles.badgeColor} size="sm">{tag}</Badge>
@@ -861,7 +856,7 @@ export default function ProjectsPage() {
             <Modal
                 opened={modalOpened}
                 onClose={() => { setModalOpened(false); setEditingProject(null); }}
-                title={editingProject ? "Edit Project" : "New Project"}
+                title={<span style={{ color: styles.accentColor, fontWeight: 700 }}>{editingProject ? "Edit Project" : "New Project"}</span>}
                 centered
                 styles={{
                     content: {
@@ -888,6 +883,33 @@ export default function ProjectsPage() {
                             onChange={(e) => setNewProjectDescription(e.currentTarget.value)}
                             minRows={3}
                         />
+                        <Textarea
+                            label="Goals"
+                            value={newProjectGoals}
+                            onChange={(e) => setNewProjectGoals(e.currentTarget.value)}
+                            minRows={2}
+                            placeholder="What are the main goals for this project?"
+                        />
+                        <Group grow>
+                            <TextInput
+                                label="Start Date"
+                                type="date"
+                                value={newProjectTimeline?.start || ''}
+                                onChange={e => {
+                                    const value = e?.currentTarget?.value ?? '';
+                                    setNewProjectTimeline(t => ({ ...t, start: value }));
+                                }}
+                            />
+                            <TextInput
+                                label="End Date"
+                                type="date"
+                                value={newProjectTimeline?.end || ''}
+                                onChange={e => {
+                                    const value = e?.currentTarget?.value ?? '';
+                                    setNewProjectTimeline(t => ({ ...t, end: value }));
+                                }}
+                            />
+                        </Group>
                         <Select
                             label="Status"
                             value={newProjectStatus}
