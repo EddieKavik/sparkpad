@@ -6,6 +6,9 @@ import { Notifications } from "@mantine/notifications";
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
+import Link from "next/link";
+import { NavigationBar } from "@/components/NavigationBar";
+import FloatingAssistant from '@/components/FloatingAssistant';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -29,12 +32,15 @@ export default function RootLayout({
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        style={{ background: '#f5f7fa', fontFamily: 'Inter, Roboto, Arial, sans-serif', color: '#1a1b1e' }}
       >
         <ThemeProvider>
-        <MantineProvider>
+          <MantineProvider>
             <Notifications />
-          {children}
-        </MantineProvider>
+            <NavigationBar />
+            {children}
+            <FloatingAssistant />
+          </MantineProvider>
         </ThemeProvider>
       </body>
     </html>

@@ -2,7 +2,6 @@
 import { useState } from "react";
 import { Title, Text, Paper, Group, TextInput, Button, Stack, MultiSelect, Box, Badge, ActionIcon, Tooltip } from "@mantine/core";
 import { IconRobot, IconSparkles, IconBulb, IconFile, IconPlus, IconSearch, IconTag, IconWand, IconMessage2 } from "@tabler/icons-react";
-import { NavigationBar } from "@/components/NavigationBar";
 
 const demoTags = ["AI", "Web", "PDF", "Note", "Research", "Summary", "Data"];
 
@@ -33,7 +32,6 @@ export default function ResearchPage() {
 
     return (
         <Box style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #181c2b 0%, #23243a 100%)', color: '#fff', padding: '0 0 64px 0' }}>
-            <NavigationBar />
             <Box style={{ maxWidth: 900, margin: '0 auto', padding: '48px 0 0 0' }}>
                 <Title order={1} style={{ fontSize: 44, fontWeight: 900, letterSpacing: 1, marginBottom: 12, background: 'linear-gradient(90deg, #7f5fff, #40c9ff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                     Research Hub <IconSparkles size={36} style={{ verticalAlign: 'middle', marginLeft: 8 }} />

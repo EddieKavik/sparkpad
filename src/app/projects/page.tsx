@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Container, Title, Text, Button, Group, Card, Stack, TextInput, ActionIcon, Menu, Badge, Tooltip, Modal, Textarea, Select, MultiSelect, SegmentedControl, Paper, Input, SimpleGrid, RingProgress, Center, Box } from "@mantine/core";
 import { IconPlus, IconDotsVertical, IconEdit, IconTrash, IconShare, IconUsers, IconCalendar, IconTag, IconSearch, IconFilter, IconSortAscending, IconSortDescending, IconChartBar, IconChartPie, IconChartLine } from "@tabler/icons-react";
-import { NavigationBar } from "@/components/NavigationBar";
 import { showNotification } from "@mantine/notifications";
 import { useTheme } from '@/contexts/ThemeContext';
 
@@ -484,7 +483,6 @@ export default function ProjectsPage() {
                 zIndex: 0,
                 ...styles.overlay,
             }} />
-            <NavigationBar showBackButton />
             <Container size="lg" py="xl">
                 <Group justify="space-between" mb="xl">
                     <div>

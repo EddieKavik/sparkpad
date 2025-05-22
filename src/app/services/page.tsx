@@ -25,17 +25,16 @@ const services = [
 
 export default function ServicesPage() {
   return (
-    <main style={{ minHeight: '100vh', background: 'none', position: 'relative', zIndex: 1 }}>
-      <div className="futuristic-hero-bg" />
-      <section className="futuristic-section" style={{ textAlign: 'center', zIndex: 2 }}>
-        <h1 className="holo-text" style={{ fontSize: '2.6rem', fontWeight: 900, marginBottom: 16 }}>Our Services</h1>
-        <h2 className="neon-text" style={{ fontSize: '1.4rem', fontWeight: 600, marginBottom: 48 }}>Explore the Spark Suite</h2>
+    <main style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #e3f0ff 0%, #f5f7fa 100%)', position: 'relative', zIndex: 1 }}>
+      <section style={{ textAlign: 'center', zIndex: 2, padding: '80px 0 40px 0', background: '#fff' }}>
+        <h1 style={{ fontSize: '2.6rem', fontWeight: 900, marginBottom: 16, color: '#1769aa', letterSpacing: 2 }}>Our Services</h1>
+        <h2 style={{ fontSize: '1.4rem', fontWeight: 600, marginBottom: 48, color: '#1769aa', letterSpacing: 1 }}>Explore the Spark Suite</h2>
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 40 }}>
           {services.map((service) => (
-            <div key={service.name} className="glass futuristic-animate" style={{ flex: '1 1 320px', minWidth: 280, maxWidth: 340, margin: 12, padding: 40, display: 'flex', flexDirection: 'column', alignItems: 'center', boxShadow: '0 8px 32px #232b4d44' }}>
+            <div key={service.name} style={{ flex: '1 1 320px', minWidth: 280, maxWidth: 340, margin: 12, padding: 40, display: 'flex', flexDirection: 'column', alignItems: 'center', background: '#f5f7fa', borderRadius: 24, boxShadow: '0 4px 24px #e3e8ee', transition: 'transform 0.2s', cursor: 'pointer' }}>
               {service.icon}
-              <h3 className="holo-text" style={{ fontWeight: 700, fontSize: 22, margin: '24px 0 12px' }}>{service.name}</h3>
-              <p style={{ color: '#b0b7ff', fontSize: 17, lineHeight: 1.5 }}>{service.description}</p>
+              <h3 style={{ fontWeight: 700, fontSize: 22, margin: '24px 0 12px', color: '#1769aa' }}>{service.name}</h3>
+              <p style={{ color: '#5c5f66', fontSize: 17, lineHeight: 1.5 }}>{service.description}</p>
             </div>
           ))}
         </div>

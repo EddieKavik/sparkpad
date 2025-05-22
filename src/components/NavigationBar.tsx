@@ -37,19 +37,21 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
     const [changingPassword, setChangingPassword] = useState(false);
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [notificationMenuOpened, setNotificationMenuOpened] = useState(false);
+    const [isLoggedIn, setIsLoggedIn] = useState(false);
 
+    const isMarketingPage = !isLoggedIn;
     const styles = {
-        background: theme === 'futuristic'
-            ? 'linear-gradient(90deg, rgba(18,22,40,0.92) 70%, rgba(40,30,60,0.85) 100%)'
-            : '#fff',
-        borderBottom: theme === 'futuristic' ? '1px solid #222a44' : '1px solid #e9ecef',
-        boxShadow: theme === 'futuristic' ? '0 4px 24px 0 #1a1a2e77' : '0 2px 8px rgba(0,0,0,0.06)',
-        color: theme === 'futuristic' ? '#fff' : '#1a1b1e',
-        borderRadius: '0 0 32px 32px',
-        margin: '0 0 24px 0',
+        background: 'transparent',
+        borderBottom: '1px solid #e3e8ee',
+        boxShadow: 'none',
+        color: isMarketingPage ? '#1a1b1e' : (theme === 'futuristic' ? '#fff' : '#1a1b1e'),
+        borderRadius: 0,
+        margin: 0,
         zIndex: 10,
         position: 'relative',
-        backdropFilter: theme === 'futuristic' ? 'blur(14px)' : 'none',
+        minHeight: 58,
+        padding: '0 0',
+        backdropFilter: isMarketingPage ? 'none' : (theme === 'futuristic' ? 'blur(14px)' : 'none'),
     };
 
     useEffect(() => {
@@ -89,6 +91,12 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
         const interval = setInterval(fetchNotifications, 10000); // Poll every 10 seconds
 
         return () => clearInterval(interval);
+    }, []);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            setIsLoggedIn(!!localStorage.getItem('token'));
+        }
     }, []);
 
     const getRelativeTime = (timestamp: string) => {
@@ -306,168 +314,249 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
 
     return (
         <>
-            <Group justify="space-between" align="center" p="md" style={styles}>
-                <Group>
-                    {/* Navigation Tabs */}
-                    <Group gap="md">
-                        <Button
-                            component={Link}
-                            href="/projects"
-                            variant={pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? "filled" : "subtle"}
-                            color={theme === 'futuristic' ? 'violet' : 'blue'}
-                            size="sm"
-                            style={{
-                                background: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? (theme === 'futuristic' ? 'linear-gradient(90deg, #2e254d 0%, #1a1a2e 100%)' : '#228be6') : undefined,
-                                color: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '#fff' : (theme === 'classic' ? '#1a1b1e' : undefined),
-                                boxShadow: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? (theme === 'futuristic' ? '0 2px 12px #2e254d88' : '0 2px 8px rgba(0,0,0,0.06)') : undefined,
-                                borderRadius: 16,
-                                fontWeight: 700,
-                                letterSpacing: 0.5,
-                                border: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? (theme === 'futuristic' ? '1.5px solid #4f5b93' : '1px solid #228be6') : undefined
+            <Group justify="space-between" align="center" p={0} style={styles}>
+                <Group align="center" gap={0} style={{ minHeight: 58, paddingLeft: 32 }}>
+                    <Link href="/" style={{ color: '#1769aa', fontWeight: 900, fontSize: 24, letterSpacing: 1, textDecoration: 'none', padding: '0 0', borderBottom: '2px solid transparent', transition: 'color 0.2s, border-bottom 0.2s', display: 'flex', alignItems: 'center', height: 58 }}>Sparkpad</Link>
+                    <Group gap={0} style={{ marginLeft: 16 }}>
+                        {!isLoggedIn && <>
+                            <Link href="/about" style={{
+                                color: pathname.startsWith("/about") ? '#1769aa' : '#222',
+                                fontWeight: 600,
+                                fontSize: 16,
+                                padding: '0 18px',
+                                height: 40,
+                                display: 'flex',
+                                alignItems: 'center',
+                                borderBottom: pathname.startsWith("/about") ? '2px solid #1769aa' : '2px solid transparent',
+                                background: 'none',
+                                textDecoration: 'none',
+                                transition: 'color 0.18s, border-bottom 0.18s',
                             }}
-                        >
-                            Projects
-                        </Button>
-                        <Button
-                            component={Link}
-                            href="/research"
-                            variant={pathname.startsWith("/research") ? "filled" : "subtle"}
-                            color={theme === 'futuristic' ? 'violet' : 'blue'}
-                            size="sm"
-                            style={{
-                                background: pathname.startsWith("/research") ? (theme === 'futuristic' ? 'linear-gradient(90deg, #3a2e5d 0%, #7f5fff 100%)' : '#7f5fff') : undefined,
-                                color: pathname.startsWith("/research") ? '#fff' : (theme === 'classic' ? '#1a1b1e' : undefined),
-                                boxShadow: pathname.startsWith("/research") ? (theme === 'futuristic' ? '0 2px 12px #7f5fff88' : '0 2px 8px rgba(0,0,0,0.06)') : undefined,
-                                borderRadius: 16,
-                                fontWeight: 700,
-                                letterSpacing: 0.5,
-                                border: pathname.startsWith("/research") ? (theme === 'futuristic' ? '1.5px solid #7f5fff' : '1px solid #7f5fff') : undefined
+                                onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '2px solid #1769aa'; }}
+                                onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/about") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/about") ? '2px solid #1769aa' : '2px solid transparent'; }}
+                            >About</Link>
+                            <Link href="/products" style={{
+                                color: pathname.startsWith("/products") ? '#1769aa' : '#222',
+                                fontWeight: 600,
+                                fontSize: 16,
+                                padding: '0 18px',
+                                height: 40,
+                                display: 'flex',
+                                alignItems: 'center',
+                                borderBottom: pathname.startsWith("/products") ? '2px solid #1769aa' : '2px solid transparent',
+                                background: 'none',
+                                textDecoration: 'none',
+                                transition: 'color 0.18s, border-bottom 0.18s',
                             }}
-                        >
-                            Research
-                        </Button>
-                        <Button
-                            component={Link}
-                            href="/projects?showStats=1"
-                            variant={pathname === "/projects" && pathname.includes("showStats=1") ? "filled" : "subtle"}
-                            color={theme === 'futuristic' ? 'violet' : 'blue'}
-                            size="sm"
-                            style={{
-                                background: pathname === "/projects" && pathname.includes("showStats=1") ? (theme === 'futuristic' ? 'linear-gradient(90deg, #2d3a5d 0%, #232b4d 100%)' : '#228be6') : undefined,
-                                color: pathname === "/projects" && pathname.includes("showStats=1") ? '#fff' : (theme === 'classic' ? '#1a1b1e' : undefined),
-                                boxShadow: pathname === "/projects" && pathname.includes("showStats=1") ? (theme === 'futuristic' ? '0 2px 12px #2d3a5d88' : '0 2px 8px rgba(0,0,0,0.06)') : undefined,
-                                borderRadius: 16,
-                                fontWeight: 700,
-                                letterSpacing: 0.5,
-                                border: pathname === "/projects" && pathname.includes("showStats=1") ? (theme === 'futuristic' ? '1.5px solid #4f5b93' : '1px solid #228be6') : undefined
+                                onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '2px solid #1769aa'; }}
+                                onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/products") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/products") ? '2px solid #1769aa' : '2px solid transparent'; }}
+                            >Products</Link>
+                            <Link href="/services" style={{
+                                color: pathname.startsWith("/services") ? '#1769aa' : '#222',
+                                fontWeight: 600,
+                                fontSize: 16,
+                                padding: '0 18px',
+                                height: 40,
+                                display: 'flex',
+                                alignItems: 'center',
+                                borderBottom: pathname.startsWith("/services") ? '2px solid #1769aa' : '2px solid transparent',
+                                background: 'none',
+                                textDecoration: 'none',
+                                transition: 'color 0.18s, border-bottom 0.18s',
                             }}
-                        >
-                            Statistics
-                        </Button>
+                                onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '2px solid #1769aa'; }}
+                                onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/services") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/services") ? '2px solid #1769aa' : '2px solid transparent'; }}
+                            >Services</Link>
+                            <Link href="/contact" style={{
+                                color: pathname.startsWith("/contact") ? '#1769aa' : '#222',
+                                fontWeight: 600,
+                                fontSize: 16,
+                                padding: '0 18px',
+                                height: 40,
+                                display: 'flex',
+                                alignItems: 'center',
+                                borderBottom: pathname.startsWith("/contact") ? '2px solid #1769aa' : '2px solid transparent',
+                                background: 'none',
+                                textDecoration: 'none',
+                                transition: 'color 0.18s, border-bottom 0.18s',
+                            }}
+                                onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '2px solid #1769aa'; }}
+                                onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/contact") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/contact") ? '2px solid #1769aa' : '2px solid transparent'; }}
+                            >Contact Us</Link>
+                            <Link href="/login" style={{
+                                color: pathname.startsWith("/login") ? '#1769aa' : '#222',
+                                fontWeight: 600,
+                                fontSize: 16,
+                                padding: '0 18px',
+                                height: 40,
+                                display: 'flex',
+                                alignItems: 'center',
+                                borderBottom: pathname.startsWith("/login") ? '2px solid #1769aa' : '2px solid transparent',
+                                background: 'none',
+                                textDecoration: 'none',
+                                transition: 'color 0.18s, border-bottom 0.18s',
+                                marginLeft: 12
+                            }}
+                                onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '2px solid #1769aa'; }}
+                                onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/login") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/login") ? '2px solid #1769aa' : '2px solid transparent'; }}
+                            >Login</Link>
+                        </>}
+                        {isLoggedIn && <>
+                            <Link href="/dashboard" style={{
+                                color: pathname.startsWith("/dashboard") ? '#1769aa' : '#222',
+                                fontWeight: 600,
+                                fontSize: 16,
+                                padding: '0 18px',
+                                height: 40,
+                                display: 'flex',
+                                alignItems: 'center',
+                                borderBottom: pathname.startsWith("/dashboard") ? '2px solid #1769aa' : '2px solid transparent',
+                                background: 'none',
+                                textDecoration: 'none',
+                                transition: 'color 0.18s, border-bottom 0.18s',
+                            }}
+                                onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '2px solid #1769aa'; }}
+                                onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/dashboard") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/dashboard") ? '2px solid #1769aa' : '2px solid transparent'; }}
+                            >Dashboard</Link>
+                            <Link href="/projects" style={{
+                                color: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '#1769aa' : '#222',
+                                fontWeight: 600,
+                                fontSize: 16,
+                                padding: '0 18px',
+                                height: 40,
+                                display: 'flex',
+                                alignItems: 'center',
+                                borderBottom: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '2px solid #1769aa' : '2px solid transparent',
+                                background: 'none',
+                                textDecoration: 'none',
+                                transition: 'color 0.18s, border-bottom 0.18s',
+                            }}
+                                onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '2px solid #1769aa'; }}
+                                onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '2px solid #1769aa' : '2px solid transparent'; }}
+                            >Projects</Link>
+                            <Link href="/research" style={{
+                                color: pathname.startsWith("/research") ? '#1769aa' : '#222',
+                                fontWeight: 600,
+                                fontSize: 16,
+                                padding: '0 18px',
+                                height: 40,
+                                display: 'flex',
+                                alignItems: 'center',
+                                borderBottom: pathname.startsWith("/research") ? '2px solid #1769aa' : '2px solid transparent',
+                                background: 'none',
+                                textDecoration: 'none',
+                                transition: 'color 0.18s, border-bottom 0.18s',
+                            }}
+                                onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '2px solid #1769aa'; }}
+                                onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/research") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/research") ? '2px solid #1769aa' : '2px solid transparent'; }}
+                            >Research</Link>
+                        </>}
                     </Group>
                 </Group>
-                <Group>
-                    <Menu
-                        shadow="md"
-                        width={360}
-                        position="bottom-end"
-                        opened={notificationMenuOpened}
-                        onChange={setNotificationMenuOpened}
-                    >
-                        <Menu.Target>
-                            <ActionIcon
-                                variant="subtle"
-                                color="gray"
-                                size="lg"
-                                className="notification-bell"
-                                style={{
-                                    marginRight: 16,
-                                    marginLeft: 8,
-                                    background: 'transparent',
-                                    zIndex: 2
-                                }}
-                            >
-                                <IconBell size={22} color="#b0b7ff" />
-                                {notifications.filter(n => !n.read).length > 0 && (
-                                    <span className="notification-badge">
-                                        {notifications.filter(n => !n.read).length}
-                                    </span>
-                                )}
-                            </ActionIcon>
-                        </Menu.Target>
-                        <Menu.Dropdown>
-                            <Menu.Label>
-                                <Group justify="space-between">
-                                    <Text size="sm" fw={500}>Notifications</Text>
-                                    {notifications.length > 0 && (
-                                        <Group gap="xs">
-                                            <ActionIcon
-                                                variant="subtle"
-                                                color="gray"
-                                                size="sm"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    markAllAsRead();
-                                                }}
-                                            >
-                                                <IconCheck size={16} />
-                                            </ActionIcon>
-                                            <ActionIcon
-                                                variant="subtle"
-                                                color="red"
-                                                size="sm"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    if (window.confirm('Clear all notifications? This cannot be undone.')) {
-                                                        clearNotifications();
-                                                    }
-                                                }}
-                                            >
-                                                <IconX size={16} />
-                                            </ActionIcon>
-                                        </Group>
+                <Group align="center" gap={0} style={{ minHeight: 58, paddingRight: 32 }}>
+                    {isLoggedIn && (
+                        <Menu
+                            shadow="md"
+                            width={360}
+                            position="bottom-end"
+                            opened={notificationMenuOpened}
+                            onChange={setNotificationMenuOpened}
+                        >
+                            <Menu.Target>
+                                <ActionIcon
+                                    variant="subtle"
+                                    color="gray"
+                                    size="lg"
+                                    className="notification-bell"
+                                    style={{
+                                        marginRight: 16,
+                                        marginLeft: 8,
+                                        background: 'transparent',
+                                        zIndex: 2
+                                    }}
+                                >
+                                    <IconBell size={22} color="#b0b7ff" />
+                                    {notifications.filter(n => !n.read).length > 0 && (
+                                        <span className="notification-badge">
+                                            {notifications.filter(n => !n.read).length}
+                                        </span>
                                     )}
-                                </Group>
-                            </Menu.Label>
-                            <ScrollArea h={300}>
-                                {notifications.length === 0 ? (
-                                    <Text c="dimmed" size="sm" ta="center" py="md">
-                                        No notifications
-                                    </Text>
-                                ) : (
-                                    notifications
-                                        .filter(notification => notification.message && notification.message.trim() !== "")
-                                        .map((notification) => (
-                                            <Menu.Item
-                                                key={notification.id}
-                                                onClick={() => handleNotificationClick(notification)}
-                                                style={{
-                                                    backgroundColor: notification.read ? 'transparent' : 'var(--mantine-color-blue-0)',
-                                                }}
-                                            >
-                                                <Group>
-                                                    <div style={{ flex: 1 }}>
-                                                        <Text size="sm">{notification.message || "No details"}</Text>
-                                                        <Text size="xs" c="dimmed">{notification.time}</Text>
-                                                    </div>
-                                                    {!notification.read && (
-                                                        <Badge size="xs" color="blue">New</Badge>
-                                                    )}
-                                                </Group>
-                                            </Menu.Item>
-                                        ))
-                                )}
-                            </ScrollArea>
-                        </Menu.Dropdown>
-                    </Menu>
-                    {userName && (
+                                </ActionIcon>
+                            </Menu.Target>
+                            <Menu.Dropdown>
+                                <Menu.Label>
+                                    <Group justify="space-between">
+                                        <Text size="sm" fw={500}>Notifications</Text>
+                                        {notifications.length > 0 && (
+                                            <Group gap="xs">
+                                                <ActionIcon
+                                                    variant="subtle"
+                                                    color="gray"
+                                                    size="sm"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        markAllAsRead();
+                                                    }}
+                                                >
+                                                    <IconCheck size={16} />
+                                                </ActionIcon>
+                                                <ActionIcon
+                                                    variant="subtle"
+                                                    color="red"
+                                                    size="sm"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        if (window.confirm('Clear all notifications? This cannot be undone.')) {
+                                                            clearNotifications();
+                                                        }
+                                                    }}
+                                                >
+                                                    <IconX size={16} />
+                                                </ActionIcon>
+                                            </Group>
+                                        )}
+                                    </Group>
+                                </Menu.Label>
+                                <ScrollArea h={300}>
+                                    {notifications.length === 0 ? (
+                                        <Text c="dimmed" size="sm" ta="center" py="md">
+                                            No notifications
+                                        </Text>
+                                    ) : (
+                                        notifications
+                                            .filter(notification => notification.message && notification.message.trim() !== "")
+                                            .map((notification) => (
+                                                <Menu.Item
+                                                    key={notification.id}
+                                                    onClick={() => handleNotificationClick(notification)}
+                                                    style={{
+                                                        backgroundColor: notification.read ? 'transparent' : 'var(--mantine-color-blue-0)',
+                                                    }}
+                                                >
+                                                    <Group>
+                                                        <div style={{ flex: 1 }}>
+                                                            <Text size="sm">{notification.message || "No details"}</Text>
+                                                            <Text size="xs" c="dimmed">{notification.time}</Text>
+                                                        </div>
+                                                        {!notification.read && (
+                                                            <Badge size="xs" color="blue">New</Badge>
+                                                        )}
+                                                    </Group>
+                                                </Menu.Item>
+                                            ))
+                                    )}
+                                </ScrollArea>
+                            </Menu.Dropdown>
+                        </Menu>
+                    )}
+                    {isLoggedIn && (
                         <Menu shadow="md" width={200} position="bottom-end">
                             <Menu.Target>
-                                <Group style={{ cursor: 'pointer', marginLeft: 12, color: '#fff', fontWeight: 600, textShadow: '0 2px 8px #232b4d' }} gap={8}>
-                                    <Avatar radius="xl" color="violet" size={32} style={{ boxShadow: '0 0 8px #7f5fff88', border: '2px solid #232b4d' }}>
-                                        {getInitials(userName)}
+                                <Group style={{ cursor: 'pointer', marginLeft: 16, color: '#1769aa', fontWeight: 600 }} gap={8}>
+                                    <Avatar radius="xl" color="blue" size={32} style={{ border: '2px solid #1769aa', background: 'transparent', color: '#1769aa', fontWeight: 700 }}>
+                                        {getInitials(userName || localStorage.getItem('user:username') || 'U')}
                                     </Avatar>
-                                    <Text size="sm" fw={600} style={{ color: '#fff', marginLeft: 6 }}>{userName}</Text>
+                                    <Text size="sm" fw={700} style={{ color: '#1769aa', marginLeft: 6 }}>{userName || localStorage.getItem('user:username') || 'User'}</Text>
                                 </Group>
                             </Menu.Target>
                             <Menu.Dropdown>
@@ -477,7 +566,7 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                                 <Menu.Item leftSection={<IconLock size={16} />} onClick={() => setModalOpened(true)}>
                                     Change Password
                                 </Menu.Item>
-                                <Menu.Item leftSection={<IconLogout size={16} />} onClick={onLogout}>
+                                <Menu.Item leftSection={<IconLogout size={16} />} onClick={onLogout} style={{ color: '#d32f2f', fontWeight: 700 }}>
                                     Logout
                                 </Menu.Item>
                             </Menu.Dropdown>
