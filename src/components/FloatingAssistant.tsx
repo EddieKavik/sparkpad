@@ -11,6 +11,10 @@ interface FloatingAssistantProps {
    * Optional project context string to make the AI project-aware
    */
   projectContext?: string;
+  /**
+   * Callback to add a new task from an action item
+   */
+  onAddTask?: (title: string) => void;
 }
 
 const tabSuggestions: Record<string, { greeting: string; actions: { label: string; prompt: string }[] }> = {
@@ -61,13 +65,14 @@ const tabSuggestions: Record<string, { greeting: string; actions: { label: strin
   },
 };
 
-export default function FloatingAssistant({ currentTab, userName, projectContext }: FloatingAssistantProps) {
+export default function FloatingAssistant({ currentTab, userName, projectContext, onAddTask }: FloatingAssistantProps) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<any[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(true);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const [actionItems, setActionItems] = useState<string[]>([]);
 
   // Only show if user is logged in
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -115,6 +120,32 @@ export default function FloatingAssistant({ currentTab, userName, projectContext
         ...msgs,
         { sender: 'ai', content: "Sorry, I couldn't process your request right now." },
       ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Summarize chat handler
+  const summarizeChat = async () => {
+    setLoading(true);
+    setShowSuggestions(false);
+    try {
+      const lastMessages = messages.slice(-20).map((m) => `${m.sender === 'ai' ? 'AI:' : 'User:'} ${m.content}`).join('\n');
+      const prompt = `${projectContext ? projectContext + '\n' : ''}Here are the recent project chat messages:\n${lastMessages}\n\nSummarize this discussion in a few sentences and extract any action items or decisions. Format action items as a bullet list if possible.`;
+      const gemini = getGeminiClient();
+      const model = gemini.getGenerativeModel({ model: 'gemini-1.5-flash' });
+      const result = await model.generateContent(prompt);
+      const aiText = result.response.text().trim();
+      setMessages((msgs: any[]) => [...msgs, { sender: 'ai', content: aiText }]);
+      // Parse bullet points for action items
+      const bullets = aiText.match(/(?:^|\n)[\-*•]\s+(.+)/gm)?.map(line => line.replace(/^[\-*•]\s+/, '').trim()) || [];
+      setActionItems(bullets);
+    } catch (err) {
+      setMessages((msgs: any[]) => [
+        ...msgs,
+        { sender: 'ai', content: "Sorry, I couldn't summarize the chat right now." },
+      ]);
+      setActionItems([]);
     } finally {
       setLoading(false);
     }
@@ -174,6 +205,25 @@ export default function FloatingAssistant({ currentTab, userName, projectContext
               <IconX size={20} />
             </ActionIcon>
           </Group>
+          {/* Action Items Section */}
+          {actionItems.length > 0 && (
+            <Box mb={8} style={{ background: '#f5f7fa', borderRadius: 8, padding: 8, border: '1px solid #e3e8ee' }}>
+              <Text fw={600} size="sm" mb={4} color="blue">Action Items</Text>
+              <Stack gap={4}>
+                {actionItems.map((item, idx) => (
+                  <Group key={idx} gap={6} align="center">
+                    <Text size="sm" style={{ flex: 1 }}>{item}</Text>
+                    <Button size="xs" variant="light" color="green" style={{ borderRadius: 8 }}
+                      onClick={() => onAddTask && onAddTask(item)}
+                      disabled={!onAddTask}
+                    >
+                      Add as Task
+                    </Button>
+                  </Group>
+                ))}
+              </Stack>
+            </Box>
+          )}
           <Stack spacing={4} style={{ flex: 1, overflowY: 'auto', marginBottom: 8 }}>
             {messages.map((msg, idx) => (
               <Group key={idx} align="flex-end" justify={msg.sender === 'user' ? 'flex-end' : 'flex-start'}>
@@ -241,6 +291,9 @@ export default function FloatingAssistant({ currentTab, userName, projectContext
               <IconSend size={20} />
             </ActionIcon>
           </Group>
+          <Button mt={8} size="xs" variant="outline" color="blue" fullWidth onClick={summarizeChat} loading={loading} style={{ borderRadius: 12, fontWeight: 600 }}>
+            Summarize Chat
+          </Button>
         </Paper>
       )}
       <style>{`

@@ -63,13 +63,11 @@ function extractSaltFromEncrypted(encrypted: string): string {
         return btoa(String.fromCharCode(...salt));
     } catch (err) {
         console.error('Failed to extract salt from encrypted password. Value:', encrypted, err);
-        if (typeof window !== 'undefined' && window?.showNotification) {
-            showNotification({
-                title: 'Error',
-                message: 'Corrupted password data. Please re-register.',
-                color: 'red',
-            });
-        }
+        showNotification({
+            title: 'Error',
+            message: 'Corrupted password data. Please re-register.',
+            color: 'red',
+        });
         throw new Error('Corrupted password data. Please re-register.');
     }
 }
@@ -86,7 +84,7 @@ export default function LoginPage() {
         try {
             // Fetch encrypted password from Civil Memory
             const res = await fetch(
-                "http://localhost:3333/users?mode=disk&key=" + encodeURIComponent("user:" + email)
+                "http://localhost:3333/?mode=disk&key=" + encodeURIComponent("user:" + email)
             );
             if (!res.ok) throw new Error("Invalid email or password");
             const encryptedPassword = await res.text();

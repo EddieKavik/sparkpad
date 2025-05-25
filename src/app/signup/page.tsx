@@ -67,7 +67,7 @@ export default function SignupPage() {
         try {
             // Check if user already exists
             const checkRes = await fetch(
-                "http://localhost:3333/users?mode=disk&key=" + encodeURIComponent("user:" + email)
+                "http://localhost:3333/?mode=disk&key=" + encodeURIComponent("user:" + email)
             );
             if (checkRes.ok) {
                 const text = await checkRes.text();
@@ -85,7 +85,7 @@ export default function SignupPage() {
             const encryptedPassword = await encryptPassword(password);
             // Store encrypted password
             const passwordRes = await fetch(
-                "http://localhost:3333/users?mode=disk&key=" + encodeURIComponent("user:" + email),
+                "http://localhost:3333/?mode=disk&key=" + encodeURIComponent("user:" + email),
                 {
                     method: "POST",
                     body: encryptedPassword,
@@ -98,7 +98,7 @@ export default function SignupPage() {
             }
             // Store username
             const usernameRes = await fetch(
-                "http://localhost:3333/users?mode=disk&key=" + encodeURIComponent("user:" + email + ':username'),
+                "http://localhost:3333/?mode=disk&key=" + encodeURIComponent("user:" + email + ':username'),
                 {
                     method: "POST",
                     body: email,

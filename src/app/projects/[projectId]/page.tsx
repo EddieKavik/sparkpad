@@ -19,6 +19,12 @@ import enUS from 'date-fns/locale/en-US';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import { saveAs } from 'file-saver';
 import AskAI from '../../../components/AskAI';
+import AIInsightsPanel from '../../../components/AIInsightsPanel';
+import AISentimentInsights from '../../../components/AISentimentInsights';
+import AIWorkflowAutomation from '../../../components/AIWorkflowAutomation';
+import AIRiskAlerts from '../../../components/AIRiskAlerts';
+import { useMediaQuery } from '@mantine/hooks';
+import OnboardingAssistant from '../../../components/OnboardingAssistant';
 
 // Helper to get up to 3 initials from a name or email
 function getInitials(nameOrEmail: string) {
@@ -191,6 +197,7 @@ export default function ProjectViewPage() {
     const [calendarModalMode, setCalendarModalMode] = useState<'add' | 'edit'>('add');
     const [calendarSelectedDate, setCalendarSelectedDate] = useState<Date | null>(null);
     const [calendarTask, setCalendarTask] = useState<Partial<Task>>({});
+    const isMobile = useMediaQuery('(max-width: 768px)');
 
     const locales = { 'en-US': enUS };
     const localizer = dateFnsLocalizer({
@@ -219,7 +226,7 @@ export default function ProjectViewPage() {
                     router.replace("/login");
                     return;
                 }
-                const res = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`);
+                const res = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`);
                 if (!res.ok) throw new Error("Failed to fetch projects");
                 let projects = await res.json();
                 if (!Array.isArray(projects) || projects.length === 0) {
@@ -227,7 +234,7 @@ export default function ProjectViewPage() {
                     projects = loadProjectsFromLocal();
                     if (Array.isArray(projects) && projects.length > 0) {
                         // Restore to backend
-                        await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`,
+                        await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`,
                             { method: "POST", body: JSON.stringify(projects) });
                         // Reload to pick up restored projects
                         window.location.reload();
@@ -302,7 +309,7 @@ export default function ProjectViewPage() {
                 router.replace("/login");
                 return;
             }
-            const res = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`);
+            const res = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`);
             let projects = [];
             if (res.ok) {
                 const text = await res.text();
@@ -319,14 +326,14 @@ export default function ProjectViewPage() {
             projects[idx] = updatedProject;
 
             // Save back to current user's storage
-            const saveRes = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`, {
+            const saveRes = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`, {
                 method: "POST",
                 body: JSON.stringify(projects),
             });
             if (!saveRes.ok) throw new Error("Failed to add member");
 
             // Fetch and update new member's projects
-            const newMemberRes = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(newMemberEmail)}`);
+            const newMemberRes = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(newMemberEmail)}`);
             let newMemberProjects = [];
             if (newMemberRes.ok) {
                 const text = await newMemberRes.text();
@@ -342,7 +349,7 @@ export default function ProjectViewPage() {
                     String(p.id) === String(updatedProject.id) ? updatedProject : p
                 );
             }
-            const saveNewMemberRes = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(newMemberEmail)}`, {
+            const saveNewMemberRes = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(newMemberEmail)}`, {
                 method: "POST",
                 body: JSON.stringify(newMemberProjects),
             });
@@ -368,7 +375,7 @@ export default function ProjectViewPage() {
                 router.replace("/login");
                 return;
             }
-            const res = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`);
+            const res = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`);
             if (!res.ok) throw new Error("Failed to fetch projects");
             let projects = await res.json();
             if (!Array.isArray(projects) || projects.length === 0) {
@@ -381,7 +388,7 @@ export default function ProjectViewPage() {
             }
             const updatedProject = { ...projects[idx], name: renameValue };
             projects[idx] = updatedProject;
-            const saveRes = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`, {
+            const saveRes = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`, {
                 method: "POST",
                 body: JSON.stringify(projects),
             });
@@ -408,7 +415,7 @@ export default function ProjectViewPage() {
                 router.replace("/login");
                 return;
             }
-            const res = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`);
+            const res = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`);
             if (!res.ok) throw new Error("Failed to fetch projects");
             const projects = await res.json();
             const idx = projects.findIndex((p: any) => String(p.id) === String(projectId));
@@ -416,7 +423,7 @@ export default function ProjectViewPage() {
             const updatedProject = { ...projects[idx] };
             updatedProject.members = updatedProject.members.filter((email: string) => email !== emailToRemove);
             projects[idx] = updatedProject;
-            const saveRes = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`, {
+            const saveRes = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`, {
                 method: "POST",
                 body: JSON.stringify(projects),
             });
@@ -996,7 +1003,7 @@ export default function ProjectViewPage() {
             // Save to backend
             const userEmail = localStorage.getItem("user:username");
             if (userEmail) {
-                await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`, {
+                await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`, {
                     method: "POST",
                     body: JSON.stringify([
                         ...JSON.parse(localStorage.getItem('projects:backup') || '[]').filter((p: any) => p.id !== project.id),
@@ -1170,11 +1177,37 @@ export default function ProjectViewPage() {
             <Box style={{ minHeight: '100vh', background: styles.background, position: 'relative', overflow: 'hidden' }}>
                 {/* Futuristic Glow Overlay */}
                 <div style={styles.overlay} />
-                <Container size="md" mt={40}>
-                    <Title order={2} mb="lg" style={{ color: styles.textColor, fontWeight: 800, letterSpacing: 1 }}>
+                <Container size={isMobile ? 'xs' : 'md'} mt={isMobile ? 8 : 40} px={isMobile ? 0 : undefined}>
+                    <Title order={2} mb={isMobile ? 'md' : 'lg'} style={{ color: styles.textColor, fontWeight: 800, letterSpacing: 1, fontSize: isMobile ? 22 : 32 }}>
                         Project: {project.name || projectId}
                     </Title>
-                    <AskAI context={projectContext} />
+                    <AIInsightsPanel projectContext={projectContext} chatMessages={chatMessages} />
+                    <AIRiskAlerts context={projectContext} onMitigate={(suggestion) => {
+                        if (/reassign/i.test(suggestion) && tasks.some(t => t.status !== 'done')) {
+                            const overdue = tasks.find(t => t.dueDate && t.dueDate < new Date().toISOString().slice(0, 10) && t.status !== 'done');
+                            if (overdue && Array.isArray(project.members) && project.members.length > 0) {
+                                const assignee = project.members[Math.floor(Math.random() * project.members.length)];
+                                const updatedTasks = tasks.map(t => t.id === overdue.id ? { ...t, assignee } : t);
+                                saveTasks(updatedTasks);
+                                showNotification({ title: 'Task Reassigned', message: `Assigned ${overdue.title} to ${assignee}`, color: 'blue' });
+                            }
+                        } else if (/remind/i.test(suggestion)) {
+                            showNotification({ title: 'Reminder Sent', message: suggestion, color: 'blue' });
+                        } else if (/mark as blocked/i.test(suggestion) && tasks.some(t => t.status === 'in-progress')) {
+                            const inProgress = tasks.find(t => t.status === 'in-progress');
+                            if (inProgress) {
+                                const updatedTasks = tasks.map(t => t.id === inProgress.id ? { ...t, status: 'blocked' } : t);
+                                saveTasks(updatedTasks);
+                                showNotification({ title: 'Task Blocked', message: `Marked ${inProgress.title} as blocked`, color: 'red' });
+                            }
+                        } else {
+                            showNotification({ title: 'Mitigation Actioned', message: suggestion, color: 'green' });
+                        }
+                    }} />
+                    <AIWorkflowAutomation context={projectContext} tab="dashboard" onEnable={(suggestion) => {
+                        // Dashboard: fallback to notification
+                        showNotification({ title: 'Automation Enabled', message: suggestion, color: 'green' });
+                    }} />
                     <Modal opened={settingsOpened} onClose={() => setSettingsOpened(false)} title="Rename Project" centered
                         styles={{
                             content: {
@@ -1199,9 +1232,9 @@ export default function ProjectViewPage() {
                             </Button>
                         </form>
                     </Modal>
-                    <Box style={{ display: 'flex', gap: 0, alignItems: 'flex-start', minHeight: 600, width: '100%' }}>
+                    <Box style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 0 : 0, alignItems: isMobile ? 'stretch' : 'flex-start', minHeight: 600, width: '100%' }}>
                         <Tabs value={activeTab} onChange={value => setActiveTab(value || "default")}
-                            orientation="vertical"
+                            orientation={isMobile ? 'horizontal' : 'vertical'}
                             style={{ flex: 1, display: 'flex' }}
                             styles={{
                                 tab: {
@@ -1209,17 +1242,23 @@ export default function ProjectViewPage() {
                                     color: styles.secondaryTextColor,
                                     borderRadius: 8,
                                     fontWeight: 700,
-                                    marginBottom: 4,
-                                    padding: '12px 20px',
+                                    marginBottom: isMobile ? 0 : 4,
+                                    marginRight: isMobile ? 8 : 0,
+                                    padding: isMobile ? '10px 14px' : '12px 20px',
                                     textAlign: 'left',
-                                    fontSize: 16,
+                                    fontSize: isMobile ? 15 : 16,
+                                    minWidth: isMobile ? 90 : 110,
+                                    minHeight: isMobile ? 40 : 48,
                                 },
                                 list: {
                                     background: styles.tabListBackground,
                                     borderRadius: 16,
                                     boxShadow: styles.cardShadow,
-                                    padding: 8,
-                                    minWidth: 180,
+                                    padding: isMobile ? 4 : 8,
+                                    minWidth: isMobile ? undefined : 180,
+                                    flexDirection: isMobile ? 'row' : 'column',
+                                    overflowX: isMobile ? 'auto' : 'visible',
+                                    border: 'none',
                                 },
                                 panel: {
                                     background: styles.tabPanelBackground,
@@ -1228,7 +1267,7 @@ export default function ProjectViewPage() {
                                 },
                             }}
                         >
-                            <Tabs.List style={{ flexDirection: 'column', alignItems: 'stretch', gap: 0, border: 'none', boxShadow: 'none', minWidth: 180 }}>
+                            <Tabs.List style={{ flexDirection: isMobile ? 'row' : 'column', alignItems: isMobile ? 'flex-start' : 'stretch', gap: 0, border: 'none', boxShadow: 'none', minWidth: isMobile ? undefined : 180, overflowX: isMobile ? 'auto' : 'visible', width: isMobile ? '100%' : undefined }}>
                                 <Tabs.Tab value="dashboard" style={{ background: 'none', color: activeTab === 'dashboard' ? '#1769aa' : '#222', fontWeight: 600, fontSize: 16, border: 'none', borderBottom: activeTab === 'dashboard' ? '3px solid #1769aa' : '3px solid transparent', borderRadius: 0, minWidth: 110, minHeight: 48, margin: '0 2px', transition: 'color 0.18s, border-bottom 0.18s', boxShadow: 'none', outline: 'none' }} onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '3px solid #1769aa'; }} onMouseOut={e => { e.currentTarget.style.color = activeTab === 'dashboard' ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = activeTab === 'dashboard' ? '3px solid #1769aa' : '3px solid transparent'; }}>Dashboard</Tabs.Tab>
                                 <Tabs.Tab value="tasks" style={{ background: 'none', color: activeTab === 'tasks' ? '#1769aa' : '#222', fontWeight: 600, fontSize: 16, border: 'none', borderBottom: activeTab === 'tasks' ? '3px solid #1769aa' : '3px solid transparent', borderRadius: 0, minWidth: 110, minHeight: 48, margin: '0 2px', transition: 'color 0.18s, border-bottom 0.18s', boxShadow: 'none', outline: 'none' }} onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '3px solid #1769aa'; }} onMouseOut={e => { e.currentTarget.style.color = activeTab === 'tasks' ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = activeTab === 'tasks' ? '3px solid #1769aa' : '3px solid transparent'; }}>Tasks</Tabs.Tab>
                                 <Tabs.Tab value="calendar" style={{ background: 'none', color: activeTab === 'calendar' ? '#1769aa' : '#222', fontWeight: 600, fontSize: 16, border: 'none', borderBottom: activeTab === 'calendar' ? '3px solid #1769aa' : '3px solid transparent', borderRadius: 0, minWidth: 110, minHeight: 48, margin: '0 2px', transition: 'color 0.18s, border-bottom 0.18s', boxShadow: 'none', outline: 'none' }} onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '3px solid #1769aa'; }} onMouseOut={e => { e.currentTarget.style.color = activeTab === 'calendar' ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = activeTab === 'calendar' ? '3px solid #1769aa' : '3px solid transparent'; }}>Calendar</Tabs.Tab>
@@ -1304,6 +1343,60 @@ export default function ProjectViewPage() {
                             </Tabs.Panel>
                             <Tabs.Panel value="tasks" pt="md">
                                 <Box style={{ flex: 1, minWidth: 0, marginLeft: 32 }}>
+                                    <AIRiskAlerts context={projectContext} onMitigate={(suggestion) => {
+                                        if (/reassign/i.test(suggestion) && tasks.some(t => t.status !== 'done')) {
+                                            const overdue = tasks.find(t => t.dueDate && t.dueDate < new Date().toISOString().slice(0, 10) && t.status !== 'done');
+                                            if (overdue && Array.isArray(project.members) && project.members.length > 0) {
+                                                const assignee = project.members[Math.floor(Math.random() * project.members.length)];
+                                                const updatedTasks = tasks.map(t => t.id === overdue.id ? { ...t, assignee } : t);
+                                                saveTasks(updatedTasks);
+                                                showNotification({ title: 'Task Reassigned', message: `Assigned ${overdue.title} to ${assignee}`, color: 'blue' });
+                                            }
+                                        } else if (/remind/i.test(suggestion)) {
+                                            showNotification({ title: 'Reminder Sent', message: suggestion, color: 'blue' });
+                                        } else if (/mark as blocked/i.test(suggestion) && tasks.some(t => t.status === 'in-progress')) {
+                                            const inProgress = tasks.find(t => t.status === 'in-progress');
+                                            if (inProgress) {
+                                                const updatedTasks = tasks.map(t => t.id === inProgress.id ? { ...t, status: 'blocked' } : t);
+                                                saveTasks(updatedTasks);
+                                                showNotification({ title: 'Task Blocked', message: `Marked ${inProgress.title} as blocked`, color: 'red' });
+                                            }
+                                        } else {
+                                            showNotification({ title: 'Mitigation Actioned', message: suggestion, color: 'green' });
+                                        }
+                                    }} />
+                                    <AIWorkflowAutomation context={projectContext} tab="tasks" onEnable={(suggestion) => {
+                                        // Example: Recurring task or auto-assign
+                                        if (/recurring/i.test(suggestion)) {
+                                            const now = new Date().toISOString();
+                                            const task = {
+                                                id: Date.now().toString(),
+                                                title: suggestion,
+                                                description: 'Recurring task suggested by AI',
+                                                assignee: '',
+                                                status: 'todo',
+                                                priority: 'medium',
+                                                dueDate: '',
+                                                createdAt: now,
+                                                updatedAt: now,
+                                            };
+                                            saveTasks([...tasks, task]);
+                                            showNotification({ title: 'Recurring Task Created', message: suggestion, color: 'blue' });
+                                        } else if (/auto-assign/i.test(suggestion) && tasks.some(t => t.status !== 'done')) {
+                                            // Assign a random member to an overdue task
+                                            const overdue = tasks.find(t => t.dueDate && t.dueDate < new Date().toISOString().slice(0, 10) && t.status !== 'done');
+                                            if (overdue && Array.isArray(project.members) && project.members.length > 0) {
+                                                const assignee = project.members[Math.floor(Math.random() * project.members.length)];
+                                                const updatedTasks = tasks.map(t => t.id === overdue.id ? { ...t, assignee } : t);
+                                                saveTasks(updatedTasks);
+                                                showNotification({ title: 'Task Auto-Assigned', message: `Assigned ${overdue.title} to ${assignee}`, color: 'blue' });
+                                            }
+                                        } else if (/remind/i.test(suggestion)) {
+                                            showNotification({ title: 'Reminder Set', message: suggestion, color: 'blue' });
+                                        } else {
+                                            showNotification({ title: 'Automation Enabled', message: suggestion, color: 'green' });
+                                        }
+                                    }} />
                                     <Box p="md" style={{ background: styles.cardBackground, border: styles.cardBorder, borderRadius: 16, boxShadow: styles.cardShadow }}>
                                         <Group justify="space-between" mb="md">
                                             <Title order={3} style={{ color: styles.accentColor, marginBottom: 0 }}>Tasks</Title>
@@ -1653,6 +1746,13 @@ export default function ProjectViewPage() {
                                         </Modal>
                                     </Box>
                                 </Box>
+                                <AIWorkflowAutomation context={projectContext} tab="calendar" onEnable={(suggestion) => {
+                                    if (/remind/i.test(suggestion)) {
+                                        showNotification({ title: 'Calendar Reminder Set', message: suggestion, color: 'blue' });
+                                    } else {
+                                        showNotification({ title: 'Automation Enabled', message: suggestion, color: 'green' });
+                                    }
+                                }} />
                             </Tabs.Panel>
                             <Tabs.Panel value="files" pt="md">
                                 <Box style={{ flex: 1, minWidth: 0, marginLeft: 32 }}>
@@ -1695,6 +1795,13 @@ export default function ProjectViewPage() {
                                         </Stack>
                                     </Box>
                                 </Box>
+                                <AIWorkflowAutomation context={projectContext} tab="files" onEnable={(suggestion) => {
+                                    if (/auto-archive/i.test(suggestion)) {
+                                        showNotification({ title: 'Auto-Archive Enabled', message: suggestion, color: 'blue' });
+                                    } else {
+                                        showNotification({ title: 'Automation Enabled', message: suggestion, color: 'green' });
+                                    }
+                                }} />
                             </Tabs.Panel>
                             <Tabs.Panel value="research" pt="md">
                                 <Box style={{ flex: 1, minWidth: 0, marginLeft: 32 }}>
@@ -1885,6 +1992,7 @@ export default function ProjectViewPage() {
                                         )}
                                     </Stack>
                                 </Box>
+                                <AIWorkflowAutomation context={projectContext} tab="research" />
                             </Tabs.Panel>
                             {docTabs.map(tab => (
                                 <Tabs.Panel key={tab.id} value={tab.id}>
@@ -2002,11 +2110,13 @@ export default function ProjectViewPage() {
                             ))}
                             <Tabs.Panel value="templates" pt="md">
                                 <Box style={{ flex: 1, minWidth: 0, marginLeft: 32 }}>
+                                    <AIWorkflowAutomation context={projectContext} tab="templates" />
                                     <Text c="dimmed">Templates tab content coming soon!</Text>
                                 </Box>
                             </Tabs.Panel>
                             <Tabs.Panel value="chat" pt="md">
                                 <Box style={{ flex: 1, minWidth: 0, marginLeft: 32 }}>
+                                    <AIWorkflowAutomation context={projectContext} tab="chat" />
                                     <Box style={{ width: '100%', background: '#fff', border: '1px solid #e3e8ee', borderRadius: 12, padding: 24 }}>
                                         <Title order={4} mb={8}>SparkChat</Title>
                                         <Stack spacing="xs" style={{ minHeight: 320, maxHeight: 400, overflowY: 'auto', background: '#f8fafc', borderRadius: 8, padding: 12, border: 'none' }}>
@@ -2043,6 +2153,7 @@ export default function ProjectViewPage() {
                             </Tabs.Panel>
                             <Tabs.Panel value="members" pt="md">
                                 <Box style={{ flex: 1, minWidth: 0, marginLeft: 32 }}>
+                                    <AIWorkflowAutomation context={projectContext} tab="members" />
                                     <Stack>
                                         <Title order={4} mb="xs">Members</Title>
                                         {Array.isArray(project.members) && project.members.length > 0 ? (
@@ -2092,7 +2203,23 @@ export default function ProjectViewPage() {
                     <IconSettings size={22} />
                 </ActionIcon>
             </Box>
-            <FloatingAssistant currentTab={activeTab} userName={userName} projectContext={projectContext} />
+            <FloatingAssistant currentTab={activeTab} userName={userName} projectContext={projectContext} onAddTask={(title: string) => {
+                const now = new Date().toISOString();
+                const newTask = {
+                    id: Date.now().toString(),
+                    title,
+                    description: 'Added from AI action item',
+                    assignee: '',
+                    status: 'todo',
+                    priority: 'medium',
+                    dueDate: '',
+                    createdAt: now,
+                    updatedAt: now,
+                };
+                saveTasks([...tasks, newTask]);
+                showNotification({ title: 'Task Added', message: `Task "${title}" added from AI action item.`, color: 'green' });
+            }} />
+            <OnboardingAssistant context={activeTab} />
         </>
     );
 } 

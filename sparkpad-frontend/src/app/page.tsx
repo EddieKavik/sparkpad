@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { IconSparkles, IconRobot, IconMessage, IconTag, IconUsers } from "@tabler/icons-react";
 import { EmblaCarousel } from "../components/EmblaCarousel";
 import Link from "next/link";
+import AIInsightsPanel from '../../src/components/AIInsightsPanel';
 
 export default function Home() {
   return (
@@ -61,6 +62,11 @@ export default function Home() {
             </button>
           </Link>
         </motion.div>
+      </section>
+
+      {/* Unified AI Insights Panel */}
+      <section className="relative z-10 max-w-4xl mx-auto px-4">
+        <AIInsightsPanel />
       </section>
 
       {/* Product Introduction */}

@@ -115,7 +115,7 @@ export default function ProjectsPage() {
                     return;
                 }
                 const res = await fetch(
-                    `http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`
+                    `http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`
                 );
                 if (!res.ok) throw new Error("Failed to fetch projects");
                 let data = await res.text();
@@ -125,7 +125,7 @@ export default function ProjectsPage() {
                     projects = loadProjectsFromLocal();
                     if (Array.isArray(projects) && projects.length > 0) {
                         // Restore to backend
-                        await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`,
+                        await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`,
                             { method: "POST", body: JSON.stringify(projects) });
                         // Reload to pick up restored projects
                         window.location.reload();
@@ -157,7 +157,7 @@ export default function ProjectsPage() {
                 router.replace("/login");
                 return;
             }
-            const res = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`);
+            const res = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`);
             let projects = [];
             if (res.ok) {
                 const text = await res.text();
@@ -178,7 +178,7 @@ export default function ProjectsPage() {
                 timeline: newProjectTimeline,
             };
             projects.push(newProject);
-            const saveRes = await fetch(`http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`, {
+            const saveRes = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`, {
                 method: "POST",
                 body: JSON.stringify(projects),
             });
@@ -236,7 +236,7 @@ export default function ProjectsPage() {
             };
             const updatedProjects = projects.map(p => p.id === editingProject.id ? updatedProject : p);
             const res = await fetch(
-                `http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`,
+                `http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`,
                 {
                     method: "POST",
                     body: JSON.stringify(updatedProjects),
@@ -283,7 +283,7 @@ export default function ProjectsPage() {
             if (!project) throw new Error("Project not found");
             const updatedProjects = projects.filter(p => p.id !== projectId);
             const res = await fetch(
-                `http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`,
+                `http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`,
                 {
                     method: "POST",
                     body: JSON.stringify(updatedProjects),
@@ -331,7 +331,7 @@ export default function ProjectsPage() {
             };
             const updatedProjects = projects.map(p => p.id === projectId ? updatedProject : p);
             const res = await fetch(
-                `http://localhost:3333/projects?mode=disk&key=${encodeURIComponent(userEmail)}`,
+                `http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`,
                 {
                     method: "POST",
                     body: JSON.stringify(updatedProjects),
