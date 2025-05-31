@@ -17,11 +17,15 @@ export default function AIWorkflowAutomation({ context, tab, onEnable }: Props) 
     const userToken = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
 
     const fetchSuggestions = async () => {
-        if (!userToken) return;
+        if (!userToken) {
+            setError('You must be logged in to use AI features.');
+            setSuggestions(["Sample: Auto-assign overdue tasks to available members", "Sample: Send daily summary to team", "Sample: Remind assignees of upcoming deadlines"]);
+            return;
+        }
         setLoading(true);
         setError('');
         try {
-            const prompt = `${context}\n\nAnalyze this project and suggest 3-5 workflow automations or optimizations. Return a JSON array of suggestions, each as a short actionable string. Example: ["Auto-assign overdue tasks to available members", "Send daily summary to team", "Remind assignees of upcoming deadlines"]`;
+            const prompt = `${context}\n\nAnalyze this project and suggest 3-5 workflow automations or optimizations. Return a JSON array of suggestions, each as a short actionable string. Example: [\"Auto-assign overdue tasks to available members\", \"Send daily summary to team\", \"Remind assignees of upcoming deadlines\"]`;
             const res = await askAI(prompt, userToken);
             const match = res.match(/\[[\s\S]*\]/);
             let arr: string[] = [];
@@ -34,7 +38,21 @@ export default function AIWorkflowAutomation({ context, tab, onEnable }: Props) 
             }
             setSuggestions(arr);
         } catch (err: any) {
-            setError(err.message || 'AI error');
+            console.error('AI Workflow Automation error:', err);
+            let msg = err?.message || 'AI error. Please check your API key and network connection.';
+            if (msg.includes('No Gemini API key')) {
+                msg = 'AI is not available: missing Gemini API key. Please contact the administrator.';
+            } else if (msg.includes('Failed to fetch')) {
+                msg = 'Could not connect to the AI service. Please check your network or try again later.';
+            } else if (msg.includes('AI request failed')) {
+                msg = 'AI request failed. Please try again or check your API key.';
+            }
+            setError(msg);
+            setSuggestions([
+                "Sample: Auto-assign overdue tasks to available members",
+                "Sample: Send daily summary to team",
+                "Sample: Remind assignees of upcoming deadlines"
+            ]);
         } finally {
             setLoading(false);
         }
@@ -75,6 +93,11 @@ export default function AIWorkflowAutomation({ context, tab, onEnable }: Props) 
                     </Paper>
                 ))}
             </Stack>
+            {error && (
+                <Text size="xs" c="dimmed" mt={8}>
+                    If this problem persists, please check your API key or network connection. Sample suggestions are shown above.
+                </Text>
+            )}
         </Paper>
     );
 } 

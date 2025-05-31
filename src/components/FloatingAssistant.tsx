@@ -160,7 +160,7 @@ export default function FloatingAssistant({ currentTab, userName, projectContext
     <>
       {/* Floating button */}
       {!open && (
-        <Box style={{ position: 'fixed', bottom: 32, right: 32, zIndex: 9999 }}>
+        <Box style={{ position: 'fixed', bottom: '32px', right: '32px', zIndex: 9999 }}>
           <ActionIcon
             size={56}
             radius={28}
@@ -182,8 +182,8 @@ export default function FloatingAssistant({ currentTab, userName, projectContext
           p="md"
           style={{
             position: 'fixed',
-            bottom: 32,
-            right: 32,
+            bottom: '96px',
+            right: '32px',
             width: 360,
             maxHeight: 540,
             zIndex: 10000,
@@ -224,7 +224,7 @@ export default function FloatingAssistant({ currentTab, userName, projectContext
               </Stack>
             </Box>
           )}
-          <Stack spacing={4} style={{ flex: 1, overflowY: 'auto', marginBottom: 8 }}>
+          <Stack gap={4} style={{ flex: 1, overflowY: 'auto', marginBottom: 8 }}>
             {messages.map((msg, idx) => (
               <Group key={idx} align="flex-end" justify={msg.sender === 'user' ? 'flex-end' : 'flex-start'}>
                 {msg.sender === 'ai' && <Avatar color="blue" radius="xl" size={28}><IconRobot size={16} /></Avatar>}

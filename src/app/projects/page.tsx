@@ -51,7 +51,7 @@ const themeStyles = {
 };
 
 // Utility to sync projects to localStorage
-function saveProjectsToLocal(projects) {
+function saveProjectsToLocal(projects: Project[]) {
     try {
         localStorage.setItem('projects:backup', JSON.stringify(projects));
     } catch { }
@@ -384,7 +384,7 @@ export default function ProjectsPage() {
 
     // Get unique tags from all projects
     const safeProjects = Array.isArray(projects) ? projects : [];
-    const allTags = Array.from(new Set(safeProjects.flatMap(project => project.tags)));
+    const allTags: string[] = Array.from(new Set(safeProjects.flatMap(project => project.tags || []).filter(Boolean)));
 
     // Filter and sort projects
     const filteredAndSortedProjects = safeProjects
@@ -712,9 +712,9 @@ export default function ProjectsPage() {
                             />
                             <MultiSelect
                                 placeholder="Filter by tags"
-                                value={(tagFilter || []).filter((v): v is string => typeof v === 'string' && v)}
+                                value={tagFilter}
                                 onChange={setTagFilter}
-                                data={(allTags || []).filter((tag): tag is string => typeof tag === 'string' && tag).map(tag => ({ value: tag, label: tag }))}
+                                data={allTags.map(tag => ({ value: tag, label: tag }))}
                                 leftSection={<IconTag size={16} />}
                                 style={{ width: 200 }}
                             />
@@ -786,7 +786,7 @@ export default function ProjectsPage() {
                                         <Text fw={700} size="lg" style={{ color: styles.accentColor }}>{project.name}</Text>
                                         <Badge color={styles.badgeColor} size="sm" style={{ fontWeight: 600 }}>{project.status}</Badge>
                                     </div>
-                                    <Menu shadow="md" width={200}>
+                                    <Menu shadow="md" width={200} position="bottom-end" withinPortal={false}>
                                         <Menu.Target>
                                             <ActionIcon variant="subtle" color={theme === 'futuristic' ? 'gray' : 'blue'} style={{ color: styles.secondaryTextColor, background: styles.cardBackground }}>
                                                 <IconDotsVertical size={16} />

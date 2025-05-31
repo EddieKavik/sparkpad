@@ -11,11 +11,11 @@ import ReactMarkdown from 'react-markdown';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import FloatingAssistant from '@/components/FloatingAssistant';
 import { Calendar as BigCalendar, dateFnsLocalizer } from 'react-big-calendar';
-import format from 'date-fns/format';
-import parse from 'date-fns/parse';
-import startOfWeek from 'date-fns/startOfWeek';
-import getDay from 'date-fns/getDay';
-import enUS from 'date-fns/locale/en-US';
+import { format } from 'date-fns/format';
+import { parse } from 'date-fns/parse';
+import { startOfWeek } from 'date-fns/startOfWeek';
+import { getDay } from 'date-fns/getDay';
+import { enUS } from 'date-fns/locale/en-US';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import { saveAs } from 'file-saver';
 import AskAI from '../../../components/AskAI';
@@ -25,6 +25,16 @@ import AIWorkflowAutomation from '../../../components/AIWorkflowAutomation';
 import AIRiskAlerts from '../../../components/AIRiskAlerts';
 import { useMediaQuery } from '@mantine/hooks';
 import OnboardingAssistant from '../../../components/OnboardingAssistant';
+// @ts-ignore
+import ProjectDocumentsTab from '../../../components/ProjectDocumentsTab';
+
+// Add module declarations for missing types
+// @ts-ignore
+// eslint-disable-next-line
+declare module 'react-big-calendar';
+// @ts-ignore
+// eslint-disable-next-line
+declare module 'file-saver';
 
 // Helper to get up to 3 initials from a name or email
 function getInitials(nameOrEmail: string) {
@@ -101,6 +111,9 @@ interface Task {
     updatedAt: string;
 }
 
+// Document tab type
+export type DocTab = { id: string; title: string };
+
 function generateICS(tasks: Task[], projectName: string) {
     const pad = (n: number) => n < 10 ? '0' + n : n;
     const formatDate = (dateStr: string) => {
@@ -115,6 +128,68 @@ function generateICS(tasks: Task[], projectName: string) {
     return ics;
 }
 
+// Utility to load document tabs from Civil Memory
+async function loadDocTabsFromCivilMemory(projectId: string) {
+  try {
+    const userEmail = localStorage.getItem("user:username");
+    if (!userEmail) return null;
+    const res = await fetch(`http://localhost:3333/doctabs?mode=disk&key=${encodeURIComponent(userEmail)}:${encodeURIComponent(projectId)}`);
+    if (res.ok) {
+      const data = await res.json();
+      return Array.isArray(data) ? data : null;
+    }
+  } catch {}
+  return null;
+}
+// Utility to save document tabs to Civil Memory
+async function saveDocTabsToCivilMemory(projectId: string, tabs: DocTab[]) {
+  try {
+    const userEmail = localStorage.getItem("user:username");
+    if (!userEmail) return;
+    await fetch(`http://localhost:3333/doctabs?mode=disk&key=${encodeURIComponent(userEmail)}:${encodeURIComponent(projectId)}`,
+      { method: "POST", body: JSON.stringify(tabs) });
+  } catch {}
+}
+
+// Move fetchProject out of useEffect
+async function fetchProject(projectId: string | string[] | undefined, setProject: any, setRenameValue: any, router: any, setLoading: any) {
+    setLoading(true);
+    try {
+        const userEmail = localStorage.getItem("user:username");
+        if (!userEmail) {
+            router.replace("/login");
+            return;
+        }
+        const res = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`);
+        if (!res.ok) throw new Error("Failed to fetch projects");
+        let projects = await res.json();
+        if (!Array.isArray(projects) || projects.length === 0) {
+            projects = loadProjectsFromLocal();
+            if (Array.isArray(projects) && projects.length > 0) {
+                await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`,
+                    { method: "POST", body: JSON.stringify(projects) });
+                window.location.reload();
+                return;
+            }
+        }
+        const project = projects.find((p: any) => String(p.id).trim() === String(projectId).trim());
+        if (!project) {
+            console.error('Project not found. projectId:', projectId, 'projects:', projects.map((p: any) => p.id));
+            throw new Error("Project not found");
+        }
+        setProject(project);
+        setRenameValue(project.name || "");
+    } catch (err: any) {
+        showNotification({
+            title: "Error",
+            message: err.message || "Failed to fetch project",
+            color: "red",
+        });
+    } finally {
+        setLoading(false);
+    }
+}
+
 export default function ProjectViewPage() {
     const params = useParams();
     const router = useRouter();
@@ -127,11 +202,9 @@ export default function ProjectViewPage() {
     const [renameValue, setRenameValue] = useState("");
     const [renaming, setRenaming] = useState(false);
     // Document tabs state
-    type DocTab = { id: string; title: string };
-    const [docTabs, setDocTabs] = useState<DocTab[]>([
-        { id: "default", title: "Documents" }
-    ]);
+    const [docTabs, setDocTabs] = useState<DocTab[]>([{ id: "default", title: "Documents" }]);
     const [activeTab, setActiveTab] = useState("default");
+    const [activeDocTab, setActiveDocTab] = useState(docTabs[0]?.id || "default");
     // Document rows state
     const [docRows, setDocRows] = useState<{ [docId: string]: string[] }>({});
     const [addingRowFor, setAddingRowFor] = useState<string | null>(null);
@@ -154,9 +227,9 @@ export default function ProjectViewPage() {
     const { theme } = useTheme();
     // Force the use of the executive theme
     const styles = themeStyles['executive'];
-    const [researchItems, setResearchItems] = useState([]);
+    const [researchItems, setResearchItems] = useState<any[]>([]);
     const [researchLoading, setResearchLoading] = useState(false);
-    const [newResearch, setNewResearch] = useState({ title: '', type: 'web', content: '' });
+    const [newResearch, setNewResearch] = useState<{ title: string; type: string; content: string; tags?: string[] }>({ title: '', type: 'web', content: '', tags: [] });
     const [editResearch, setEditResearch] = useState<any | null>(null);
     const [editResearchLoading, setEditResearchLoading] = useState(false);
     const [summarizingId, setSummarizingId] = useState<string | null>(null);
@@ -198,6 +271,10 @@ export default function ProjectViewPage() {
     const [calendarSelectedDate, setCalendarSelectedDate] = useState<Date | null>(null);
     const [calendarTask, setCalendarTask] = useState<Partial<Task>>({});
     const isMobile = useMediaQuery('(max-width: 768px)');
+    // Add state for document search and pagination
+    const [docSearch, setDocSearch] = useState("");
+    const [docPage, setDocPage] = useState(1);
+    const DOCS_PER_PAGE = 5;
 
     const locales = { 'en-US': enUS };
     const localizer = dateFnsLocalizer({
@@ -207,6 +284,8 @@ export default function ProjectViewPage() {
         getDay,
         locales,
     });
+
+    const addRowInputRef = useRef<HTMLTextAreaElement | null>(null);
 
     useEffect(() => {
         const user = localStorage.getItem("user");
@@ -218,72 +297,51 @@ export default function ProjectViewPage() {
                 setUserName(null);
             }
         }
-        const fetchProject = async () => {
-            setLoading(true);
-            try {
-                const userEmail = localStorage.getItem("user:username");
-                if (!userEmail) {
-                    router.replace("/login");
-                    return;
-                }
-                const res = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`);
-                if (!res.ok) throw new Error("Failed to fetch projects");
-                let projects = await res.json();
-                if (!Array.isArray(projects) || projects.length === 0) {
-                    // Try to restore from localStorage
-                    projects = loadProjectsFromLocal();
-                    if (Array.isArray(projects) && projects.length > 0) {
-                        // Restore to backend
-                        await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`,
-                            { method: "POST", body: JSON.stringify(projects) });
-                        // Reload to pick up restored projects
-                        window.location.reload();
-                        return;
-                    }
-                }
-                const project = projects.find((p: any) => String(p.id).trim() === String(projectId).trim());
-                if (!project) {
-                    console.error('Project not found. projectId:', projectId, 'projects:', projects.map((p: any) => p.id));
-                    throw new Error("Project not found");
-                }
-                setProject(project);
-                setRenameValue(project.name || "");
-            } catch (err: any) {
-                showNotification({
-                    title: "Error",
-                    message: err.message || "Failed to fetch project",
-                    color: "red",
-                });
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchProject();
+        fetchProject(projectId, setProject, setRenameValue, router, setLoading);
     }, [projectId, router]);
 
     // Load document rows from Civil Memory on mount or when projectId changes
     useEffect(() => {
-        const fetchDocRows = async () => {
-            if (!projectId) return;
+        const fetchDocRowsAndTabs = async () => {
+            if (!projectId || Array.isArray(projectId)) return;
             try {
                 const userEmail = localStorage.getItem("user:username");
                 if (!userEmail) {
                     router.replace("/login");
                     return;
                 }
+                // Load docRows
                 const res = await fetch(`http://localhost:3333/docs?mode=disk&key=${encodeURIComponent(userEmail)}`);
                 if (res.ok) {
-                    const data = await res.json();
+                    let data = await res.json();
+                    // MIGRATION: If data is an array, convert to object keyed by the first docTab or default
+                    if (Array.isArray(data)) {
+                        // Find the first docTab id, or fallback to 'default'
+                        let docId = 'default';
+                        if (docTabs && docTabs.length > 0) docId = docTabs[0].id;
+                        data = { [docId]: data };
+                        // Save migrated data
+                        await fetch(`http://localhost:3333/docs?mode=disk&key=${encodeURIComponent(userEmail)}`, {
+                            method: "POST",
+                            body: JSON.stringify(data),
+                        });
+                    }
                     setDocRows(typeof data === "object" && data ? data : {});
+                }
+                // Load docTabs
+                const tabs = await loadDocTabsFromCivilMemory(projectId);
+                if (tabs && Array.isArray(tabs) && tabs.length > 0) {
+                    setDocTabs(tabs);
+                    setActiveDocTab(tabs[0].id);
                 }
             } catch { }
         };
-        fetchDocRows();
+        fetchDocRowsAndTabs();
     }, [projectId, router]);
 
     // Save document rows to Civil Memory
     const saveDocRows = async (updated: { [docId: string]: string[] }) => {
-        if (!projectId) return;
+        if (!projectId || Array.isArray(projectId)) return;
         const userEmail = localStorage.getItem("user:username");
         if (!userEmail) {
             router.replace("/login");
@@ -358,7 +416,7 @@ export default function ProjectViewPage() {
             setNewMemberEmail("");
             showNotification({ title: "Success", message: "Member added!", color: "green" });
             // Refresh project data so UI updates
-            await fetchProject();
+            await fetchProject(projectId, setProject, setRenameValue, router, setLoading);
         } catch (err: any) {
             showNotification({ title: "Error", message: err.message || "Failed to add member", color: "red" });
         } finally {
@@ -435,14 +493,57 @@ export default function ProjectViewPage() {
         }
     };
 
-    const handleAddDocument = () => {
-        // Generate a unique id for the new document tab
-        const newId = `doc-${Date.now()}`;
-        setDocTabs((tabs) => [
-            ...tabs,
-            { id: newId, title: "Untitled Document" }
-        ]);
-        setActiveTab(newId);
+    const handleAddDocument = async () => {
+        try {
+            if (!projectId || Array.isArray(projectId)) throw new Error("Invalid projectId");
+            const newId = `doc-${Date.now()}`;
+            const newTabs = [
+                ...docTabs,
+                { id: newId, title: "Untitled Document" }
+            ];
+            setDocTabs(newTabs);
+            await saveDocTabsToCivilMemory(projectId, newTabs);
+            const updatedRows = {
+                ...docRows,
+                [newId]: []
+            };
+            setDocRows(updatedRows);
+            await saveDocRows(updatedRows);
+            setActiveDocTab(newId);
+            setAddingRowFor(newId); // Immediately show add row for new doc
+            setNewRowValue("");
+            showNotification({ title: "Success", message: "New document created!", color: "green" });
+        } catch (err: any) {
+            showNotification({ title: "Error", message: err.message || "Failed to create document", color: "red" });
+        }
+    };
+
+    const handleRenameDoc = async (tabId: string, newTitle: string) => {
+        if (!projectId || Array.isArray(projectId)) return;
+        const newTabs = docTabs.map(t => t.id === tabId ? { ...t, title: newTitle } : t);
+        setDocTabs(newTabs);
+        await saveDocTabsToCivilMemory(projectId, newTabs);
+    };
+
+    const handleDeleteDoc = async (tabId: string) => {
+        if (docTabs.length === 1) {
+            showNotification({ title: 'Cannot delete', message: 'At least one document must exist.', color: 'red' });
+            return;
+        }
+        if (!projectId || Array.isArray(projectId)) return;
+        if (window.confirm('Delete this document and all its rows?')) {
+            const newTabs = docTabs.filter(t => t.id !== tabId);
+            setDocTabs(newTabs);
+            await saveDocTabsToCivilMemory(projectId, newTabs);
+            const newRows = { ...docRows };
+            delete newRows[tabId];
+            setDocRows(newRows);
+            await saveDocRows(newRows);
+            if (activeDocTab === tabId) {
+                const nextTab = newTabs[0];
+                if (nextTab) setActiveDocTab(nextTab.id);
+            }
+        }
     };
 
     // Add row handlers
@@ -536,10 +637,12 @@ export default function ProjectViewPage() {
     useEffect(() => {
         const fetchChat = async () => {
             if (!projectId) return;
+            const pid = Array.isArray(projectId) ? projectId[0] : projectId;
+            if (!pid) return;
             try {
                 const userEmail = localStorage.getItem("user:username");
                 if (!userEmail) return;
-                const res = await fetch(`http://localhost:3333/chat?mode=disk&key=${encodeURIComponent(projectId)}`);
+                const res = await fetch(`http://localhost:3333/chat?mode=disk&key=${encodeURIComponent(pid)}`);
                 if (res.ok) {
                     const data = await res.json();
                     setChatMessages(Array.isArray(data) ? data : []);
@@ -560,6 +663,8 @@ export default function ProjectViewPage() {
     const sendMessage = async (content: string, type: string = "text", fileUrl?: string) => {
         if (!content.trim() && !fileUrl) return;
         setSending(true);
+        const pid = Array.isArray(projectId) ? projectId[0] : projectId;
+        if (!pid) { setSending(false); return; }
         try {
             const userEmail = localStorage.getItem("user:username");
             const user = localStorage.getItem("user");
@@ -576,7 +681,7 @@ export default function ProjectViewPage() {
             };
             const updated = [...chatMessages, newMsg];
             setChatMessages(updated);
-            await fetch(`http://localhost:3333/chat?mode=disk&key=${encodeURIComponent(projectId)}`, {
+            await fetch(`http://localhost:3333/chat?mode=disk&key=${encodeURIComponent(pid)}`, {
                 method: "POST",
                 body: JSON.stringify(updated),
             });
@@ -585,8 +690,8 @@ export default function ProjectViewPage() {
             // Notify all project members except the sender
             if (project && Array.isArray(project.members)) {
                 const notificationPromises = project.members
-                    .filter(memberEmail => memberEmail !== userEmail)
-                    .map(async memberEmail => {
+                    .filter((memberEmail: string) => memberEmail !== userEmail)
+                    .map(async (memberEmail: string) => {
                         try {
                             // Fetch existing notifications for the member
                             const res = await fetch(`http://localhost:3333/notifications?mode=disk&key=${encodeURIComponent(memberEmail)}`);
@@ -645,9 +750,9 @@ export default function ProjectViewPage() {
                         type: "ai",
                         reactions: []
                     };
-                    const updatedWithAI = [...updated, aiMsg];
+                    const updatedWithAI = [...chatMessages, aiMsg];
                     setChatMessages(updatedWithAI);
-                    await fetch(`http://localhost:3333/chat?mode=disk&key=${encodeURIComponent(projectId)}`, {
+                    await fetch(`http://localhost:3333/chat?mode=disk&key=${encodeURIComponent(pid)}`, {
                         method: "POST",
                         body: JSON.stringify(updatedWithAI),
                     });
@@ -677,7 +782,9 @@ export default function ProjectViewPage() {
             msg.id === msgId ? { ...msg, reactions: [...(msg.reactions || []), emoji] } : msg
         );
         setChatMessages(updated);
-        await fetch(`http://localhost:3333/chat?mode=disk&key=${encodeURIComponent(projectId)}`, {
+        const pid = Array.isArray(projectId) ? projectId[0] : projectId;
+        if (!pid) return;
+        await fetch(`http://localhost:3333/chat?mode=disk&key=${encodeURIComponent(pid)}`, {
             method: "POST",
             body: JSON.stringify(updated),
         });
@@ -840,7 +947,7 @@ export default function ProjectViewPage() {
         if (res.ok) fetchResearchItems();
     };
 
-    const sortedResearchItems = [...researchItems].sort((a, b) => {
+    const sortedResearchItems = [...(researchItems as any[])].sort((a: any, b: any) => {
         if (sortBy === 'date') return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
         if (sortBy === 'title') return (a.title || '').localeCompare(b.title || '');
         if (sortBy === 'type') return (a.type || '').localeCompare(b.type || '');
@@ -1029,8 +1136,8 @@ export default function ProjectViewPage() {
             title: newTask.title!,
             description: newTask.description || '',
             assignee: newTask.assignee || '',
-            status: newTask.status || 'todo',
-            priority: newTask.priority || 'medium',
+            status: 'todo' as Task['status'],
+            priority: 'medium' as Task['priority'],
             dueDate: newTask.dueDate || '',
             createdAt: now,
             updatedAt: now,
@@ -1145,6 +1252,20 @@ export default function ProjectViewPage() {
         return () => clearInterval(interval);
     }, [tasks, userName]);
 
+    // Compute filtered and paginated tabs
+    const filteredTabs = docTabs.filter(tab => tab.title.toLowerCase().includes(docSearch.toLowerCase()));
+    const totalPages = Math.max(1, Math.ceil(filteredTabs.length / DOCS_PER_PAGE));
+    const paginatedTabs = docSearch
+      ? filteredTabs // show all matches if searching
+      : filteredTabs.slice((docPage - 1) * DOCS_PER_PAGE, docPage * DOCS_PER_PAGE);
+
+    // Auto-focus add row input when a new document is created and add row is open
+    useEffect(() => {
+      if (addingRowFor === activeTab && addRowInputRef.current) {
+        addRowInputRef.current.focus();
+      }
+    }, [activeTab, addingRowFor]);
+
     if (loading) {
         return (
             <Center style={{ minHeight: 200 }}>
@@ -1181,58 +1302,7 @@ export default function ProjectViewPage() {
                     <Title order={2} mb={isMobile ? 'md' : 'lg'} style={{ color: styles.textColor, fontWeight: 800, letterSpacing: 1, fontSize: isMobile ? 22 : 32 }}>
                         Project: {project.name || projectId}
                     </Title>
-                    <AIInsightsPanel projectContext={projectContext} chatMessages={chatMessages} />
-                    <AIRiskAlerts context={projectContext} onMitigate={(suggestion) => {
-                        if (/reassign/i.test(suggestion) && tasks.some(t => t.status !== 'done')) {
-                            const overdue = tasks.find(t => t.dueDate && t.dueDate < new Date().toISOString().slice(0, 10) && t.status !== 'done');
-                            if (overdue && Array.isArray(project.members) && project.members.length > 0) {
-                                const assignee = project.members[Math.floor(Math.random() * project.members.length)];
-                                const updatedTasks = tasks.map(t => t.id === overdue.id ? { ...t, assignee } : t);
-                                saveTasks(updatedTasks);
-                                showNotification({ title: 'Task Reassigned', message: `Assigned ${overdue.title} to ${assignee}`, color: 'blue' });
-                            }
-                        } else if (/remind/i.test(suggestion)) {
-                            showNotification({ title: 'Reminder Sent', message: suggestion, color: 'blue' });
-                        } else if (/mark as blocked/i.test(suggestion) && tasks.some(t => t.status === 'in-progress')) {
-                            const inProgress = tasks.find(t => t.status === 'in-progress');
-                            if (inProgress) {
-                                const updatedTasks = tasks.map(t => t.id === inProgress.id ? { ...t, status: 'blocked' } : t);
-                                saveTasks(updatedTasks);
-                                showNotification({ title: 'Task Blocked', message: `Marked ${inProgress.title} as blocked`, color: 'red' });
-                            }
-                        } else {
-                            showNotification({ title: 'Mitigation Actioned', message: suggestion, color: 'green' });
-                        }
-                    }} />
-                    <AIWorkflowAutomation context={projectContext} tab="dashboard" onEnable={(suggestion) => {
-                        // Dashboard: fallback to notification
-                        showNotification({ title: 'Automation Enabled', message: suggestion, color: 'green' });
-                    }} />
-                    <Modal opened={settingsOpened} onClose={() => setSettingsOpened(false)} title="Rename Project" centered
-                        styles={{
-                            content: {
-                                background: 'rgba(24,28,43,0.92)',
-                                border: '1.5px solid #3a2e5d44',
-                                boxShadow: '0 2px 16px #232b4d22',
-                                color: '#fff',
-                                borderRadius: 24,
-                                padding: 32,
-                            },
-                        }}
-                    >
-                        <form onSubmit={e => { e.preventDefault(); handleRename(); }}>
-                            <TextInput
-                                label="Project Name"
-                                value={renameValue}
-                                onChange={(e) => setRenameValue(e.currentTarget.value)}
-                                mb="md"
-                            />
-                            <Button type="submit" loading={renaming} fullWidth disabled={!renameValue} variant={styles.buttonGradient} style={{ fontWeight: 700, color: '#fff', boxShadow: '0 2px 16px #232b4d44' }}>
-                                Save
-                            </Button>
-                        </form>
-                    </Modal>
-                    <Box style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 0 : 0, alignItems: isMobile ? 'stretch' : 'flex-start', minHeight: 600, width: '100%' }}>
+                    <Box>
                         <Tabs value={activeTab} onChange={value => setActiveTab(value || "default")}
                             orientation={isMobile ? 'horizontal' : 'vertical'}
                             style={{ flex: 1, display: 'flex' }}
@@ -1273,12 +1343,11 @@ export default function ProjectViewPage() {
                                 <Tabs.Tab value="calendar" style={{ background: 'none', color: activeTab === 'calendar' ? '#1769aa' : '#222', fontWeight: 600, fontSize: 16, border: 'none', borderBottom: activeTab === 'calendar' ? '3px solid #1769aa' : '3px solid transparent', borderRadius: 0, minWidth: 110, minHeight: 48, margin: '0 2px', transition: 'color 0.18s, border-bottom 0.18s', boxShadow: 'none', outline: 'none' }} onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '3px solid #1769aa'; }} onMouseOut={e => { e.currentTarget.style.color = activeTab === 'calendar' ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = activeTab === 'calendar' ? '3px solid #1769aa' : '3px solid transparent'; }}>Calendar</Tabs.Tab>
                                 <Tabs.Tab value="files" style={{ background: 'none', color: activeTab === 'files' ? '#1769aa' : '#222', fontWeight: 600, fontSize: 16, border: 'none', borderBottom: activeTab === 'files' ? '3px solid #1769aa' : '3px solid transparent', borderRadius: 0, minWidth: 110, minHeight: 48, margin: '0 2px', transition: 'color 0.18s, border-bottom 0.18s', boxShadow: 'none', outline: 'none' }} onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '3px solid #1769aa'; }} onMouseOut={e => { e.currentTarget.style.color = activeTab === 'files' ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = activeTab === 'files' ? '3px solid #1769aa' : '3px solid transparent'; }}>Files</Tabs.Tab>
                                 <Tabs.Tab value="research" style={{ background: 'none', color: activeTab === 'research' ? '#1769aa' : '#222', fontWeight: 600, fontSize: 16, border: 'none', borderBottom: activeTab === 'research' ? '3px solid #1769aa' : '3px solid transparent', borderRadius: 0, minWidth: 110, minHeight: 48, margin: '0 2px', transition: 'color 0.18s, border-bottom 0.18s', boxShadow: 'none', outline: 'none' }} onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '3px solid #1769aa'; }} onMouseOut={e => { e.currentTarget.style.color = activeTab === 'research' ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = activeTab === 'research' ? '3px solid #1769aa' : '3px solid transparent'; }}>Research</Tabs.Tab>
-                                {docTabs.map(tab => (
-                                    <Tabs.Tab key={tab.id} value={tab.id} style={{ background: 'none', color: activeTab === tab.id ? '#1769aa' : '#222', fontWeight: 600, fontSize: 16, border: 'none', borderBottom: activeTab === tab.id ? '3px solid #1769aa' : '3px solid transparent', borderRadius: 0, minWidth: 110, minHeight: 48, margin: '0 2px', transition: 'color 0.18s, border-bottom 0.18s', boxShadow: 'none', outline: 'none' }} onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '3px solid #1769aa'; }} onMouseOut={e => { e.currentTarget.style.color = activeTab === tab.id ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = activeTab === tab.id ? '3px solid #1769aa' : '3px solid transparent'; }}>{tab.title}</Tabs.Tab>
-                                ))}
+                                <Tabs.Tab value="documents" style={{ background: 'none', color: activeTab === 'documents' ? '#1769aa' : '#222', fontWeight: 600, fontSize: 16, border: 'none', borderBottom: activeTab === 'documents' ? '3px solid #1769aa' : '3px solid transparent', borderRadius: 0, minWidth: 110, minHeight: 48, margin: '0 2px', transition: 'color 0.18s, border-bottom 0.18s', boxShadow: 'none', outline: 'none' }} onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '3px solid #1769aa'; }} onMouseOut={e => { e.currentTarget.style.color = activeTab === 'documents' ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = activeTab === 'documents' ? '3px solid #1769aa' : '3px solid transparent'; }}>Documents</Tabs.Tab>
                                 <Tabs.Tab value="templates" style={{ background: 'none', color: activeTab === 'templates' ? '#1769aa' : '#222', fontWeight: 600, fontSize: 16, border: 'none', borderBottom: activeTab === 'templates' ? '3px solid #1769aa' : '3px solid transparent', borderRadius: 0, minWidth: 110, minHeight: 48, margin: '0 2px', transition: 'color 0.18s, border-bottom 0.18s', boxShadow: 'none', outline: 'none' }} onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '3px solid #1769aa'; }} onMouseOut={e => { e.currentTarget.style.color = activeTab === 'templates' ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = activeTab === 'templates' ? '3px solid #1769aa' : '3px solid transparent'; }}>Templates</Tabs.Tab>
                                 <Tabs.Tab value="chat" style={{ background: 'none', color: activeTab === 'chat' ? '#1769aa' : '#222', fontWeight: 600, fontSize: 16, border: 'none', borderBottom: activeTab === 'chat' ? '3px solid #1769aa' : '3px solid transparent', borderRadius: 0, minWidth: 110, minHeight: 48, margin: '0 2px', transition: 'color 0.18s, border-bottom 0.18s', boxShadow: 'none', outline: 'none' }} onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '3px solid #1769aa'; }} onMouseOut={e => { e.currentTarget.style.color = activeTab === 'chat' ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = activeTab === 'chat' ? '3px solid #1769aa' : '3px solid transparent'; }}>SparkChat</Tabs.Tab>
                                 <Tabs.Tab value="members" style={{ background: 'none', color: activeTab === 'members' ? '#1769aa' : '#222', fontWeight: 600, fontSize: 16, border: 'none', borderBottom: activeTab === 'members' ? '3px solid #1769aa' : '3px solid transparent', borderRadius: 0, minWidth: 110, minHeight: 48, margin: '0 2px', transition: 'color 0.18s, border-bottom 0.18s', boxShadow: 'none', outline: 'none' }} onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '3px solid #1769aa'; }} onMouseOut={e => { e.currentTarget.style.color = activeTab === 'members' ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = activeTab === 'members' ? '3px solid #1769aa' : '3px solid transparent'; }}>Members</Tabs.Tab>
+                                <Tabs.Tab value="ai" style={{ background: 'none', color: activeTab === 'ai' ? '#1769aa' : '#222', fontWeight: 600, fontSize: 16, border: 'none', borderBottom: activeTab === 'ai' ? '3px solid #1769aa' : '3px solid transparent', borderRadius: 0, minWidth: 110, minHeight: 48, margin: '0 2px', transition: 'color 0.18s, border-bottom 0.18s', boxShadow: 'none', outline: 'none' }} onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '3px solid #1769aa'; }} onMouseOut={e => { e.currentTarget.style.color = activeTab === 'ai' ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = activeTab === 'ai' ? '3px solid #1769aa' : '3px solid transparent'; }}>AI Insights</Tabs.Tab>
                             </Tabs.List>
                             <Tabs.Panel value="dashboard" pt="md">
                                 <Box style={{ flex: 1, minWidth: 0, marginLeft: 32 }}>
@@ -1343,60 +1412,6 @@ export default function ProjectViewPage() {
                             </Tabs.Panel>
                             <Tabs.Panel value="tasks" pt="md">
                                 <Box style={{ flex: 1, minWidth: 0, marginLeft: 32 }}>
-                                    <AIRiskAlerts context={projectContext} onMitigate={(suggestion) => {
-                                        if (/reassign/i.test(suggestion) && tasks.some(t => t.status !== 'done')) {
-                                            const overdue = tasks.find(t => t.dueDate && t.dueDate < new Date().toISOString().slice(0, 10) && t.status !== 'done');
-                                            if (overdue && Array.isArray(project.members) && project.members.length > 0) {
-                                                const assignee = project.members[Math.floor(Math.random() * project.members.length)];
-                                                const updatedTasks = tasks.map(t => t.id === overdue.id ? { ...t, assignee } : t);
-                                                saveTasks(updatedTasks);
-                                                showNotification({ title: 'Task Reassigned', message: `Assigned ${overdue.title} to ${assignee}`, color: 'blue' });
-                                            }
-                                        } else if (/remind/i.test(suggestion)) {
-                                            showNotification({ title: 'Reminder Sent', message: suggestion, color: 'blue' });
-                                        } else if (/mark as blocked/i.test(suggestion) && tasks.some(t => t.status === 'in-progress')) {
-                                            const inProgress = tasks.find(t => t.status === 'in-progress');
-                                            if (inProgress) {
-                                                const updatedTasks = tasks.map(t => t.id === inProgress.id ? { ...t, status: 'blocked' } : t);
-                                                saveTasks(updatedTasks);
-                                                showNotification({ title: 'Task Blocked', message: `Marked ${inProgress.title} as blocked`, color: 'red' });
-                                            }
-                                        } else {
-                                            showNotification({ title: 'Mitigation Actioned', message: suggestion, color: 'green' });
-                                        }
-                                    }} />
-                                    <AIWorkflowAutomation context={projectContext} tab="tasks" onEnable={(suggestion) => {
-                                        // Example: Recurring task or auto-assign
-                                        if (/recurring/i.test(suggestion)) {
-                                            const now = new Date().toISOString();
-                                            const task = {
-                                                id: Date.now().toString(),
-                                                title: suggestion,
-                                                description: 'Recurring task suggested by AI',
-                                                assignee: '',
-                                                status: 'todo',
-                                                priority: 'medium',
-                                                dueDate: '',
-                                                createdAt: now,
-                                                updatedAt: now,
-                                            };
-                                            saveTasks([...tasks, task]);
-                                            showNotification({ title: 'Recurring Task Created', message: suggestion, color: 'blue' });
-                                        } else if (/auto-assign/i.test(suggestion) && tasks.some(t => t.status !== 'done')) {
-                                            // Assign a random member to an overdue task
-                                            const overdue = tasks.find(t => t.dueDate && t.dueDate < new Date().toISOString().slice(0, 10) && t.status !== 'done');
-                                            if (overdue && Array.isArray(project.members) && project.members.length > 0) {
-                                                const assignee = project.members[Math.floor(Math.random() * project.members.length)];
-                                                const updatedTasks = tasks.map(t => t.id === overdue.id ? { ...t, assignee } : t);
-                                                saveTasks(updatedTasks);
-                                                showNotification({ title: 'Task Auto-Assigned', message: `Assigned ${overdue.title} to ${assignee}`, color: 'blue' });
-                                            }
-                                        } else if (/remind/i.test(suggestion)) {
-                                            showNotification({ title: 'Reminder Set', message: suggestion, color: 'blue' });
-                                        } else {
-                                            showNotification({ title: 'Automation Enabled', message: suggestion, color: 'green' });
-                                        }
-                                    }} />
                                     <Box p="md" style={{ background: styles.cardBackground, border: styles.cardBorder, borderRadius: 16, boxShadow: styles.cardShadow }}>
                                         <Group justify="space-between" mb="md">
                                             <Title order={3} style={{ color: styles.accentColor, marginBottom: 0 }}>Tasks</Title>
@@ -1652,7 +1667,7 @@ export default function ProjectViewPage() {
                                                 startAccessor="start"
                                                 endAccessor="end"
                                                 style={{ height: 540, borderRadius: 12 }}
-                                                eventPropGetter={(event) => {
+                                                eventPropGetter={(event: any) => {
                                                     const task = event.resource;
                                                     let backgroundColor = '#1769aa'; // upcoming
                                                     if (task.status === 'done') backgroundColor = '#b0b7ff'; // completed
@@ -1669,13 +1684,13 @@ export default function ProjectViewPage() {
                                                         },
                                                     };
                                                 }}
-                                                onSelectEvent={event => {
+                                                onSelectEvent={(event: any) => {
                                                     setCalendarModalMode('edit');
                                                     setCalendarTask(event.resource);
                                                     setCalendarSelectedDate(new Date(event.resource.dueDate));
                                                     setCalendarModalOpen(true);
                                                 }}
-                                                onSelectSlot={slotInfo => {
+                                                onSelectSlot={(slotInfo: any) => {
                                                     setCalendarModalMode('add');
                                                     setCalendarTask({ title: '', description: '', assignee: '', status: 'todo', priority: 'medium', dueDate: slotInfo.start });
                                                     setCalendarSelectedDate(slotInfo.start);
@@ -1703,7 +1718,7 @@ export default function ProjectViewPage() {
                                                         createdAt: now,
                                                         updatedAt: now,
                                                     };
-                                                    await saveTasks([...tasks, newTask]);
+                                                    await saveTasks([...tasks, { ...newTask, status: (newTask.status ?? 'todo') as Task['status'], priority: (newTask.priority ?? 'medium') as Task['priority'] }]);
                                                 } else if (calendarModalMode === 'edit' && calendarTask.id) {
                                                     const updatedTasks = tasks.map(t => t.id === calendarTask.id ? { ...t, ...calendarTask, dueDate: calendarSelectedDate ? calendarSelectedDate.toISOString().slice(0, 10) : t.dueDate, updatedAt: new Date().toISOString() } : t);
                                                     await saveTasks(updatedTasks);
@@ -1722,7 +1737,7 @@ export default function ProjectViewPage() {
                                                             <Group gap={8}>
                                                                 <Button color="green" variant="light" onClick={async e => {
                                                                     e.preventDefault();
-                                                                    const updatedTasks = tasks.map(t => t.id === calendarTask.id ? { ...t, status: 'done', updatedAt: new Date().toISOString() } : t);
+                                                                    const updatedTasks = tasks.map(t => t.id === calendarTask.id ? { ...t, status: 'done' as Task['status'], updatedAt: new Date().toISOString() } : t);
                                                                     await saveTasks(updatedTasks);
                                                                     setCalendarModalOpen(false);
                                                                 }}>Mark as Done</Button>
@@ -1871,355 +1886,310 @@ export default function ProjectViewPage() {
                                                                     onChange={e => setEditQAPair((p: any) => ({ ...p, answer: e.target.value }))}
                                                                     required
                                                                 />
-                                                                <Group justify="flex-end">
-                                                                    <Button variant="default" onClick={handleCancelEditQAPair}>Cancel</Button>
-                                                                    <Button onClick={handleSaveEditQAPair} loading={editQALoading}>Save</Button>
-                                                                </Group>
-                                                            </Stack>
-                                                        )}
-                                                    </Modal>
-                                                </Stack>
-                                            )}
-                                        </Stack>
-                                    </Paper>
-                                    {/* Research Add Form Section */}
-                                    <Paper p="md" radius={12} withBorder style={{ background: '#fff', border: '1px solid #e3e8ee', marginBottom: 32, boxShadow: '0 2px 12px rgba(44,62,80,0.06)' }}>
-                                        <form onSubmit={handleAddResearch}>
-                                            <Stack gap={16}>
-                                                <Group gap={16} align="flex-end">
-                                                    <TextInput label="Title" value={newResearch.title} onChange={e => setNewResearch(r => ({ ...r, title: e.target.value }))} required style={{ flex: 2 }} />
-                                                    <TextInput label="Type" value={newResearch.type} onChange={e => setNewResearch(r => ({ ...r, type: e.target.value }))} style={{ flex: 1 }} placeholder="web, note, pdf, ..." />
-                                                    <TextInput label="Content" value={newResearch.content} onChange={e => setNewResearch(r => ({ ...r, content: e.target.value }))} required style={{ flex: 3 }} />
-                                                    <MultiSelect label="Tags" data={allTags} value={newResearch.tags || []} onChange={tags => setNewResearch(r => ({ ...r, tags }))} searchable style={{ flex: 2 }} />
-                                                </Group>
-                                                <Group gap={16} align="center">
-                                                    <input type="file" onChange={e => handleFileChange(e, setNewResearchFile)} style={{ flex: 2 }} />
-                                                    <Button variant="outline" color="blue" onClick={handleSuggestTags} loading={suggestingTags} style={{ height: 40 }}>
-                                                        Suggest Tags with AI
-                                                    </Button>
-                                                    <Button type="submit" loading={researchLoading} style={{ height: 40, minWidth: 100 }}>
-                                                        Add
-                                                    </Button>
-                                                </Group>
-                                            </Stack>
-                                        </form>
-                                    </Paper>
-                                    {/* Filter/Sort Controls */}
-                                    <Group mb={20} gap={12} align="center" style={{ background: 'none', padding: 0 }}>
-                                        <MultiSelect label="Filter by tags" data={allTags} value={tagFilter} onChange={setTagFilter} placeholder="Select tags to filter" clearable style={{ minWidth: 220 }} />
-                                        <Text size="sm" c="dimmed">Sort by:</Text>
-                                        <Button size="xs" variant={sortBy === 'date' ? 'filled' : 'outline'} color="blue" onClick={() => setSortBy('date')}>Most Recent</Button>
-                                        <Button size="xs" variant={sortBy === 'title' ? 'filled' : 'outline'} color="blue" onClick={() => setSortBy('title')}>Title</Button>
-                                        <Button size="xs" variant={sortBy === 'type' ? 'filled' : 'outline'} color="blue" onClick={() => setSortBy('type')}>Type</Button>
-                                    </Group>
-                                    {/* Research Items List (unchanged) */}
-                                    <Stack>
-                                        {researchLoading ? (
-                                            <Text>Loading research...</Text>
-                                        ) : sortedResearchItems.filter((item: any) => tagFilter.length === 0 || (item.tags || []).some((tag: string) => tagFilter.includes(tag))).length === 0 ? (
-                                            <Text c="dimmed">No research items match the selected tags.</Text>
-                                        ) : (
-                                            sortedResearchItems.filter((item: any) => tagFilter.length === 0 || (item.tags || []).some((tag: string) => tagFilter.includes(tag))).map((item: any) => {
-                                                const isOpen = expanded[item.id];
-                                                return (
-                                                    <Paper key={item.id} withBorder p="md" radius={8} style={{ background: '#fff', border: '1px solid #e3e8ee', color: '#222', marginBottom: 8 }}>
-                                                        <Group justify="space-between" align="center" style={{ cursor: 'pointer' }} onClick={() => setExpanded(e => ({ ...e, [item.id]: !e[item.id] }))}>
-                                                            <Group align="center" gap={8} style={{ flex: 1 }}>
-                                                                <Text fw={700}>{item.title}</Text>
-                                                                <Text size="sm" c="#666">{item.type}</Text>
-                                                                {item.tags && item.tags.length > 0 && (
-                                                                    <Group gap="xs">
-                                                                        {item.tags.map((tag: string) => (
-                                                                            <Paper key={tag} p="xs" radius={16} style={{ background: '#f5f7fa', color: '#1769aa', fontWeight: 500, fontSize: 13, border: '1px solid #e3e8ee', boxShadow: 'none' }}>{tag}</Paper>
-                                                                        ))}
-                                                                    </Group>
-                                                                )}
+                                                            <Group justify="flex-end">
+                                                                <Button variant="default" onClick={handleCancelEditQAPair}>Cancel</Button>
+                                                                <Button onClick={handleSaveEditQAPair} loading={editQALoading}>Save</Button>
                                                             </Group>
-                                                            <ActionIcon variant="subtle" color="blue" size={28}>
-                                                                {isOpen ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
-                                                            </ActionIcon>
-                                                        </Group>
-                                                        {isOpen && (
-                                                            <Box mt={12}>
-                                                                <Title order={5} mb={4}>{item.title}</Title>
-                                                                <Text size="sm" c="#666" mb={8}>{item.type}</Text>
-                                                                <Group mb={8} gap={4}>
-                                                                    {item.tags && item.tags.map(tag => (
+                                                        </Stack>
+                                                    )}
+                                                </Modal>
+                                            </Stack>
+                                        )}
+                                    </Stack>
+                                </Paper>
+                                {/* Research Add Form Section */}
+                                <Paper p="md" radius={12} withBorder style={{ background: '#fff', border: '1px solid #e3e8ee', marginBottom: 32, boxShadow: '0 2px 12px rgba(44,62,80,0.06)' }}>
+                                    <form onSubmit={handleAddResearch}>
+                                        <Stack gap={16}>
+                                            <Group gap={16} align="flex-end">
+                                                <TextInput label="Title" value={newResearch.title} onChange={e => setNewResearch(r => ({ ...r, title: e.target.value }))} required style={{ flex: 2 }} />
+                                                <TextInput label="Type" value={newResearch.type} onChange={e => setNewResearch(r => ({ ...r, type: e.target.value }))} style={{ flex: 1 }} placeholder="web, note, pdf, ..." />
+                                                <TextInput label="Content" value={newResearch.content} onChange={e => setNewResearch(r => ({ ...r, content: e.target.value }))} required style={{ flex: 3 }} />
+                                                <MultiSelect label="Tags" data={allTags} value={newResearch.tags || []} onChange={tags => setNewResearch(r => ({ ...r, tags }))} searchable style={{ flex: 2 }} />
+                                            </Group>
+                                            <Group gap={16} align="center">
+                                                <input type="file" onChange={e => handleFileChange(e, setNewResearchFile)} style={{ flex: 2 }} />
+                                                <Button variant="outline" color="blue" onClick={handleSuggestTags} loading={suggestingTags} style={{ height: 40 }}>
+                                                    Suggest Tags with AI
+                                                </Button>
+                                                <Button type="submit" loading={researchLoading} style={{ height: 40, minWidth: 100 }}>
+                                                    Add
+                                                </Button>
+                                            </Group>
+                                        </Stack>
+                                    </form>
+                                </Paper>
+                                {/* Filter/Sort Controls */}
+                                <Group mb={20} gap={12} align="center" style={{ background: 'none', padding: 0 }}>
+                                    <MultiSelect label="Filter by tags" data={allTags} value={tagFilter} onChange={setTagFilter} placeholder="Select tags to filter" clearable style={{ minWidth: 220 }} />
+                                    <Text size="sm" c="dimmed">Sort by:</Text>
+                                    <Button size="xs" variant={sortBy === 'date' ? 'filled' : 'outline'} color="blue" onClick={() => setSortBy('date')}>Most Recent</Button>
+                                    <Button size="xs" variant={sortBy === 'title' ? 'filled' : 'outline'} color="blue" onClick={() => setSortBy('title')}>Title</Button>
+                                    <Button size="xs" variant={sortBy === 'type' ? 'filled' : 'outline'} color="blue" onClick={() => setSortBy('type')}>Type</Button>
+                                </Group>
+                                {/* Research Items List (unchanged) */}
+                                <Stack>
+                                    {researchLoading ? (
+                                        <Text>Loading research...</Text>
+                                    ) : sortedResearchItems.filter((item: any) => tagFilter.length === 0 || (item.tags || []).some((tag: string) => tagFilter.includes(tag))).length === 0 ? (
+                                        <Text c="dimmed">No research items match the selected tags.</Text>
+                                    ) : (
+                                        sortedResearchItems.filter((item: any) => tagFilter.length === 0 || (item.tags || []).some((tag: string) => tagFilter.includes(tag))).map((item: any) => {
+                                            const isOpen = expanded[item.id];
+                                            return (
+                                                <Paper key={item.id} withBorder p="md" radius={8} style={{ background: '#fff', border: '1px solid #e3e8ee', color: '#222', marginBottom: 8 }}>
+                                                    <Group justify="space-between" align="center" style={{ cursor: 'pointer' }} onClick={() => setExpanded(e => ({ ...e, [item.id]: !e[item.id] }))}>
+                                                        <Group align="center" gap={8} style={{ flex: 1 }}>
+                                                            <Text fw={700}>{item.title}</Text>
+                                                            <Text size="sm" c="#666">{item.type}</Text>
+                                                            {item.tags && item.tags.length > 0 && (
+                                                                <Group gap="xs">
+                                                                    {item.tags.map((tag: string) => (
                                                                         <Paper key={tag} p="xs" radius={16} style={{ background: '#f5f7fa', color: '#1769aa', fontWeight: 500, fontSize: 13, border: '1px solid #e3e8ee', boxShadow: 'none' }}>{tag}</Paper>
                                                                     ))}
                                                                 </Group>
-                                                                <Box mb={12}><ReactMarkdown>{item.content}</ReactMarkdown></Box>
-                                                                {item.fileUrl && (
-                                                                    <Box mb={8}>
-                                                                        <a href={item.fileUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#1769aa', textDecoration: 'underline', fontSize: 14 }}>📎 View Attachment</a>
-                                                                    </Box>
-                                                                )}
-                                                                {item.summary && (
-                                                                    <Paper p="md" mt="sm" radius={8} style={{ background: '#f5f7fa', borderLeft: '4px solid #1769aa', color: '#222', marginBottom: 12 }}>
-                                                                        <Group gap={6} mb={4} align="center">
-                                                                            <IconRobot size={16} color="#1769aa" />
-                                                                            <Text size="xs" fw={700} c="#1769aa">AI Summary</Text>
-                                                                        </Group>
-                                                                        <ReactMarkdown>{item.summary}</ReactMarkdown>
-                                                                    </Paper>
-                                                                )}
-                                                                {item.annotations && item.annotations.length > 0 && (
-                                                                    <Stack mt={16} spacing={8}>
-                                                                        <Text size="sm" fw={600} mb={4}>Comments</Text>
-                                                                        {item.annotations.map((c: any) => (
-                                                                            <Paper key={c.id} p="xs" radius={16} style={{ background: '#f5f7fa', border: '1px solid #e3e8ee', color: '#222', boxShadow: 'none', marginBottom: 4 }}>
-                                                                                <Group align="center" gap={8}>
-                                                                                    <Avatar radius="xl" size={20} color="blue">{getInitials(c.author)}</Avatar>
-                                                                                    <Text size="xs" fw={600}>{c.author}</Text>
-                                                                                    <Text size="xs" c="#888">{new Date(c.createdAt).toLocaleString()}</Text>
-                                                                                    <Text size="sm" style={{ flex: 1 }}>{c.content}</Text>
-                                                                                    {(c.author === userName || project?.createdBy === userName) && (
-                                                                                        <ActionIcon size={18} color="red" variant="subtle" onClick={e => { e.stopPropagation(); handleDeleteComment(item, c.id); }}>
-                                                                                            <IconTrash size={14} />
-                                                                                        </ActionIcon>
-                                                                                    )}
-                                                                                </Group>
-                                                                            </Paper>
-                                                                        ))}
-                                                                    </Stack>
-                                                                )}
-                                                                <Text size="xs" c="#888" mt={8}>{new Date(item.createdAt).toLocaleString()}</Text>
-                                                            </Box>
-                                                        )}
-                                                    </Paper>
-                                                );
-                                            })
-                                        )}
-                                    </Stack>
-                                </Box>
-                                <AIWorkflowAutomation context={projectContext} tab="research" />
-                            </Tabs.Panel>
-                            {docTabs.map(tab => (
-                                <Tabs.Panel key={tab.id} value={tab.id}>
-                                    <Box style={{ flex: 1, minWidth: 0, marginLeft: 32 }}>
-                                        <Box>
-                                            <Title order={4}>{tab.title}</Title>
-                                            <Stack mt="md">
-                                                {(docRows[tab.id] || []).map((row, idx) => {
-                                                    const isEditing = editingRow && editingRow.docId === tab.id && editingRow.idx === idx;
-                                                    const isAI = aiProcessing && aiProcessing.docId === tab.id && aiProcessing.idx === idx;
-                                                    return (
-                                                        <Group key={idx} justify="space-between" align="center" style={{ position: "relative" }}>
-                                                            {isEditing ? (
-                                                                <>
-                                                                    <Textarea
-                                                                        value={editRowValue}
-                                                                        onChange={e => setEditRowValue(e.currentTarget.value)}
-                                                                        autoFocus
-                                                                        style={{ flex: 1 }}
-                                                                        minRows={2}
-                                                                        disabled={!!isAI}
-                                                                        onKeyDown={e => {
-                                                                            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                                                                                handleSaveEditRow();
-                                                                            }
-                                                                        }}
-                                                                        placeholder="Type your Markdown here... (Ctrl+Enter to save)"
-                                                                    />
-                                                                    <Button size="xs" color={styles.accentColor} onClick={handleSaveEditRow} loading={savingEdit || !!isAI} disabled={!!isAI} style={{ background: styles.buttonGradient, color: '#fff', fontWeight: 700, borderRadius: 12 }}>
-                                                                        Save
-                                                                    </Button>
-                                                                    <Button size="xs" variant="default" onClick={handleCancelEditRow} disabled={savingEdit || !!isAI} style={{ background: styles.tabBackground, color: styles.secondaryTextColor, fontWeight: 600, borderRadius: 12 }}>
-                                                                        Cancel
-                                                                    </Button>
-                                                                    <ActionIcon
-                                                                        size={28}
-                                                                        color={styles.accentColor}
-                                                                        variant="light"
-                                                                        onClick={() => handleAiTransformRow(tab.id, idx, editRowValue)}
-                                                                        loading={!!isAI}
-                                                                        disabled={!!isAI}
-                                                                        title="Transform with AI"
-                                                                    >
-                                                                        <IconRobot size={18} />
-                                                                    </ActionIcon>
-                                                                </>
-                                                            ) : (
-                                                                <Paper
-                                                                    p="sm"
-                                                                    withBorder
-                                                                    radius="md"
-                                                                    style={{ flex: 1, minWidth: 0, cursor: "pointer", background: styles.tabBackground, color: styles.secondaryTextColor, border: styles.cardBorder }}
-                                                                    onClick={() => handleStartEditRow(tab.id, idx, row)}
-                                                                    title="Click to edit"
-                                                                >
-                                                                    <ReactMarkdown>{row}</ReactMarkdown>
+                                                            )}
+                                                        </Group>
+                                                        <ActionIcon variant="subtle" color="blue" size={28}>
+                                                            {isOpen ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
+                                                        </ActionIcon>
+                                                    </Group>
+                                                    {isOpen && (
+                                                        <Box mt={12}>
+                                                            <Title order={5} mb={4}>{item.title}</Title>
+                                                            <Text size="sm" c="#666" mb={8}>{item.type}</Text>
+                                                            <Group mb={8} gap={4}>
+                                                                {item.tags && item.tags.map((tag: string) => (
+                                                                    <Paper key={tag} p="xs" radius={16} style={{ background: '#f5f7fa', color: '#1769aa', fontWeight: 500, fontSize: 13, border: '1px solid #e3e8ee', boxShadow: 'none' }}>{tag}</Paper>
+                                                                ))}
+                                                            </Group>
+                                                            <Box mb={12}><ReactMarkdown>{item.content}</ReactMarkdown></Box>
+                                                            {item.fileUrl && (
+                                                                <Box mb={8}>
+                                                                    <a href={item.fileUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#1769aa', textDecoration: 'underline', fontSize: 14 }}>📎 View Attachment</a>
+                                                                </Box>
+                                                            )}
+                                                            {item.summary && (
+                                                                <Paper p="md" mt="sm" radius={8} style={{ background: '#f5f7fa', borderLeft: '4px solid #1769aa', color: '#222', marginBottom: 12 }}>
+                                                                    <Group gap={6} mb={4} align="center">
+                                                                        <IconRobot size={16} color="#1769aa" />
+                                                                        <Text size="xs" fw={700} c="#1769aa">AI Summary</Text>
+                                                                    </Group>
+                                                                    <ReactMarkdown>{item.summary}</ReactMarkdown>
                                                                 </Paper>
                                                             )}
-                                                            <Menu shadow="md" width={120} position="bottom-end" withinPortal>
-                                                                <Menu.Target>
-                                                                    <ActionIcon variant="subtle" color="gray" size={28} style={{ opacity: 0.7 }}>
-                                                                        <IconDots size={18} />
-                                                                    </ActionIcon>
-                                                                </Menu.Target>
-                                                                <Menu.Dropdown>
-                                                                    <Menu.Item
-                                                                        color="red"
-                                                                        leftSection={<IconTrash size={16} />}
-                                                                        onClick={() => handleDeleteRow(tab.id, idx)}
-                                                                    >
-                                                                        Delete
-                                                                    </Menu.Item>
-                                                                </Menu.Dropdown>
-                                                            </Menu>
-                                                        </Group>
-                                                    );
-                                                })}
-                                                {addingRowFor === tab.id ? (
-                                                    <Group>
-                                                        <Textarea
-                                                            value={newRowValue}
-                                                            onChange={e => setNewRowValue(e.currentTarget.value)}
-                                                            placeholder="Enter row text (Ctrl+Enter to save)"
-                                                            autoFocus
-                                                            style={{ flex: 1 }}
-                                                            minRows={2}
-                                                            onKeyDown={e => {
-                                                                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                                                                    handleSaveRow(tab.id);
-                                                                }
-                                                            }}
-                                                        />
-                                                        <Button size="xs" color={styles.accentColor} onClick={() => handleSaveRow(tab.id)} loading={savingRow} style={{ background: styles.buttonGradient, color: '#fff', fontWeight: 700, borderRadius: 12 }}>
-                                                            Save
-                                                        </Button>
-                                                        <Button size="xs" variant="default" onClick={handleCancelRow} disabled={savingRow} style={{ background: styles.tabBackground, color: styles.secondaryTextColor, fontWeight: 600, borderRadius: 12 }}>
-                                                            Cancel
-                                                        </Button>
-                                                    </Group>
-                                                ) : (
-                                                    <Button
-                                                        size="xs"
-                                                        variant="light"
-                                                        color={styles.accentColor}
-                                                        onClick={() => handleAddRow(tab.id)}
-                                                        style={{ background: styles.tabBackground, color: styles.secondaryTextColor, fontWeight: 600, borderRadius: 12 }}
-                                                    >
-                                                        + Add Row
-                                                    </Button>
-                                                )}
-                                            </Stack>
-                                        </Box>
-                                    </Box>
-                                </Tabs.Panel>
-                            ))}
-                            <Tabs.Panel value="templates" pt="md">
-                                <Box style={{ flex: 1, minWidth: 0, marginLeft: 32 }}>
-                                    <AIWorkflowAutomation context={projectContext} tab="templates" />
-                                    <Text c="dimmed">Templates tab content coming soon!</Text>
-                                </Box>
-                            </Tabs.Panel>
-                            <Tabs.Panel value="chat" pt="md">
-                                <Box style={{ flex: 1, minWidth: 0, marginLeft: 32 }}>
-                                    <AIWorkflowAutomation context={projectContext} tab="chat" />
-                                    <Box style={{ width: '100%', background: '#fff', border: '1px solid #e3e8ee', borderRadius: 12, padding: 24 }}>
-                                        <Title order={4} mb={8}>SparkChat</Title>
-                                        <Stack spacing="xs" style={{ minHeight: 320, maxHeight: 400, overflowY: 'auto', background: '#f8fafc', borderRadius: 8, padding: 12, border: 'none' }}>
-                                            {chatMessages.length === 0 ? (
-                                                <Text c="dimmed" ta="center">No messages yet. Start the conversation!</Text>
-                                            ) : (
-                                                chatMessages.map((msg, idx) => (
-                                                    <Group key={msg.id} align="flex-end" style={{ justifyContent: msg.sender === userName ? 'flex-end' : 'flex-start' }}>
-                                                        <Avatar radius="xl" color={msg.sender === 'ai' ? 'blue' : 'gray'} size={28} style={{ fontWeight: 700 }}>{msg.sender === 'ai' ? <IconRobot size={16} /> : getInitials(msg.senderName)}</Avatar>
-                                                        <Paper p="sm" radius={8} style={{ background: '#fff', color: '#222', minWidth: 80, maxWidth: 480, border: '1px solid #e3e8ee', boxShadow: 'none', fontSize: 15 }}>
-                                                            {msg.sender === 'ai' ? <ReactMarkdown>{msg.content}</ReactMarkdown> : <Text size="sm" fw={500} style={{ wordBreak: 'break-word' }}>{msg.content}</Text>}
-                                                            <Group gap={4} mt={4} align="center">
-                                                                <Text size="xs" c="dimmed">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
-                                                                {msg.reactions && msg.reactions.length > 0 && (
-                                                                    <Group gap={2}>{msg.reactions.map((emoji: string, i: number) => (<span key={i} style={{ fontSize: 16 }}>{emoji}</span>))}</Group>
-                                                                )}
-                                                                <ActionIcon size="xs" variant="subtle" color="blue" onClick={() => addReaction(msg.id, '👍')}>👍</ActionIcon>
-                                                                <ActionIcon size="xs" variant="subtle" color="blue" onClick={() => addReaction(msg.id, '😂')}>😂</ActionIcon>
-                                                                <ActionIcon size="xs" variant="subtle" color="blue" onClick={() => addReaction(msg.id, '🎉')}>🎉</ActionIcon>
-                                                            </Group>
-                                                        </Paper>
-                                                    </Group>
-                                                ))
-                                            )}
-                                            <div ref={chatEndRef} />
-                                        </Stack>
-                                        <Group mt="md" align="flex-end">
-                                            <TextInput placeholder="Type a message... or use /ai to ask the AI assistant" value={chatInput} onChange={e => setChatInput(e.currentTarget.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { sendMessage(chatInput); } }} style={{ flex: 1, background: '#fff', border: '1px solid #e3e8ee', borderRadius: 8 }} disabled={sending || aiThinking} />
-                                            <ActionIcon variant="filled" color="blue" size={36} onClick={() => sendMessage(chatInput)} loading={sending || aiThinking} disabled={!chatInput.trim()} title="Send"><IconSend size={20} /></ActionIcon>
-                                            <ActionIcon variant="light" color="blue" size={36} onClick={() => sendMessage(`/ai ${chatInput}`)} loading={aiThinking} title="Ask AI"><IconRobot size={20} /></ActionIcon>
-                                        </Group>
-                                    </Box>
-                                </Box>
-                            </Tabs.Panel>
-                            <Tabs.Panel value="members" pt="md">
-                                <Box style={{ flex: 1, minWidth: 0, marginLeft: 32 }}>
-                                    <AIWorkflowAutomation context={projectContext} tab="members" />
-                                    <Stack>
-                                        <Title order={4} mb="xs">Members</Title>
-                                        {Array.isArray(project.members) && project.members.length > 0 ? (
-                                            <Stack gap={12}>
-                                                {project.members.map((email: string, idx: number) => (
-                                                    <Group key={email + idx} justify="space-between" align="center" wrap="nowrap" style={{ background: '#fff', border: '1px solid #e3e8ee', borderRadius: 8, padding: '12px 20px', boxShadow: 'none' }}>
-                                                        <Group align="center" gap={12}>
-                                                            <Avatar radius="xl" color="blue" size={32} style={{ fontWeight: 700 }}>{getInitials(email)}</Avatar>
-                                                            <Text style={{ fontWeight: 500, color: '#222', fontSize: 16 }}>{email}</Text>
-                                                        </Group>
-                                                        <Menu shadow="md" width={140} position="bottom-end">
-                                                            <Menu.Target>
-                                                                <ActionIcon variant="subtle" color="blue" size={28} style={{ transition: 'color 0.18s' }}>
-                                                                    <IconDots size={18} />
-                                                                </ActionIcon>
-                                                            </Menu.Target>
-                                                            <Menu.Dropdown>
-                                                                <Menu.Item color="red" leftSection={<IconTrash size={16} />} onClick={() => handleRemoveMember(email)} disabled={project.members.length <= 1}>
-                                                                    Remove
-                                                                </Menu.Item>
-                                                            </Menu.Dropdown>
-                                                        </Menu>
-                                                    </Group>
-                                                ))}
-                                            </Stack>
+                                                            {item.annotations && item.annotations.length > 0 && (
+                                                                <Stack mt={16} gap={8}>
+                                                                    <Text size="sm" fw={600} mb={4}>Comments</Text>
+                                                                    {item.annotations.map((c: any) => (
+                                                                        <Paper key={c.id} p="xs" radius={16} style={{ background: '#f5f7fa', border: '1px solid #e3e8ee', color: '#222', boxShadow: 'none', marginBottom: 4 }}>
+                                                                            <Group align="center" gap={8}>
+                                                                                <Avatar radius="xl" size={20} color="blue">{getInitials(c.author)}</Avatar>
+                                                                                <Text size="xs" fw={600}>{c.author}</Text>
+                                                                                <Text size="xs" c="#888">{new Date(c.createdAt).toLocaleString()}</Text>
+                                                                                <Text size="sm" style={{ flex: 1 }}>{c.content}</Text>
+                                                                                {(c.author === userName || project?.createdBy === userName) && (
+                                                                                    <ActionIcon size={18} color="red" variant="subtle" onClick={e => { e.stopPropagation(); handleDeleteComment(item, c.id); }}>
+                                                                                        <IconTrash size={14} />
+                                                                                    </ActionIcon>
+                                                                                )}
+                                                                            </Group>
+                                                                        </Paper>
+                                                                    ))}
+                                                                </Stack>
+                                                            )}
+                                                            <Text size="xs" c="#888" mt={8}>{new Date(item.createdAt).toLocaleString()}</Text>
+                                                        </Box>
+                                                    )}
+                                                </Paper>
+                                            );
+                                        })
+                                    )}
+                                </Stack>
+                            </Box>
+                            <AIWorkflowAutomation context={projectContext} tab="research" />
+                        </Tabs.Panel>
+                        {activeTab === 'documents' && (
+                          <ProjectDocumentsTab
+                            docTabs={docTabs}
+                            setDocTabs={setDocTabs}
+                            activeDocTab={activeDocTab}
+                            setActiveDocTab={setActiveDocTab}
+                            docRows={docRows}
+                            setDocRows={setDocRows}
+                            addingRowFor={addingRowFor}
+                            setAddingRowFor={setAddingRowFor}
+                            newRowValue={newRowValue}
+                            setNewRowValue={setNewRowValue}
+                            savingRow={savingRow}
+                            setSavingRow={setSavingRow}
+                            editingRow={editingRow}
+                            setEditingRow={setEditingRow}
+                            editRowValue={editRowValue}
+                            setEditRowValue={setEditRowValue}
+                            savingEdit={savingEdit}
+                            setSavingEdit={setSavingEdit}
+                            aiProcessing={aiProcessing}
+                            setAiProcessing={setAiProcessing}
+                            addRowInputRef={addRowInputRef}
+                            handleAddDocument={handleAddDocument}
+                            handleRenameDoc={handleRenameDoc}
+                            handleDeleteDoc={handleDeleteDoc}
+                            handleAddRow={handleAddRow}
+                            handleSaveRow={handleSaveRow}
+                            handleCancelRow={handleCancelRow}
+                            handleDeleteRow={handleDeleteRow}
+                            handleStartEditRow={handleStartEditRow}
+                            handleSaveEditRow={handleSaveEditRow}
+                            handleCancelEditRow={handleCancelEditRow}
+                            handleAiTransformRow={handleAiTransformRow}
+                            docSearch={docSearch}
+                            setDocSearch={setDocSearch}
+                            docPage={docPage}
+                            setDocPage={setDocPage}
+                            DOCS_PER_PAGE={DOCS_PER_PAGE}
+                            styles={styles}
+                            showNotification={showNotification}
+                          />
+                        )}
+                        <Tabs.Panel value="templates" pt="md">
+                            <Box style={{ flex: 1, minWidth: 0, marginLeft: 32 }}>
+                                <AIWorkflowAutomation context={projectContext} tab="templates" />
+                                <Text c="dimmed">Templates tab content coming soon!</Text>
+                            </Box>
+                        </Tabs.Panel>
+                        <Tabs.Panel value="chat" pt="md">
+                            <Box style={{ flex: 1, minWidth: 0, marginLeft: 32 }}>
+                                <AIWorkflowAutomation context={projectContext} tab="chat" />
+                                <Box style={{ width: '100%', background: '#fff', border: '1px solid #e3e8ee', borderRadius: 12, padding: 24 }}>
+                                    <Title order={4} mb={8}>SparkChat</Title>
+                                    <Stack gap="xs" style={{ minHeight: 320, maxHeight: 400, overflowY: 'auto', background: '#f8fafc', borderRadius: 8, padding: 12, border: 'none' }}>
+                                        {chatMessages.length === 0 ? (
+                                            <Text c="dimmed" ta="center">No messages yet. Start the conversation!</Text>
                                         ) : (
-                                            <Text c="dimmed">No members yet.</Text>
+                                            chatMessages.map((msg, idx) => (
+                                                <Group key={msg.id} align="flex-end" style={{ justifyContent: msg.sender === userName ? 'flex-end' : 'flex-start' }}>
+                                                    <Avatar radius="xl" color={msg.sender === 'ai' ? 'blue' : 'gray'} size={28} style={{ fontWeight: 700 }}>{msg.sender === 'ai' ? <IconRobot size={16} /> : getInitials(msg.senderName)}</Avatar>
+                                                    <Paper p="sm" radius={8} style={{ background: '#fff', color: '#222', minWidth: 80, maxWidth: 480, border: '1px solid #e3e8ee', boxShadow: 'none', fontSize: 15 }}>
+                                                        {msg.sender === 'ai' ? <ReactMarkdown>{msg.content}</ReactMarkdown> : <Text size="sm" fw={500} style={{ wordBreak: 'break-word' }}>{msg.content}</Text>}
+                                                        <Group gap={4} mt={4} align="center">
+                                                            <Text size="xs" c="dimmed">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+                                                            {msg.reactions && msg.reactions.length > 0 && (
+                                                                <Group gap={2}>{msg.reactions.map((emoji: string, i: number) => (<span key={i} style={{ fontSize: 16 }}>{emoji}</span>))}</Group>
+                                                            )}
+                                                            <ActionIcon size="xs" variant="subtle" color="blue" onClick={() => addReaction(msg.id, '👍')}>👍</ActionIcon>
+                                                            <ActionIcon size="xs" variant="subtle" color="blue" onClick={() => addReaction(msg.id, '😂')}>😂</ActionIcon>
+                                                            <ActionIcon size="xs" variant="subtle" color="blue" onClick={() => addReaction(msg.id, '🎉')}>🎉</ActionIcon>
+                                                        </Group>
+                                                    </Paper>
+                                                </Group>
+                                            ))
                                         )}
-                                        <Group mt="md" gap={8}>
-                                            <TextInput placeholder="Add member by email" value={newMemberEmail} onChange={(e) => setNewMemberEmail(e.currentTarget.value)} disabled={adding} style={{ flex: 2 }} />
-                                            <Button onClick={handleAddMember} loading={adding} disabled={!newMemberEmail} style={{ flex: 1 }}>Add</Button>
-                                        </Group>
+                                        <div ref={chatEndRef} />
                                     </Stack>
+                                    <Group mt="md" align="flex-end">
+                                        <TextInput placeholder="Type a message... or use /ai to ask the AI assistant" value={chatInput} onChange={e => setChatInput(e.currentTarget.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { sendMessage(chatInput); } }} style={{ flex: 1, background: '#fff', border: '1px solid #e3e8ee', borderRadius: 8 }} disabled={sending || aiThinking} />
+                                        <ActionIcon variant="filled" color="blue" size={36} onClick={() => sendMessage(chatInput)} loading={sending || aiThinking} disabled={!chatInput.trim()} title="Send"><IconSend size={20} /></ActionIcon>
+                                        <ActionIcon variant="light" color="blue" size={36} onClick={() => sendMessage(`/ai ${chatInput}`)} loading={aiThinking} title="Ask AI"><IconRobot size={20} /></ActionIcon>
+                                    </Group>
                                 </Box>
-                            </Tabs.Panel>
-                        </Tabs>
-                    </Box>
-                </Container>
-                <ActionIcon
-                    variant="light"
-                    color="gray"
-                    size={36}
-                    onClick={() => setSettingsOpened(true)}
-                    title="Project Settings"
-                    style={{ marginLeft: rem(12) }}
-                >
-                    <IconSettings size={22} />
-                </ActionIcon>
-            </Box>
-            <FloatingAssistant currentTab={activeTab} userName={userName} projectContext={projectContext} onAddTask={(title: string) => {
-                const now = new Date().toISOString();
-                const newTask = {
-                    id: Date.now().toString(),
-                    title,
-                    description: 'Added from AI action item',
-                    assignee: '',
-                    status: 'todo',
-                    priority: 'medium',
-                    dueDate: '',
-                    createdAt: now,
-                    updatedAt: now,
-                };
-                saveTasks([...tasks, newTask]);
-                showNotification({ title: 'Task Added', message: `Task "${title}" added from AI action item.`, color: 'green' });
-            }} />
-            <OnboardingAssistant context={activeTab} />
+                            </Box>
+                        </Tabs.Panel>
+                        <Tabs.Panel value="members" pt="md">
+                            <Box style={{ flex: 1, minWidth: 0, marginLeft: 32 }}>
+                                <AIWorkflowAutomation context={projectContext} tab="members" />
+                                <Stack>
+                                    <Title order={4} mb="xs">Members</Title>
+                                    {Array.isArray(project.members) && project.members.length > 0 ? (
+                                        <Stack gap={12}>
+                                            {project.members.map((email: string, idx: number) => (
+                                                <Group key={email + idx} justify="space-between" align="center" wrap="nowrap" style={{ background: '#fff', border: '1px solid #e3e8ee', borderRadius: 8, padding: '12px 20px', boxShadow: 'none' }}>
+                                                    <Group align="center" gap={12}>
+                                                        <Avatar radius="xl" color="blue" size={32} style={{ fontWeight: 700 }}>{getInitials(email)}</Avatar>
+                                                        <Text style={{ fontWeight: 500, color: '#222', fontSize: 16 }}>{email}</Text>
+                                                    </Group>
+                                                    <Menu shadow="md" width={140} position="bottom-end">
+                                                        <Menu.Target>
+                                                            <ActionIcon variant="subtle" color="blue" size={28} style={{ transition: 'color 0.18s' }}>
+                                                                <IconDots size={18} />
+                                                            </ActionIcon>
+                                                        </Menu.Target>
+                                                        <Menu.Dropdown>
+                                                            <Menu.Item color="red" leftSection={<IconTrash size={16} />} onClick={() => handleRemoveMember(email)} disabled={project.members.length <= 1}>
+                                                                Remove
+                                                            </Menu.Item>
+                                                        </Menu.Dropdown>
+                                                    </Menu>
+                                                </Group>
+                                            ))}
+                                        </Stack>
+                                    ) : (
+                                        <Text c="dimmed">No members yet.</Text>
+                                    )}
+                                    <Group mt="md" gap={8}>
+                                        <TextInput placeholder="Add member by email" value={newMemberEmail} onChange={(e) => setNewMemberEmail(e.currentTarget.value)} disabled={adding} style={{ flex: 2 }} />
+                                        <Button onClick={handleAddMember} loading={adding} disabled={!newMemberEmail} style={{ flex: 1 }}>Add</Button>
+                                    </Group>
+                                </Stack>
+                            </Box>
+                        </Tabs.Panel>
+                        <Tabs.Panel value="ai" style={{ padding: 0, background: 'none' }}>
+                            <AIRiskAlerts context={projectContext} onMitigate={(suggestion) => {
+                                if (/reassign/i.test(suggestion) && tasks.some(t => t.status !== 'done')) {
+                                    const overdue = tasks.find(t => t.dueDate && t.dueDate < new Date().toISOString().slice(0, 10) && t.status !== 'done');
+                                    if (overdue && Array.isArray(project.members) && project.members.length > 0) {
+                                        const assignee = project.members[Math.floor(Math.random() * project.members.length)];
+                                        const updatedTasks = tasks.map(t => t.id === overdue.id ? { ...t, assignee } : t);
+                                        saveTasks(updatedTasks);
+                                        showNotification({ title: 'Task Reassigned', message: `Assigned ${overdue.title} to ${assignee}`, color: 'blue' });
+                                    }
+                                } else if (/remind/i.test(suggestion)) {
+                                    showNotification({ title: 'Reminder Sent', message: suggestion, color: 'blue' });
+                                } else if (/mark as blocked/i.test(suggestion) && tasks.some(t => t.status === 'in-progress')) {
+                                    const inProgress = tasks.find(t => t.status === 'in-progress');
+                                    if (inProgress) {
+                                        const updatedTasks = tasks.map(t => t.id === inProgress.id ? { ...t, status: 'blocked' as Task['status'] } : t);
+                                        saveTasks(updatedTasks);
+                                        showNotification({ title: 'Task Blocked', message: `Marked ${inProgress.title} as blocked`, color: 'red' });
+                                    }
+                                } else {
+                                    showNotification({ title: 'Mitigation Actioned', message: suggestion, color: 'green' });
+                                }
+                            }} />
+                            <AIWorkflowAutomation context={projectContext} tab="dashboard" onEnable={(suggestion) => {
+                                showNotification({ title: 'Automation Enabled', message: suggestion, color: 'green' });
+                            }} />
+                        </Tabs.Panel>
+                    </Tabs>
+                </Box>
+            </Container>
+            <ActionIcon
+                variant="light"
+                color="gray"
+                size={36}
+                onClick={() => setSettingsOpened(true)}
+                title="Project Settings"
+                style={{ marginLeft: rem(12) }}
+            >
+                <IconSettings size={22} />
+            </ActionIcon>
+        </Box>
+        <FloatingAssistant currentTab={activeTab} userName={userName} projectContext={projectContext} onAddTask={(title: string) => {
+            const now = new Date().toISOString();
+            const newTask = {
+                id: Date.now().toString(),
+                title,
+                description: 'Added from AI action item',
+                assignee: '',
+                status: 'todo' as Task['status'],
+                priority: 'medium' as Task['priority'],
+                dueDate: '',
+                createdAt: now,
+                updatedAt: now,
+            };
+            saveTasks([...tasks, newTask]);
+            showNotification({ title: 'Task Added', message: `Task "${title}" added from AI action item.`, color: 'green' });
+        }} />
         </>
     );
-} 
+}

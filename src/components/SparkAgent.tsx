@@ -141,7 +141,7 @@ export default function SparkAgent({ onCommand, onTaskComplete, onProjectUpdate 
                 onClick={() => setIsOpen(true)}
                 style={{
                     position: 'fixed',
-                    bottom: 20,
+                    bottom: 100,
                     right: 20,
                     zIndex: 1000,
                     boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
@@ -194,7 +194,7 @@ export default function SparkAgent({ onCommand, onTaskComplete, onProjectUpdate 
                                     maxWidth: '80%'
                                 }}
                             >
-                                <Group align="flex-start" spacing="xs">
+                                <Group align="flex-start" gap="xs">
                                     {message.type === 'agent' && (
                                         <Avatar
                                             size="sm"
@@ -244,7 +244,7 @@ export default function SparkAgent({ onCommand, onTaskComplete, onProjectUpdate 
                             background: theme === 'dark' ? '#1a1b1e' : '#fff'
                         }}
                     >
-                        <Group spacing="xs">
+                        <Group gap="xs">
                             <TextInput
                                 placeholder="Type your command..."
                                 value={input}

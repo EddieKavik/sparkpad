@@ -9,6 +9,7 @@ import '@mantine/notifications/styles.css';
 import Link from "next/link";
 import { NavigationBar } from "@/components/NavigationBar";
 import FloatingAssistant from '@/components/FloatingAssistant';
+import SparkAgent from '@/components/SparkAgent';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -40,6 +41,7 @@ export default function RootLayout({
             <NavigationBar />
             {children}
             <FloatingAssistant />
+            <SparkAgent />
           </MantineProvider>
         </ThemeProvider>
       </body>

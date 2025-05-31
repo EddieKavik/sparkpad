@@ -32,7 +32,18 @@ export default function AIRiskAlerts({ context, onMitigate }: Props) {
                 setSuggestions([]);
             }
         } catch (err: any) {
-            setError(err.message || 'AI error');
+            let msg = err?.message || 'AI error';
+            if (msg.includes('No Gemini API key')) {
+                msg = 'AI is not available: missing Gemini API key. Please contact the administrator.';
+            } else if (msg.includes('Failed to fetch')) {
+                msg = 'Could not connect to the AI service. Please check your network or try again later.';
+            } else if (msg.includes('AI request failed')) {
+                msg = 'AI request failed. Please try again or check your API key.';
+            }
+            setError(msg);
+            // Fallback suggestions if AI fails
+            setRisks(['AI could not analyze risks at this time.']);
+            setSuggestions(['Check project deadlines manually.', 'Review overdue tasks.', 'Ensure all team members are assigned.']);
         } finally {
             setLoading(false);
         }
