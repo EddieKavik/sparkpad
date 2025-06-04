@@ -160,22 +160,11 @@ async function fetchProject(projectId: string | string[] | undefined, setProject
             router.replace("/login");
             return;
         }
-        const res = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`);
-        if (!res.ok) throw new Error("Failed to fetch projects");
-        let projects = await res.json();
-        if (!Array.isArray(projects) || projects.length === 0) {
-            projects = loadProjectsFromLocal();
-            if (Array.isArray(projects) && projects.length > 0) {
-                await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`,
-                    { method: "POST", body: JSON.stringify(projects) });
-                window.location.reload();
-                return;
-            }
-        }
-        const project = projects.find((p: any) => String(p.id).trim() === String(projectId).trim());
-        if (!project) {
-            console.error('Project not found. projectId:', projectId, 'projects:', projects.map((p: any) => p.id));
-            throw new Error("Project not found");
+        const res = await fetch(`/api/projects/${encodeURIComponent(String(projectId))}?userEmail=${encodeURIComponent(userEmail)}`);
+        if (!res.ok) throw new Error("Failed to fetch project");
+        const project = await res.json();
+        if (!project || project.error) {
+            throw new Error((project && project.error) || "Project not found");
         }
         setProject(project);
         setRenameValue(project.name || "");
@@ -918,12 +907,7 @@ export default function ProjectViewPage() {
         const comment = (commentInputs[item.id] || '').trim();
         if (!comment) return;
         setCommentLoading(l => ({ ...l, [item.id]: true }));
-        const newComment = {
-            id: Date.now().toString(),
-            author: userName || 'anonymous',
-            content: comment,
-            createdAt: new Date().toISOString(),
-        };
+        const newComment = { id: Date.now().toString(), author: userName || 'anonymous', content: comment, createdAt: new Date().toISOString(), };
         const updatedComments = [...(item.annotations || []), newComment];
         const res = await fetch(`/api/projects/${projectId}/research?id=${item.id}`, {
             method: 'PUT',
@@ -1010,10 +994,13 @@ export default function ProjectViewPage() {
         try {
             const gemini = getGeminiClient();
             const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+
             // Compose context from all research items
             const context = researchItems.map((item: any) => `Title: ${item.title}\nType: ${item.type}\nContent: ${item.content}\nTags: ${(item.tags || []).join(", ")}\n`).join("\n---\n");
+
             // Compose Q&A history for context
             const historyText = qaHistory.map((pair, i) => `Q${i + 1}: ${pair.question}\nA${i + 1}: ${pair.answer}`).join("\n");
+
             // Improved prompt
             let prompt = `You are an expert research assistant. Given the following project research items, answer the user's question concisely and helpfully.\n\nResearch Items:\n${context}`;
             if (historyText) {
@@ -1023,9 +1010,11 @@ export default function ProjectViewPage() {
                 prompt += `\n\nThe next question is a follow-up to the previous answer.`;
             }
             prompt += `\n\nQuestion: ${qaQuestion}`;
+
             const result = await model.generateContent(prompt);
             const answer = result.response.text().trim();
             setQaAnswer(answer);
+
             // Save to backend
             const user = localStorage.getItem("user");
             const userName = user ? JSON.parse(user).name : "anonymous";
@@ -1034,11 +1023,13 @@ export default function ProjectViewPage() {
                 headers: { "Content-Type": "application/json", user: userName },
                 body: JSON.stringify({ question: qaQuestion, answer, createdBy: userName }),
             });
+
             if (res.status === 401 || res.status === 403) {
                 showNotification({ title: "Unauthorized", message: "You are not allowed to add Q&A.", color: "red" });
                 setQaLoading(false);
                 return;
             }
+
             if (res.ok) {
                 const newPair = await res.json();
                 setQaHistory(h => [...h, newPair]);
@@ -1074,1122 +1065,1462 @@ export default function ProjectViewPage() {
     const handleSaveEditQAPair = async () => {
         if (!editQAPair) return;
         setEditQALoading(true);
-        const user = localStorage.getItem("user");
-        const userName = user ? JSON.parse(user).name : "anonymous";
-        const res = await fetch(`/api/projects/${projectId}/research/qa?id=${editQAPair.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', user: userName },
-            body: JSON.stringify({ question: editQAPair.question, answer: editQAPair.answer, createdBy: editQAPair.createdBy }),
-        });
-        if (res.status === 401 || res.status === 403) {
-            showNotification({ title: "Unauthorized", message: "You are not allowed to edit this Q&A.", color: "red" });
-            setEditQALoading(false);
-            return;
-        }
-        setEditQALoading(false);
-        if (res.ok) {
-            const updated = await res.json();
-            setQaHistory(h => h.map(pair => pair.id === updated.id ? updated : pair));
-            setEditQAPair(null);
-        }
-    };
-
-    // Sync tasks with project
-    useEffect(() => {
-        if (project && Array.isArray(project.tasks)) {
-            setTasks(project.tasks);
-        }
-    }, [project]);
-
-    // Save tasks to backend/localStorage
-    const saveTasks = async (updatedTasks: Task[]) => {
-        setTasks(updatedTasks);
-        if (project) {
-            const updatedProject = { ...project, tasks: updatedTasks };
-            setProject(updatedProject);
-            // Save to backend
-            const userEmail = localStorage.getItem("user:username");
-            if (userEmail) {
-                await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`, {
-                    method: "POST",
-                    body: JSON.stringify([
-                        ...JSON.parse(localStorage.getItem('projects:backup') || '[]').filter((p: any) => p.id !== project.id),
-                        updatedProject
-                    ]),
-                });
-                localStorage.setItem('projects:backup', JSON.stringify([
-                    ...JSON.parse(localStorage.getItem('projects:backup') || '[]').filter((p: any) => p.id !== project.id),
-                    updatedProject
-                ]));
+        try {
+            const user = localStorage.getItem("user");
+            const userName = user ? JSON.parse(user).name : "anonymous";
+            const res = await fetch(`/api/projects/${projectId}/research/qa?id=${editQAPair.id}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json", user: userName },
+                body: JSON.stringify(editQAPair),
+            });
+            if (res.ok) {
+                setQaHistory(h => h.map(pair => pair.id === editQAPair.id ? editQAPair : pair));
+                setEditQAPair(null);
+                showNotification({ title: "Updated", message: "Q&A pair updated.", color: "green" });
+            } else {
+                showNotification({ title: "Error", message: "Failed to update Q&A pair.", color: "red" });
             }
+        } catch (err: any) {
+            showNotification({ title: "Error", message: err.message || "Failed to update Q&A pair.", color: "red" });
+        } finally {
+            setEditQALoading(false);
         }
     };
 
-    // Add task handler
-    const handleAddTask = async (e?: React.FormEvent) => {
-        if (e) e.preventDefault();
-        if (!newTask.title?.trim()) return;
+    const filteredQaHistory = qaHistory.filter(
+        (pair) =>
+            pair.question.toLowerCase().includes(qaSearch.toLowerCase()) ||
+            pair.answer.toLowerCase().includes(qaSearch.toLowerCase())
+    );
+
+    // Save tasks to Civil Memory
+    const saveTasks = async (updatedTasks: Task[]) => {
+        if (!projectId || Array.isArray(projectId)) return;
+        const userEmail = localStorage.getItem("user:username");
+        if (!userEmail) return;
+        try {
+            await fetch(`http://localhost:3333/tasks?mode=disk&key=${encodeURIComponent(userEmail)}:${encodeURIComponent(projectId)}`, {
+                method: "POST",
+                body: JSON.stringify(updatedTasks),
+            });
+        } catch {
+            showNotification({ title: "Error", message: "Failed to save tasks.", color: "red" });
+        }
+    };
+
+    // Load tasks from Civil Memory on mount
+    useEffect(() => {
+        const fetchTasks = async () => {
+            if (!projectId || Array.isArray(projectId)) return;
+            try {
+                const userEmail = localStorage.getItem("user:username");
+                if (!userEmail) return;
+                const res = await fetch(`http://localhost:3333/tasks?mode=disk&key=${encodeURIComponent(userEmail)}:${encodeURIComponent(projectId)}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setTasks(Array.isArray(data) ? data : []);
+                }
+            } catch { }
+        };
+        fetchTasks();
+    }, [projectId]);
+
+    const handleAddTask = async () => {
+        if (!newTask.title) return;
         setAddingTask(true);
         const now = new Date().toISOString();
-        const task: Task = {
+        const taskToAdd: Task = {
             id: Date.now().toString(),
-            title: newTask.title!,
+            title: newTask.title,
             description: newTask.description || '',
             assignee: newTask.assignee || '',
-            status: 'todo' as Task['status'],
-            priority: 'medium' as Task['priority'],
+            status: newTask.status || 'todo',
+            priority: newTask.priority || 'medium',
             dueDate: newTask.dueDate || '',
             createdAt: now,
             updatedAt: now,
         };
-        const updatedTasks = [...tasks, task];
+        const updatedTasks = [...tasks, taskToAdd];
+        setTasks(updatedTasks);
         await saveTasks(updatedTasks);
         setNewTask({ title: '', description: '', assignee: '', status: 'todo', priority: 'medium', dueDate: '' });
         setAddingTask(false);
+        showNotification({ title: 'Task Added', message: `Task "${taskToAdd.title}" has been added.`, color: 'green' });
     };
 
-    // Edit task handler
     const handleEditTask = (task: Task) => {
         setEditingTaskId(task.id);
         setEditTask({ ...task });
     };
-    const handleSaveEditTask = async () => {
-        if (!editTask.title?.trim() || !editingTaskId) return;
-        const updatedTasks = tasks.map(t => t.id === editingTaskId ? { ...t, ...editTask, updatedAt: new Date().toISOString() } : t);
+
+    const handleSaveTask = async () => {
+        if (!editingTaskId || !editTask.title) return;
+        const now = new Date().toISOString();
+        const updatedTasks = tasks.map(t =>
+            t.id === editingTaskId ? { ...t, ...editTask, updatedAt: now } : t
+        ) as Task[];
+        setTasks(updatedTasks);
         await saveTasks(updatedTasks);
         setEditingTaskId(null);
         setEditTask({});
+        showNotification({ title: 'Task Updated', message: `Task "${editTask.title}" has been updated.`, color: 'green' });
     };
+
     const handleDeleteTask = async (id: string) => {
+        if (!window.confirm("Are you sure you want to delete this task?")) return;
         const updatedTasks = tasks.filter(t => t.id !== id);
+        setTasks(updatedTasks);
         await saveTasks(updatedTasks);
+        showNotification({ title: 'Task Deleted', message: 'Task has been deleted.', color: 'red' });
     };
 
-    // Kanban columns
-    const kanbanColumns = [
-        { key: 'todo', label: 'To Do' },
-        { key: 'in-progress', label: 'In Progress' },
-        { key: 'blocked', label: 'Blocked' },
-        { key: 'done', label: 'Done' },
-    ];
-
-    // Handle drag end
-    const onDragEnd = async (result: DropResult) => {
+    const onDragEnd = (result: DropResult) => {
         const { source, destination, draggableId } = result;
-        if (!destination) return;
-        if (source.droppableId === destination.droppableId && source.index === destination.index) return;
-        const task = tasks.find(t => t.id === draggableId);
-        if (!task) return;
-        // Remove from old column
-        let updatedTasks = tasks.filter(t => t.id !== draggableId);
-        // Insert into new column with updated status
-        const updatedTask = { ...task, status: destination.droppableId as Task['status'], updatedAt: new Date().toISOString() };
-        // Insert at new index
-        const destTasks = updatedTasks.filter(t => t.status === destination.droppableId);
-        destTasks.splice(destination.index, 0, updatedTask);
-        updatedTasks = [
-            ...updatedTasks.filter(t => t.status !== destination.droppableId),
-            ...destTasks
-        ];
-        await saveTasks(updatedTasks);
+
+        if (!destination) {
+            return;
+        }
+
+        if (source.droppableId === destination.droppableId && source.index === destination.index) {
+            return;
+        }
+
+        const updatedTasks = Array.from(tasks);
+        const movedTaskIndex = updatedTasks.findIndex(task => task.id === draggableId);
+        if (movedTaskIndex === -1) return;
+
+        const [movedTask] = updatedTasks.splice(movedTaskIndex, 1);
+
+        if (source.droppableId === destination.droppableId) {
+            updatedTasks.splice(destination.index, 0, movedTask);
+        } else {
+            // Moving between columns (statuses)
+            movedTask.status = destination.droppableId as Task['status'];
+            updatedTasks.splice(destination.index, 0, movedTask);
+        }
+
+        setTasks(updatedTasks);
+        saveTasks(updatedTasks);
     };
 
-    // Handle file upload (stub for now)
-    const handleProjectFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
+    const statuses: Task['status'][] = ['todo', 'in-progress', 'blocked', 'done'];
+    const priorities: Task['priority'][] = ['low', 'medium', 'high', 'critical'];
+
+    const getStatusColor = (status: Task['status']) => {
+        switch (status) {
+            case 'todo': return 'gray';
+            case 'in-progress': return 'blue';
+            case 'blocked': return 'red';
+            case 'done': return 'green';
+            default: return 'gray';
+        }
+    };
+
+    const getPriorityColor = (priority: Task['priority']) => {
+        switch (priority) {
+            case 'low': return 'lime';
+            case 'medium': return 'orange';
+            case 'high': return 'red';
+            case 'critical': return 'purple';
+            default: return 'gray';
+        }
+    };
+
+    // File handling
+    const saveFiles = async (updatedFiles: any[]) => {
+        if (!projectId || Array.isArray(projectId)) return;
+        const userEmail = localStorage.getItem("user:username");
+        if (!userEmail) return;
+        try {
+            await fetch(`http://localhost:3333/files?mode=disk&key=${encodeURIComponent(userEmail)}:${encodeURIComponent(projectId)}`, {
+                method: "POST",
+                body: JSON.stringify(updatedFiles),
+            });
+        } catch {
+            showNotification({ title: "Error", message: "Failed to save files.", color: "red" });
+        }
+    };
+
+    useEffect(() => {
+        const fetchFiles = async () => {
+            if (!projectId || Array.isArray(projectId)) return;
+            try {
+                const userEmail = localStorage.getItem("user:username");
+                if (!userEmail) return;
+                const res = await fetch(`http://localhost:3333/files?mode=disk&key=${encodeURIComponent(userEmail)}:${encodeURIComponent(projectId)}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setFiles(Array.isArray(data) ? data : []);
+                }
+            } catch { }
+        };
+        fetchFiles();
+    }, [projectId]);
+
+    const handleFileDrop = async (event: React.DragEvent<HTMLDivElement>) => {
+        event.preventDefault();
         setUploading(true);
         setUploadError(null);
-        // Simulate upload and add to state
-        setTimeout(() => {
-            setFiles(f => [
-                ...f,
-                {
-                    id: Date.now().toString(),
-                    name: file.name,
-                    size: file.size,
-                    uploader: userName || 'You',
-                    date: new Date().toISOString(),
-                    url: URL.createObjectURL(file),
-                },
-            ]);
+
+        const droppedFiles = Array.from(event.dataTransfer.files);
+        if (droppedFiles.length === 0) {
             setUploading(false);
-        }, 1000);
+            return;
+        }
+
+        const newFiles = await Promise.all(droppedFiles.map(async (file) => {
+            const dataUrl = await fileToDataUrl(file);
+            return {
+                id: Date.now().toString(),
+                name: file.name,
+                type: file.type,
+                size: file.size,
+                dataUrl: dataUrl,
+                uploadedAt: new Date().toISOString(),
+            };
+        }));
+
+        const updatedFiles = [...files, ...newFiles];
+        setFiles(updatedFiles);
+        await saveFiles(updatedFiles);
+
+        setUploading(false);
+        showNotification({
+            title: 'Files Uploaded',
+            message: `${newFiles.length} file(s) uploaded successfully.`,
+            color: 'green',
+        });
     };
 
-    useEffect(() => {
-        if (!userName) return;
-        const checkTaskReminders = () => {
-            const now = new Date();
-            const todayStr = now.toISOString().slice(0, 10);
-            const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-            const tomorrowStr = tomorrow.toISOString().slice(0, 10);
-            tasks.forEach(task => {
-                if (!task.dueDate || task.status === 'done') return;
-                if (task.dueDate === todayStr) {
-                    showNotification({
-                        title: 'Task Due Today',
-                        message: `"${task.title}" is due today!`,
-                        color: 'blue',
-                    });
-                } else if (task.dueDate === tomorrowStr) {
-                    showNotification({
-                        title: 'Task Due Tomorrow',
-                        message: `"${task.title}" is due tomorrow!`,
-                        color: 'yellow',
-                    });
-                } else if (task.dueDate < todayStr) {
-                    showNotification({
-                        title: 'Task Overdue',
-                        message: `"${task.title}" is overdue!`,
-                        color: 'red',
-                    });
-                }
-            });
-        };
-        checkTaskReminders();
-        const interval = setInterval(checkTaskReminders, 10 * 60 * 1000); // every 10 minutes
-        return () => clearInterval(interval);
-    }, [tasks, userName]);
+    const handleFileDelete = async (fileId: string) => {
+        if (!window.confirm("Are you sure you want to delete this file?")) return;
+        const updatedFiles = files.filter(f => f.id !== fileId);
+        setFiles(updatedFiles);
+        await saveFiles(updatedFiles);
+        showNotification({ title: 'File Deleted', message: 'File has been deleted.', color: 'red' });
+    };
 
-    // Compute filtered and paginated tabs
-    const filteredTabs = docTabs.filter(tab => tab.title.toLowerCase().includes(docSearch.toLowerCase()));
-    const totalPages = Math.max(1, Math.ceil(filteredTabs.length / DOCS_PER_PAGE));
-    const paginatedTabs = docSearch
-      ? filteredTabs // show all matches if searching
-      : filteredTabs.slice((docPage - 1) * DOCS_PER_PAGE, docPage * DOCS_PER_PAGE);
+    const handleFileDownload = (file: any) => {
+        try {
+            saveAs(file.dataUrl, file.name);
+            showNotification({ title: 'Download Started', message: `Downloading ${file.name}`, color: 'green' });
+        } catch (error) {
+            showNotification({ title: 'Download Failed', message: `Could not download ${file.name}`, color: 'red' });
+            console.error('Download error:', error);
+        }
+    };
 
-    // Auto-focus add row input when a new document is created and add row is open
-    useEffect(() => {
-      if (addingRowFor === activeTab && addRowInputRef.current) {
-        addRowInputRef.current.focus();
-      }
-    }, [activeTab, addingRowFor]);
+    // Calendar events
+    const calendarEvents = tasks
+        .filter(task => task.dueDate)
+        .map(task => ({
+            id: task.id,
+            title: task.title,
+            start: new Date(task.dueDate),
+            end: new Date(task.dueDate), // For full-day events, start and end are the same
+            allDay: true,
+            resource: task,
+        }));
 
-    if (loading) {
+    const handleSelectEvent = (event: any) => {
+        const task = event.resource as Task;
+        setCalendarTask({ ...task });
+        setCalendarSelectedDate(new Date(task.dueDate));
+        setCalendarModalMode('edit');
+        setCalendarModalOpen(true);
+    };
+
+    const handleSelectSlot = ({ start }: { start: Date }) => {
+        setCalendarSelectedDate(start);
+        setCalendarTask({
+            title: '',
+            description: '',
+            assignee: '',
+            status: 'todo',
+            priority: 'medium',
+            dueDate: start.toISOString().split('T')[0], // Format for date input
+        });
+        setCalendarModalMode('add');
+        setCalendarModalOpen(true);
+    };
+
+    const handleCalendarModalSave = async () => {
+        if (!calendarTask.title || !calendarSelectedDate) {
+            showNotification({ title: 'Error', message: 'Task title and due date are required.', color: 'red' });
+            return;
+        }
+
+        const now = new Date().toISOString();
+        if (calendarModalMode === 'add') {
+            const newTaskToAdd: Task = {
+                id: Date.now().toString(),
+                title: calendarTask.title,
+                description: calendarTask.description || '',
+                assignee: calendarTask.assignee || '',
+                status: calendarTask.status || 'todo',
+                priority: calendarTask.priority || 'medium',
+                dueDate: calendarSelectedDate.toISOString(),
+                createdAt: now,
+                updatedAt: now,
+            };
+            const updatedTasks = [...tasks, newTaskToAdd];
+            setTasks(updatedTasks);
+            await saveTasks(updatedTasks);
+            showNotification({ title: 'Task Added', message: `Task "${newTaskToAdd.title}" added to calendar.`, color: 'green' });
+        } else if (calendarModalMode === 'edit' && calendarTask.id) {
+            const updatedTasks = tasks.map(t =>
+                t.id === calendarTask.id ? { ...t, ...calendarTask, dueDate: calendarSelectedDate.toISOString(), updatedAt: now } : t
+            ) as Task[];
+            setTasks(updatedTasks);
+            await saveTasks(updatedTasks);
+            showNotification({ title: 'Task Updated', message: `Task "${calendarTask.title}" updated.`, color: 'green' });
+        }
+        setCalendarModalOpen(false);
+        setCalendarTask({});
+        setCalendarSelectedDate(null);
+    };
+
+    const handleCalendarModalDelete = async () => {
+        if (!calendarTask.id) return;
+        if (!window.confirm("Are you sure you want to delete this task from the calendar?")) return;
+        const updatedTasks = tasks.filter(t => t.id !== calendarTask.id);
+        setTasks(updatedTasks);
+        await saveTasks(updatedTasks);
+        showNotification({ title: 'Task Deleted', message: 'Task removed from calendar.', color: 'red' });
+        setCalendarModalOpen(false);
+        setCalendarTask({});
+        setCalendarSelectedDate(null);
+    };
+
+    const projectContext = {
+        name: project?.name,
+        members: project?.members,
+        docTabs: docTabs,
+        docRows: docRows,
+        researchItems: researchItems,
+        tasks: tasks,
+        files: files,
+        chatMessages: chatMessages,
+        qaHistory: qaHistory,
+        currentTab: activeTab,
+        activeDocTab: activeDocTab,
+    };
+
+    const aiContext = `Project: ${project?.name}\nMembers: ${(project?.members || []).join(', ')}\nTasks: ${tasks.length} total\nFiles: ${files.length} uploaded`;
+
+    if (loading || !project) {
         return (
-            <Center style={{ minHeight: 200 }}>
+            <Center style={{ height: "100vh" }}>
                 <Loader />
             </Center>
         );
     }
 
-    if (!project) {
-        return (
-            <Container size="md" mt={40}>
-                <Title order={2} mb="lg" c="red">
-                    Project not found
-                </Title>
-                <Text c="dimmed">The project you are looking for does not exist.</Text>
-            </Container>
-        );
-    }
-
-    // Build project context for AI
-    const fileContext = files && files.length ? `Files: ${files.map(f => `${f.name} (by ${f.uploader}, ${f.date ? new Date(f.date).toLocaleDateString() : 'unknown'})`).join('; ')}` : '';
-    const researchContext = researchItems && researchItems.length ? `Research: ${researchItems.map((r: any) => `${r.title} [${r.type}] (tags: ${(r.tags || []).join(', ')})`).join('; ')}` : '';
-    const recentTaskActivity = tasks.length ? tasks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 5).map(t => `${t.title} (${t.status}, updated: ${new Date(t.updatedAt).toLocaleString()})`).join('; ') : '';
-    const recentFileActivity = files && files.length ? files.slice(-5).map(f => `${f.name} uploaded by ${f.uploader} on ${f.date ? new Date(f.date).toLocaleDateString() : 'unknown'}`).join('; ') : '';
-    const recentActivity = [recentTaskActivity, recentFileActivity].filter(Boolean).join(' | ');
-    const projectContext = project ? `Project: ${project.name}\nMembers: ${(project.members || []).join(', ')}\nTasks: ${tasks.map(t => `${t.title} (assignee: ${t.assignee}, due: ${t.dueDate || 'none'}, status: ${t.status})`).join('; ')}\nDeadlines: ${tasks.filter(t => t.dueDate).map(t => `${t.title}: ${t.dueDate}`).join('; ')}\n${fileContext}\n${researchContext}\nRecent Activity: ${recentActivity}` : '';
+    const filteredDocRows = (docRows[activeDocTab] || []).filter(row =>
+        row.toLowerCase().includes(docSearch.toLowerCase())
+    );
+    const totalDocPages = Math.ceil(filteredDocRows.length / DOCS_PER_PAGE);
+    const paginatedDocRows = filteredDocRows.slice((docPage - 1) * DOCS_PER_PAGE, docPage * DOCS_PER_PAGE);
 
     return (
         <>
-            <Box style={{ minHeight: '100vh', background: styles.background, position: 'relative', overflow: 'hidden' }}>
-                {/* Futuristic Glow Overlay */}
-                <div style={styles.overlay} />
-                <Container size={isMobile ? 'xs' : 'md'} mt={isMobile ? 8 : 40} px={isMobile ? 0 : undefined}>
-                    <Title order={2} mb={isMobile ? 'md' : 'lg'} style={{ color: styles.textColor, fontWeight: 800, letterSpacing: 1, fontSize: isMobile ? 22 : 32 }}>
-                        Project: {project.name || projectId}
-                    </Title>
-                    <Box>
-                        <Tabs value={activeTab} onChange={value => setActiveTab(value || "default")}
-                            orientation={isMobile ? 'horizontal' : 'vertical'}
-                            style={{ flex: 1, display: 'flex' }}
-                            styles={{
-                                tab: {
-                                    background: 'none',
-                                    color: styles.secondaryTextColor,
-                                    borderRadius: 8,
-                                    fontWeight: 700,
-                                    marginBottom: isMobile ? 0 : 4,
-                                    marginRight: isMobile ? 8 : 0,
-                                    padding: isMobile ? '10px 14px' : '12px 20px',
-                                    textAlign: 'left',
-                                    fontSize: isMobile ? 15 : 16,
-                                    minWidth: isMobile ? 90 : 110,
-                                    minHeight: isMobile ? 40 : 48,
-                                },
-                                list: {
-                                    background: styles.tabListBackground,
-                                    borderRadius: 16,
+            <Modal opened={settingsOpened} onClose={() => setSettingsOpened(false)} title="Project Settings" overlayProps={{ backgroundOpacity: 0.55, blur: styles.overlay.filter || 3 }}>
+                <Stack>
+                    <Title order={4}>Rename Project</Title>
+                    <TextInput
+                        placeholder="New project name"
+                        value={renameValue}
+                        onChange={(event) => setRenameValue(event.currentTarget.value)}
+                        rightSection={renaming ? <Loader size="xs" /> : null}
+                    />
+                    <Button onClick={handleRename} loading={renaming}>Rename</Button>
+
+                    <Divider my="sm" />
+
+                    <Title order={4}>Members</Title>
+                    {project.members && project.members.map((email: string) => (
+                        <Group key={email} justify="space-between">
+                            <Text>{email}</Text>
+                            {email !== localStorage.getItem("user:username") && ( // Don't allow owner to remove self
+                                <ActionIcon color="red" onClick={() => handleRemoveMember(email)}>
+                                    <IconTrash size={16} />
+                                </ActionIcon>
+                            )}
+                        </Group>
+                    ))}
+                    <TextInput
+                        placeholder="Add member by email"
+                        value={newMemberEmail}
+                        onChange={(event) => setNewMemberEmail(event.currentTarget.value)}
+                        rightSection={adding ? <Loader size="xs" /> : null}
+                    />
+                    <Button onClick={handleAddMember} loading={adding}>Add Member</Button>
+                </Stack>
+            </Modal>
+
+            {/* Calendar Event Modal */}
+            <Modal opened={calendarModalOpen} onClose={() => setCalendarModalOpen(false)} title={calendarModalMode === 'add' ? 'Add Calendar Task' : 'Edit Calendar Task'}>
+                <Stack>
+                    <TextInput
+                        label="Task Title"
+                        placeholder="Enter task title"
+                        value={calendarTask.title || ''}
+                        onChange={(event) => setCalendarTask({ ...calendarTask, title: event.currentTarget.value })}
+                        required
+                    />
+                    <Textarea
+                        label="Description"
+                        placeholder="Enter task description"
+                        value={calendarTask.description || ''}
+                        onChange={(event) => setCalendarTask({ ...calendarTask, description: event.currentTarget.value })}
+                    />
+                    <TextInput
+                        label="Assignee"
+                        placeholder="Enter assignee email or name"
+                        value={calendarTask.assignee || ''}
+                        onChange={(event) => setCalendarTask({ ...calendarTask, assignee: event.currentTarget.value })}
+                    />
+                    <Select
+                        label="Status"
+                        placeholder="Select status"
+                        value={calendarTask.status || 'todo'}
+                        onChange={(value) => setCalendarTask({ ...calendarTask, status: value as Task['status'] })}
+                        data={statuses.map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }))}
+                    />
+                    <Select
+                        label="Priority"
+                        placeholder="Select priority"
+                        value={calendarTask.priority || 'medium'}
+                        onChange={(value) => setCalendarTask({ ...calendarTask, priority: value as Task['priority'] })}
+                        data={priorities.map(p => ({ value: p, label: p.charAt(0).toUpperCase() + p.slice(1) }))}
+                    />
+                    <TextInput
+                        label="Due Date"
+                        type="date"
+                        value={calendarSelectedDate ? calendarSelectedDate.toISOString().split('T')[0] : ''}
+                        onChange={(event) => setCalendarSelectedDate(new Date(event.currentTarget.value))}
+                        required
+                    />
+                    <Group justify="flex-end">
+                        {calendarModalMode === 'edit' && (
+                            <Button variant="outline" color="red" onClick={handleCalendarModalDelete}>Delete</Button>
+                        )}
+                        <Button onClick={handleCalendarModalSave}>Save</Button>
+                    </Group>
+                </Stack>
+            </Modal>
+
+            {/* Edit Q&A Modal */}
+            <Modal opened={!!editQAPair} onClose={handleCancelEditQAPair} title="Edit Q&A Pair" overlayProps={{ backgroundOpacity: 0.55, blur: styles.overlay.filter || 3 }}>
+                {editQAPair && (
+                    <Stack>
+                        <Textarea
+                            label="Question"
+                            value={editQAPair.question}
+                            onChange={(event) => setEditQAPair({ ...editQAPair, question: event.currentTarget.value })}
+                            minRows={2}
+                            autosize
+                        />
+                        <Textarea
+                            label="Answer"
+                            value={editQAPair.answer}
+                            onChange={(event) => setEditQAPair({ ...editQAPair, answer: event.currentTarget.value })}
+                            minRows={4}
+                            autosize
+                        />
+                        <Group justify="flex-end">
+                            <Button variant="default" onClick={handleCancelEditQAPair}>Cancel</Button>
+                            <Button onClick={handleSaveEditQAPair} loading={editQALoading}>Save Changes</Button>
+                        </Group>
+                    </Stack>
+                )}
+            </Modal>
+
+            {/* Main Layout */}
+            <Box style={{ width: '100vw', minHeight: '100vh', backgroundColor: styles.background, color: styles.textColor, display: 'flex', flexDirection: 'column' }}>
+                <Group justify="space-between" align="center" p="md" style={{ borderBottom: `1px solid ${styles.cardBorder}` }}>
+                    <Group>
+                        <ActionIcon variant="light" onClick={() => router.push("/projects")} title="Back to Projects">
+                            <IconArrowLeft size={22} />
+                        </ActionIcon>
+                        <Title order={3} style={{ color: styles.textColor }}>{project.name}</Title>
+                    </Group>
+                    <Menu shadow="md" width={200}>
+                        <Menu.Target>
+                            <ActionIcon variant="light" color="gray" size="lg">
+                                <IconDots size={22} />
+                            </ActionIcon>
+                        </Menu.Target>
+                        <Menu.Dropdown>
+                            <Menu.Item onClick={() => setSettingsOpened(true)}>
+                                <IconSettings size={14} style={{ marginRight: rem(9) }} /> Project Settings
+                            </Menu.Item>
+                            <Menu.Item color="red" onClick={handleLogout}>
+                                Logout
+                            </Menu.Item>
+                        </Menu.Dropdown>
+                    </Menu>
+                </Group>
+                <Tabs value={activeTab} onChange={(value) => value && setActiveTab(value)} style={{ flexGrow: 1, display: "flex", flexDirection: "column", width: '100%' }}
+                    styles={{
+                        tab: { borderColor: styles.accentColor, color: styles.accentColor },
+                        panel: { flexGrow: 1, display: "flex", flexDirection: "column", padding: 'lg', backgroundColor: styles.tabPanelBackground, borderRadius: rem(8), maxWidth: 1200, margin: '0 auto' },
+                    }}
+                >
+                    <Tabs.List grow>
+                        <Tabs.Tab value="chat">Chat</Tabs.Tab>
+                        <Tabs.Tab value="documents">Documents</Tabs.Tab>
+                        <Tabs.Tab value="research">Research</Tabs.Tab>
+                        <Tabs.Tab value="tasks">Tasks</Tabs.Tab>
+                        <Tabs.Tab value="files">Files</Tabs.Tab>
+                        <Tabs.Tab value="calendar">Calendar</Tabs.Tab>
+                        <Tabs.Tab value="ai">AI Tools</Tabs.Tab>
+                    </Tabs.List>
+
+                    <Tabs.Panel value="chat">
+                        <Box style={{ flexGrow: 1, overflowY: 'auto', paddingRight: 'xs', marginBottom: 'md' }}>
+                            {chatMessages.map((msg, index) => (
+                                <Group key={msg.id} gap="xs" wrap="nowrap" align="flex-start" style={{ marginBottom: 'sm', justifyContent: msg.sender === localStorage.getItem("user:username") ? 'flex-end' : 'flex-start' }}>
+                                    {msg.sender !== localStorage.getItem("user:username") && msg.sender !== "ai" && (
+                                        <Avatar color="blue" radius="xl">{getInitials(msg.senderName || msg.sender)}</Avatar>
+                                    )}
+                                    {msg.sender === "ai" && (
+                                        <Avatar color="violet" radius="xl"><IconRobot size={20} /></Avatar>
+                                    )}
+                                    <Paper
+                                        shadow="xs"
+                                        radius="md"
+                                        p="sm"
+                                        style={{
+                                            backgroundColor: msg.sender === localStorage.getItem("user:username") ? styles.accentColor : styles.cardBackground,
+                                            color: msg.sender === localStorage.getItem("user:username") ? '#fff' : styles.textColor,
+                                            maxWidth: '70%',
+                                            wordBreak: 'break-word',
+                                            position: 'relative',
+                                        }}
+                                    >
+                                        <Text size="xs" style={{ fontWeight: 'bold', color: msg.sender === localStorage.getItem("user:username") ? 'rgba(255,255,255,0.8)' : styles.secondaryTextColor }}>
+                                            {msg.senderName || msg.sender}
+                                        </Text>
+                                        {msg.type === "text" && <ReactMarkdown>{msg.content}</ReactMarkdown>}
+                                        {msg.type === "image" && msg.fileUrl && <img src={msg.fileUrl} alt="uploaded" style={{ maxWidth: '100%', borderRadius: '4px' }} />}
+                                        {msg.type === "ai" && <ReactMarkdown>{msg.content}</ReactMarkdown>}
+                                        <Text size="xs" style={{ color: msg.sender === localStorage.getItem("user:username") ? 'rgba(255,255,255,0.6)' : styles.secondaryTextColor, marginTop: 'xs', textAlign: 'right' }}>
+                                            {new Date(msg.timestamp).toLocaleTimeString()}
+                                        </Text>
+                                        <Group gap={4} style={{ position: 'absolute', bottom: 5, right: 5 }}>
+                                            {(msg.reactions || []).map((reaction: string, rIdx: number) => (
+                                                <Badge key={rIdx} size="sm" radius="sm" variant="filled">
+                                                    {reaction}
+                                                </Badge>
+                                            ))}
+                                            <Menu shadow="md" width={100}>
+                                                <Menu.Target>
+                                                    <ActionIcon size="xs" variant="transparent" color={msg.sender === localStorage.getItem("user:username") ? 'white' : 'gray'}>
+                                                        <IconMoodSmile size={14} />
+                                                    </ActionIcon>
+                                                </Menu.Target>
+                                                <Menu.Dropdown>
+                                                    {['👍', '❤️', '😂', '🔥'].map(emoji => (
+                                                        <Menu.Item key={emoji} onClick={() => addReaction(msg.id, emoji)}>
+                                                            {emoji}
+                                                        </Menu.Item>
+                                                    ))}
+                                                </Menu.Dropdown>
+                                            </Menu>
+                                        </Group>
+                                    </Paper>
+                                </Group>
+                            ))}
+                            {aiThinking && (
+                                <Group gap="xs" wrap="nowrap" align="flex-start" style={{ marginBottom: 'sm' }}>
+                                    <Avatar color="violet" radius="xl"><IconRobot size={20} /></Avatar>
+                                    <Paper shadow="xs" radius="md" p="sm" style={{ backgroundColor: styles.cardBackground, color: styles.textColor, maxWidth: '70%', wordBreak: 'break-word' }}>
+                                        <Text size="xs" style={{ fontWeight: 'bold', color: styles.secondaryTextColor }}>AI Assistant</Text>
+                                        <Loader size="xs" />
+                                    </Paper>
+                                </Group>
+                            )}
+                            <div ref={chatEndRef} />
+                        </Box>
+
+                        <Group wrap="nowrap" style={{ borderTop: `1px solid ${styles.cardBorder}`, paddingTop: 'md' }}>
+                            <TextInput
+                                style={{ flexGrow: 1 }}
+                                placeholder="Type a message, or /ai for AI help..."
+                                value={chatInput}
+                                onChange={(event) => setChatInput(event.currentTarget.value)}
+                                onKeyPress={(event) => {
+                                    if (event.key === 'Enter' && !event.shiftKey) {
+                                        event.preventDefault();
+                                        sendMessage(chatInput);
+                                    }
+                                }}
+                                rightSection={sending ? <Loader size="xs" /> : null}
+                            />
+                            <ActionIcon variant="filled" size="lg" aria-label="Send message" onClick={() => sendMessage(chatInput)} loading={sending}>
+                                <IconSend size={20} />
+                            </ActionIcon>
+                            <input
+                                type="file"
+                                id="file-upload"
+                                style={{ display: 'none' }}
+                                onChange={handleFileUpload}
+                            />
+                            <label htmlFor="file-upload">
+                                <ActionIcon component="span" variant="filled" size="lg" aria-label="Attach file" loading={uploading}>
+                                    <IconFile size={20} />
+                                </ActionIcon>
+                            </label>
+                            <AskAI />
+                        </Group>
+                    </Tabs.Panel>
+
+                    <Tabs.Panel value="documents">
+                        <Box style={{ flexGrow: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', maxWidth: 900, margin: '0 auto', padding: '2rem', boxSizing: 'border-box' }}>
+                            <Box style={{
+                                width: isMobile ? '100%' : rem(250),
+                                flexShrink: 0,
+                                borderRight: isMobile ? 'none' : `1px solid ${styles.cardBorder}`,
+                                borderBottom: isMobile ? `1px solid ${styles.cardBorder}` : 'none',
+                                paddingRight: isMobile ? '0' : 'md',
+                                paddingBottom: isMobile ? 'md' : '0',
+                                overflowY: 'auto'
+                            }}>
+                                <Group justify="space-between" align="center" mb="md">
+                                    <Title order={5} style={{ color: styles.textColor }}>Documents</Title>
+                                    <Button size="xs" onClick={handleAddDocument}>Add Document</Button>
+                                </Group>
+                                <Stack>
+                                    {docTabs.map(tab => (
+                                        <Group key={tab.id} wrap="nowrap" justify="space-between"
+                                            style={{
+                                                backgroundColor: activeDocTab === tab.id ? styles.accentColor + '15' : 'transparent',
+                                                borderRadius: rem(4),
+                                                padding: rem(8),
+                                                cursor: 'pointer',
+                                                border: activeDocTab === tab.id ? `1px solid ${styles.accentColor}` : 'none'
+                                            }}
+                                            onClick={() => {
+                                                if (activeDocTab === tab.id && renamingDocId !== tab.id) {
+                                                    setRenamingDocId(tab.id);
+                                                    setRenameDocValue(tab.title);
+                                                } else {
+                                                    setActiveDocTab(tab.id);
+                                                    setRenamingDocId(null); // Exit rename mode if switching tabs
+                                                }
+                                            }}
+                                        >
+                                            {renamingDocId === tab.id ? (
+                                                <TextInput
+                                                    value={renameDocValue}
+                                                    onChange={(e) => setRenameDocValue(e.currentTarget.value)}
+                                                    onBlur={() => {
+                                                        handleRenameDoc(tab.id, renameDocValue.trim() || tab.title);
+                                                        setRenamingDocId(null);
+                                                    }}
+                                                    onKeyPress={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            handleRenameDoc(tab.id, renameDocValue.trim() || tab.title);
+                                                            setRenamingDocId(null);
+                                                        }
+                                                    }}
+                                                    size="xs"
+                                                    style={{ flexGrow: 1 }}
+                                                    autoFocus
+                                                />
+                                            ) : (
+                                                <Text style={{ flexGrow: 1, color: styles.textColor, fontWeight: activeDocTab === tab.id ? 'bold' : 'normal' }}>
+                                                    {tab.title}
+                                                </Text>
+                                            )}
+
+                                            {tab.id !== "default" && ( // Prevent deleting the default tab
+                                                <ActionIcon variant="light" color="red" size="sm" onClick={(e) => { e.stopPropagation(); handleDeleteDoc(tab.id); }}>
+                                                    <IconTrash size={14} />
+                                                </ActionIcon>
+                                            )}
+                                        </Group>
+                                    ))}
+                                </Stack>
+                            </Box>
+
+                            <Box style={{ flexGrow: 1, paddingLeft: isMobile ? '0' : 'md', paddingTop: isMobile ? 'md' : '0' }}>
+                                <Box style={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    height: '100%',
+                                    backgroundColor: styles.cardBackground,
+                                    border: `1px solid ${styles.cardBorder}`,
+                                    borderRadius: rem(8),
                                     boxShadow: styles.cardShadow,
-                                    padding: isMobile ? 4 : 8,
-                                    minWidth: isMobile ? undefined : 180,
-                                    flexDirection: isMobile ? 'row' : 'column',
-                                    overflowX: isMobile ? 'auto' : 'visible',
-                                    border: 'none',
-                                },
-                                panel: {
-                                    background: styles.tabPanelBackground,
-                                    borderRadius: 24,
-                                    color: styles.textColor,
-                                },
-                            }}
-                        >
-                            <Tabs.List style={{ flexDirection: isMobile ? 'row' : 'column', alignItems: isMobile ? 'flex-start' : 'stretch', gap: 0, border: 'none', boxShadow: 'none', minWidth: isMobile ? undefined : 180, overflowX: isMobile ? 'auto' : 'visible', width: isMobile ? '100%' : undefined }}>
-                                <Tabs.Tab value="dashboard" style={{ background: 'none', color: activeTab === 'dashboard' ? '#1769aa' : '#222', fontWeight: 600, fontSize: 16, border: 'none', borderBottom: activeTab === 'dashboard' ? '3px solid #1769aa' : '3px solid transparent', borderRadius: 0, minWidth: 110, minHeight: 48, margin: '0 2px', transition: 'color 0.18s, border-bottom 0.18s', boxShadow: 'none', outline: 'none' }} onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '3px solid #1769aa'; }} onMouseOut={e => { e.currentTarget.style.color = activeTab === 'dashboard' ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = activeTab === 'dashboard' ? '3px solid #1769aa' : '3px solid transparent'; }}>Dashboard</Tabs.Tab>
-                                <Tabs.Tab value="tasks" style={{ background: 'none', color: activeTab === 'tasks' ? '#1769aa' : '#222', fontWeight: 600, fontSize: 16, border: 'none', borderBottom: activeTab === 'tasks' ? '3px solid #1769aa' : '3px solid transparent', borderRadius: 0, minWidth: 110, minHeight: 48, margin: '0 2px', transition: 'color 0.18s, border-bottom 0.18s', boxShadow: 'none', outline: 'none' }} onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '3px solid #1769aa'; }} onMouseOut={e => { e.currentTarget.style.color = activeTab === 'tasks' ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = activeTab === 'tasks' ? '3px solid #1769aa' : '3px solid transparent'; }}>Tasks</Tabs.Tab>
-                                <Tabs.Tab value="calendar" style={{ background: 'none', color: activeTab === 'calendar' ? '#1769aa' : '#222', fontWeight: 600, fontSize: 16, border: 'none', borderBottom: activeTab === 'calendar' ? '3px solid #1769aa' : '3px solid transparent', borderRadius: 0, minWidth: 110, minHeight: 48, margin: '0 2px', transition: 'color 0.18s, border-bottom 0.18s', boxShadow: 'none', outline: 'none' }} onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '3px solid #1769aa'; }} onMouseOut={e => { e.currentTarget.style.color = activeTab === 'calendar' ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = activeTab === 'calendar' ? '3px solid #1769aa' : '3px solid transparent'; }}>Calendar</Tabs.Tab>
-                                <Tabs.Tab value="files" style={{ background: 'none', color: activeTab === 'files' ? '#1769aa' : '#222', fontWeight: 600, fontSize: 16, border: 'none', borderBottom: activeTab === 'files' ? '3px solid #1769aa' : '3px solid transparent', borderRadius: 0, minWidth: 110, minHeight: 48, margin: '0 2px', transition: 'color 0.18s, border-bottom 0.18s', boxShadow: 'none', outline: 'none' }} onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '3px solid #1769aa'; }} onMouseOut={e => { e.currentTarget.style.color = activeTab === 'files' ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = activeTab === 'files' ? '3px solid #1769aa' : '3px solid transparent'; }}>Files</Tabs.Tab>
-                                <Tabs.Tab value="research" style={{ background: 'none', color: activeTab === 'research' ? '#1769aa' : '#222', fontWeight: 600, fontSize: 16, border: 'none', borderBottom: activeTab === 'research' ? '3px solid #1769aa' : '3px solid transparent', borderRadius: 0, minWidth: 110, minHeight: 48, margin: '0 2px', transition: 'color 0.18s, border-bottom 0.18s', boxShadow: 'none', outline: 'none' }} onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '3px solid #1769aa'; }} onMouseOut={e => { e.currentTarget.style.color = activeTab === 'research' ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = activeTab === 'research' ? '3px solid #1769aa' : '3px solid transparent'; }}>Research</Tabs.Tab>
-                                <Tabs.Tab value="documents" style={{ background: 'none', color: activeTab === 'documents' ? '#1769aa' : '#222', fontWeight: 600, fontSize: 16, border: 'none', borderBottom: activeTab === 'documents' ? '3px solid #1769aa' : '3px solid transparent', borderRadius: 0, minWidth: 110, minHeight: 48, margin: '0 2px', transition: 'color 0.18s, border-bottom 0.18s', boxShadow: 'none', outline: 'none' }} onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '3px solid #1769aa'; }} onMouseOut={e => { e.currentTarget.style.color = activeTab === 'documents' ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = activeTab === 'documents' ? '3px solid #1769aa' : '3px solid transparent'; }}>Documents</Tabs.Tab>
-                                <Tabs.Tab value="templates" style={{ background: 'none', color: activeTab === 'templates' ? '#1769aa' : '#222', fontWeight: 600, fontSize: 16, border: 'none', borderBottom: activeTab === 'templates' ? '3px solid #1769aa' : '3px solid transparent', borderRadius: 0, minWidth: 110, minHeight: 48, margin: '0 2px', transition: 'color 0.18s, border-bottom 0.18s', boxShadow: 'none', outline: 'none' }} onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '3px solid #1769aa'; }} onMouseOut={e => { e.currentTarget.style.color = activeTab === 'templates' ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = activeTab === 'templates' ? '3px solid #1769aa' : '3px solid transparent'; }}>Templates</Tabs.Tab>
-                                <Tabs.Tab value="chat" style={{ background: 'none', color: activeTab === 'chat' ? '#1769aa' : '#222', fontWeight: 600, fontSize: 16, border: 'none', borderBottom: activeTab === 'chat' ? '3px solid #1769aa' : '3px solid transparent', borderRadius: 0, minWidth: 110, minHeight: 48, margin: '0 2px', transition: 'color 0.18s, border-bottom 0.18s', boxShadow: 'none', outline: 'none' }} onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '3px solid #1769aa'; }} onMouseOut={e => { e.currentTarget.style.color = activeTab === 'chat' ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = activeTab === 'chat' ? '3px solid #1769aa' : '3px solid transparent'; }}>SparkChat</Tabs.Tab>
-                                <Tabs.Tab value="members" style={{ background: 'none', color: activeTab === 'members' ? '#1769aa' : '#222', fontWeight: 600, fontSize: 16, border: 'none', borderBottom: activeTab === 'members' ? '3px solid #1769aa' : '3px solid transparent', borderRadius: 0, minWidth: 110, minHeight: 48, margin: '0 2px', transition: 'color 0.18s, border-bottom 0.18s', boxShadow: 'none', outline: 'none' }} onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '3px solid #1769aa'; }} onMouseOut={e => { e.currentTarget.style.color = activeTab === 'members' ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = activeTab === 'members' ? '3px solid #1769aa' : '3px solid transparent'; }}>Members</Tabs.Tab>
-                                <Tabs.Tab value="ai" style={{ background: 'none', color: activeTab === 'ai' ? '#1769aa' : '#222', fontWeight: 600, fontSize: 16, border: 'none', borderBottom: activeTab === 'ai' ? '3px solid #1769aa' : '3px solid transparent', borderRadius: 0, minWidth: 110, minHeight: 48, margin: '0 2px', transition: 'color 0.18s, border-bottom 0.18s', boxShadow: 'none', outline: 'none' }} onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '3px solid #1769aa'; }} onMouseOut={e => { e.currentTarget.style.color = activeTab === 'ai' ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = activeTab === 'ai' ? '3px solid #1769aa' : '3px solid transparent'; }}>AI Insights</Tabs.Tab>
-                            </Tabs.List>
-                            <Tabs.Panel value="dashboard" pt="md">
-                                <Box style={{ flex: 1, minWidth: 0, marginLeft: 32 }}>
-                                    <Box p="md" style={{ background: styles.cardBackground, border: styles.cardBorder, borderRadius: 16, boxShadow: styles.cardShadow, minHeight: 400 }}>
-                                        <Title order={3} style={{ color: styles.accentColor, marginBottom: 16 }}>Executive Dashboard</Title>
-                                        <Group align="flex-start" gap={32}>
-                                            {/* Project Stats */}
-                                            <Stack style={{ minWidth: 220 }}>
-                                                <Title order={5} style={{ color: styles.secondaryTextColor }}>Project Stats</Title>
-                                                <Group gap={12}>
-                                                    <Paper p="md" radius={8} style={{ background: '#f5f7fa', minWidth: 90, textAlign: 'center' }}>
-                                                        <Text size="lg" fw={700}>{tasks.length}</Text>
-                                                        <Text size="xs" c="dimmed">Total Tasks</Text>
-                                                    </Paper>
-                                                    <Paper p="md" radius={8} style={{ background: '#e3fcec', minWidth: 90, textAlign: 'center' }}>
-                                                        <Text size="lg" fw={700}>{tasks.filter(t => t.status === 'done').length}</Text>
-                                                        <Text size="xs" c="dimmed">Completed</Text>
-                                                    </Paper>
-                                                    <Paper p="md" radius={8} style={{ background: '#ffeaea', minWidth: 90, textAlign: 'center' }}>
-                                                        <Text size="lg" fw={700}>{tasks.filter(t => t.dueDate && t.dueDate < new Date().toISOString().slice(0, 10) && t.status !== 'done').length}</Text>
-                                                        <Text size="xs" c="dimmed">Overdue</Text>
-                                                    </Paper>
-                                                    <Paper p="md" radius={8} style={{ background: '#e3eaff', minWidth: 90, textAlign: 'center' }}>
-                                                        <Text size="lg" fw={700}>{tasks.filter(t => t.dueDate && t.dueDate >= new Date().toISOString().slice(0, 10) && t.status !== 'done').length}</Text>
-                                                        <Text size="xs" c="dimmed">Upcoming</Text>
-                                                    </Paper>
-                                                </Group>
-                                            </Stack>
-                                            {/* Upcoming Deadlines */}
-                                            <Stack style={{ minWidth: 220, flex: 1 }}>
-                                                <Title order={5} style={{ color: styles.secondaryTextColor }}>Upcoming Deadlines</Title>
-                                                {tasks.filter(t => t.dueDate && t.status !== 'done' && t.dueDate >= new Date().toISOString().slice(0, 10)).sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 5).map(task => (
-                                                    <Paper key={task.id} p="sm" radius={8} style={{ background: '#fff', border: '1px solid #e3e8ee', marginBottom: 4 }}>
-                                                        <Group justify="space-between">
-                                                            <Text fw={600}>{task.title}</Text>
-                                                            <Text size="xs" c="dimmed">{task.dueDate}</Text>
-                                                        </Group>
-                                                        <Text size="xs" c="dimmed">{task.description}</Text>
-                                                    </Paper>
-                                                ))}
-                                                {tasks.filter(t => t.dueDate && t.status !== 'done' && t.dueDate >= new Date().toISOString().slice(0, 10)).length === 0 && (
-                                                    <Text c="dimmed">No upcoming deadlines.</Text>
-                                                )}
-                                            </Stack>
-                                            {/* Recent Activity */}
-                                            <Stack style={{ minWidth: 220, flex: 1 }}>
-                                                <Title order={5} style={{ color: styles.secondaryTextColor }}>Recent Activity</Title>
-                                                {[...tasks].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 5).map(task => (
-                                                    <Paper key={task.id} p="sm" radius={8} style={{ background: '#fff', border: '1px solid #e3e8ee', marginBottom: 4 }}>
-                                                        <Group justify="space-between">
-                                                            <Text fw={600}>{task.title}</Text>
-                                                            <Text size="xs" c="dimmed">{new Date(task.updatedAt).toLocaleString()}</Text>
-                                                        </Group>
-                                                        <Text size="xs" c="dimmed">{task.description}</Text>
-                                                    </Paper>
-                                                ))}
-                                                {tasks.length === 0 && <Text c="dimmed">No recent activity.</Text>}
-                                            </Stack>
-                                        </Group>
-                                    </Box>
+                                    overflow: 'hidden'
+                                }}>
+                                    <ProjectDocumentsTab
+                                        docTabs={docTabs}
+                                        setDocTabs={setDocTabs}
+                                        activeDocTab={activeDocTab}
+                                        setActiveDocTab={setActiveDocTab}
+                                        docRows={docRows}
+                                        setDocRows={setDocRows}
+                                        addingRowFor={addingRowFor}
+                                        setAddingRowFor={setAddingRowFor}
+                                        newRowValue={newRowValue}
+                                        setNewRowValue={setNewRowValue}
+                                        savingRow={savingRow}
+                                        setSavingRow={setSavingRow}
+                                        editingRow={editingRow}
+                                        setEditingRow={setEditingRow}
+                                        editRowValue={editRowValue}
+                                        setEditRowValue={setEditRowValue}
+                                        savingEdit={savingEdit}
+                                        setSavingEdit={setSavingEdit}
+                                        aiProcessing={aiProcessing}
+                                        setAiProcessing={setAiProcessing}
+                                        addRowInputRef={addRowInputRef}
+                                        handleAddDocument={handleAddDocument}
+                                        handleRenameDoc={handleRenameDoc}
+                                        handleDeleteDoc={handleDeleteDoc}
+                                        handleAddRow={handleAddRow}
+                                        handleSaveRow={handleSaveRow}
+                                        handleCancelRow={handleCancelRow}
+                                        handleDeleteRow={handleDeleteRow}
+                                        handleStartEditRow={handleStartEditRow}
+                                        handleSaveEditRow={handleSaveEditRow}
+                                        handleCancelEditRow={handleCancelEditRow}
+                                        handleAiTransformRow={handleAiTransformRow}
+                                        docSearch={docSearch}
+                                        setDocSearch={setDocSearch}
+                                        docPage={docPage}
+                                        setDocPage={setDocPage}
+                                        DOCS_PER_PAGE={DOCS_PER_PAGE}
+                                        styles={styles}
+                                        showNotification={showNotification}
+                                    />
                                 </Box>
-                            </Tabs.Panel>
-                            <Tabs.Panel value="tasks" pt="md">
-                                <Box style={{ flex: 1, minWidth: 0, marginLeft: 32 }}>
-                                    <Box p="md" style={{ background: styles.cardBackground, border: styles.cardBorder, borderRadius: 16, boxShadow: styles.cardShadow }}>
-                                        <Group justify="space-between" mb="md">
-                                            <Title order={3} style={{ color: styles.accentColor, marginBottom: 0 }}>Tasks</Title>
-                                            <Group>
-                                                <Button
-                                                    variant={taskView === 'list' ? 'filled' : 'light'}
-                                                    color={taskView === 'list' ? styles.accentColor : 'gray'}
-                                                    onClick={() => setTaskView('list')}
-                                                >
-                                                    List View
+                            </Box>
+                        </Box>
+                    </Tabs.Panel>
+
+                    <Tabs.Panel value="research">
+                        <Box style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', maxWidth: 900, margin: '0 auto', padding: '2rem', boxSizing: 'border-box' }}>
+                            <Box style={{
+                                backgroundColor: styles.cardBackground,
+                                border: `1px solid ${styles.cardBorder}`,
+                                borderRadius: rem(8),
+                                boxShadow: styles.cardShadow,
+                                padding: 'md',
+                                marginBottom: 'md'
+                            }}>
+                                <Title order={5} mb="sm" style={{ color: styles.textColor }}>Add New Research Item</Title>
+                                <form onSubmit={handleAddResearch}>
+                                    <Stack>
+                                        <TextInput
+                                            placeholder="Title"
+                                            value={newResearch.title}
+                                            onChange={(e) => setNewResearch({ ...newResearch, title: e.currentTarget.value })}
+                                            required
+                                        />
+                                        <Select
+                                            placeholder="Type"
+                                            value={newResearch.type}
+                                            onChange={(value) => setNewResearch({ ...newResearch, type: value || 'web' })}
+                                            data={[
+                                                { value: 'web', label: 'Web Article' },
+                                                { value: 'paper', label: 'Academic Paper' },
+                                                { value: 'report', label: 'Internal Report' },
+                                                { value: 'meeting', label: 'Meeting Notes' },
+                                                { value: 'other', label: 'Other' },
+                                            ]}
+                                            required
+                                        />
+                                        <Textarea
+                                            placeholder="Content / URL / Summary"
+                                            value={newResearch.content}
+                                            onChange={(e) => setNewResearch({ ...newResearch, content: e.currentTarget.value })}
+                                            autosize
+                                            minRows={3}
+                                            required
+                                        />
+                                        <MultiSelect
+                                            data={allTags}
+                                            placeholder="Add tags"
+                                            searchable
+                                            value={newResearch.tags}
+                                            onChange={(value) => setNewResearch({ ...newResearch, tags: value })}
+                                            creatable
+                                            getCreateLabel={(query) => `+ Create ${query}`}
+                                            onCreate={(query) => {
+                                                setNewResearch(r => ({ ...r, tags: [...(r.tags || []), query] }));
+                                                return query;
+                                            }}
+                                        />
+                                        <Button
+                                            onClick={handleSuggestTags}
+                                            leftSection={<IconSparkles size={16} />}
+                                            loading={suggestingTags}
+                                            variant="light"
+                                        >
+                                            Suggest Tags with AI
+                                        </Button>
+                                        <Group>
+                                            <input
+                                                type="file"
+                                                id="new-research-file-upload"
+                                                style={{ display: 'none' }}
+                                                onChange={(e) => handleFileChange(e, setNewResearchFile)}
+                                            />
+                                            <label htmlFor="new-research-file-upload">
+                                                <Button component="span" leftSection={<IconUpload size={16} />} variant="light">
+                                                    {newResearchFile ? newResearchFile.name : 'Upload File (Optional)'}
                                                 </Button>
-                                                <Button
-                                                    variant={taskView === 'board' ? 'filled' : 'light'}
-                                                    color={taskView === 'board' ? styles.accentColor : 'gray'}
-                                                    onClick={() => setTaskView('board')}
-                                                >
-                                                    Board View
-                                                </Button>
-                                            </Group>
+                                            </label>
+                                            <Button type="submit">Add Research</Button>
                                         </Group>
-                                        {taskView === 'list' ? (
-                                            <>
-                                                <form onSubmit={handleAddTask} style={{ marginBottom: 16 }}>
-                                                    <Group align="end" gap="xs">
+                                    </Stack>
+                                </form>
+                            </Box>
+
+                            <Box style={{
+                                backgroundColor: styles.cardBackground,
+                                border: `1px solid ${styles.cardBorder}`,
+                                borderRadius: rem(8),
+                                boxShadow: styles.cardShadow,
+                                padding: 'md',
+                                flexGrow: 1,
+                                overflowY: 'auto'
+                            }}>
+                                <Group justify="space-between" mb="md">
+                                    <Title order={5} style={{ color: styles.textColor }}>Existing Research Items</Title>
+                                    <Select
+                                        placeholder="Sort by"
+                                        value={sortBy}
+                                        onChange={(value) => setSortBy(value as 'date' | 'title' | 'type')}
+                                        data={[
+                                            { value: 'date', label: 'Date' },
+                                            { value: 'title', label: 'Title' },
+                                            { value: 'type', label: 'Type' },
+                                        ]}
+                                    />
+                                </Group>
+                                <Stack>
+                                    {sortedResearchItems.length === 0 && <Text>No research items added yet.</Text>}
+                                    {sortedResearchItems.map((item: any) => (
+                                        <Paper key={item.id} p="md" shadow="sm" style={{ border: `1px solid ${styles.cardBorder}`, backgroundColor: styles.tabBackground }}>
+                                            {editResearch && editResearch.id === item.id ? (
+                                                <Stack>
+                                                    <TextInput
+                                                        label="Title"
+                                                        value={editResearch.title}
+                                                        onChange={(e) => setEditResearch({ ...editResearch, title: e.currentTarget.value })}
+                                                    />
+                                                    <Select
+                                                        label="Type"
+                                                        value={editResearch.type}
+                                                        onChange={(value) => setEditResearch({ ...editResearch, type: value || 'web' })}
+                                                        data={[
+                                                            { value: 'web', label: 'Web Article' },
+                                                            { value: 'paper', label: 'Academic Paper' },
+                                                            { value: 'report', label: 'Internal Report' },
+                                                            { value: 'meeting', label: 'Meeting Notes' },
+                                                            { value: 'other', label: 'Other' },
+                                                        ]}
+                                                    />
+                                                    <Textarea
+                                                        label="Content / URL / Summary"
+                                                        value={editResearch.content}
+                                                        onChange={(e) => setEditResearch({ ...editResearch, content: e.currentTarget.value })}
+                                                        autosize
+                                                        minRows={3}
+                                                    />
+                                                    <MultiSelect
+                                                        data={allTags}
+                                                        placeholder="Add tags"
+                                                        searchable
+                                                        value={editResearch.tags}
+                                                        onChange={(value) => setEditResearch({ ...editResearch, tags: value })}
+                                                        creatable
+                                                        getCreateLabel={(query) => `+ Create ${query}`}
+                                                        onCreate={(query) => {
+                                                            setEditResearch((r: any) => ({ ...r, tags: [...(r.tags || []), query] }));
+                                                            return query;
+                                                        }}
+                                                    />
+                                                    <Button
+                                                        onClick={handleEditSuggestTags}
+                                                        leftSection={<IconSparkles size={16} />}
+                                                        loading={editSuggestingTags}
+                                                        variant="light"
+                                                    >
+                                                        Suggest Tags with AI
+                                                    </Button>
+                                                    {editResearch.fileUrl && (
+                                                        <Text size="sm" c="dimmed">Current file: {editResearch.fileUrl.substring(0, 50)}...</Text>
+                                                    )}
+                                                    <input
+                                                        type="file"
+                                                        id={`edit-research-file-upload-${item.id}`}
+                                                        style={{ display: 'none' }}
+                                                        onChange={(e) => handleFileChange(e, setEditResearchFile)}
+                                                    />
+                                                    <label htmlFor={`edit-research-file-upload-${item.id}`}>
+                                                        <Button component="span" leftSection={<IconUpload size={16} />} variant="light">
+                                                            {editResearchFile ? editResearchFile.name : 'Change File (Optional)'}
+                                                        </Button>
+                                                    </label>
+                                                    <Group justify="flex-end">
+                                                        <Button variant="default" onClick={handleCancelEditResearch}>Cancel</Button>
+                                                        <Button onClick={handleSaveEditResearch} loading={editResearchLoading}>Save</Button>
+                                                    </Group>
+                                                </Stack>
+                                            ) : (
+                                                <Stack>
+                                                    <Group justify="space-between">
+                                                        <Title order={6} style={{ color: styles.textColor }}>{item.title}</Title>
+                                                        <Group gap={4}>
+                                                            <Badge variant="filled" color="gray">{item.type}</Badge>
+                                                            {item.tags && item.tags.map((tag: string) => (
+                                                                <Badge key={tag} variant="outline" color={styles.badgeColor}>{tag}</Badge>
+                                                            ))}
+                                                        </Group>
+                                                    </Group>
+                                                    <Text size="sm" c="dimmed">Added by {item.createdBy} on {new Date(item.createdAt).toLocaleDateString()}</Text>
+                                                    <Text>{item.summary || item.content}</Text>
+                                                    {item.summary && (
+                                                        <Button
+                                                            variant="light"
+                                                            size="xs"
+                                                            onClick={() => setExpanded(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
+                                                            leftSection={expanded[item.id] ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
+                                                        >
+                                                            {expanded[item.id] ? 'Show Less' : 'Show More (Full Content)'}
+                                                        </Button>
+                                                    )}
+                                                    {expanded[item.id] && item.summary && (
+                                                        <Box mt="xs">
+                                                            <Text size="sm" style={{ fontWeight: 'bold' }}>Full Content:</Text>
+                                                            <Text>{item.content}</Text>
+                                                        </Box>
+                                                    )}
+                                                    {item.fileUrl && (
+                                                        <Button
+                                                            variant="light"
+                                                            size="xs"
+                                                            leftSection={<IconDownload size={14} />}
+                                                            onClick={() => saveAs(item.fileUrl, item.title + '_file')}
+                                                        >
+                                                            Download Attached File
+                                                        </Button>
+                                                    )}
+                                                    <Group gap="xs" justify="flex-end">
+                                                        <Button
+                                                            size="xs"
+                                                            variant="light"
+                                                            onClick={() => handleSummarizeResearch(item)}
+                                                            loading={summarizingId === item.id}
+                                                            leftSection={<IconSparkles size={14} />}
+                                                        >
+                                                            {item.summary ? 'Re-summarize with AI' : 'Summarize with AI'}
+                                                        </Button>
+                                                        <ActionIcon size="sm" variant="light" color="blue" onClick={() => handleEditResearch(item)}><IconEdit size={16} /></ActionIcon>
+                                                        <ActionIcon size="sm" variant="light" color="red" onClick={() => handleDeleteResearch(item.id)}><IconTrash size={16} /></ActionIcon>
+                                                    </Group>
+                                                    <Divider my="xs" />
+                                                    <Title order={6}>Comments</Title>
+                                                    <Stack gap="xs">
+                                                        {(item.annotations || []).map((comment: any) => (
+                                                            <Group key={comment.id} wrap="nowrap" align="flex-start" justify="space-between" style={{ border: `1px solid ${styles.cardBorder}`, padding: rem(8), borderRadius: rem(4), backgroundColor: styles.tabPanelBackground }}>
+                                                                <Box>
+                                                                    <Text size="sm" style={{ fontWeight: 'bold', color: styles.accentColor }}>{comment.author}</Text>
+                                                                    <Text size="sm">{comment.content}</Text>
+                                                                    <Text size="xs" c="dimmed">{new Date(comment.createdAt).toLocaleString()}</Text>
+                                                                </Box>
+                                                                <ActionIcon size="xs" variant="light" color="red" onClick={() => handleDeleteComment(item, comment.id)}><IconTrash size={12} /></ActionIcon>
+                                                            </Group>
+                                                        ))}
+                                                        <TextInput
+                                                            placeholder="Add a comment..."
+                                                            value={commentInputs[item.id] || ''}
+                                                            onChange={(e) => setCommentInputs(prev => ({ ...prev, [item.id]: e.currentTarget.value }))}
+                                                            rightSection={commentLoading[item.id] ? <Loader size="xs" /> : null}
+                                                            onKeyPress={(e) => {
+                                                                if (e.key === 'Enter') handleAddComment(item);
+                                                            }}
+                                                        />
+                                                    </Stack>
+                                                </Stack>
+                                            )}
+                                        </Paper>
+                                    ))}
+                                </Stack>
+                            </Box>
+                        </Box>
+                    </Tabs.Panel>
+
+                    <Tabs.Panel value="tasks">
+                        <Box style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', maxWidth: 900, margin: '0 auto', padding: '2rem', boxSizing: 'border-box' }}>
+                            <Box style={{
+                                backgroundColor: styles.cardBackground,
+                                border: `1px solid ${styles.cardBorder}`,
+                                borderRadius: rem(8),
+                                boxShadow: styles.cardShadow,
+                                padding: '2rem',
+                                marginBottom: '2rem'
+                            }}>
+                                <Title order={5} mb="sm" style={{ color: styles.textColor }}>Add New Task</Title>
+                                <Stack>
+                                    <TextInput
+                                        placeholder="Task Title"
+                                        value={newTask.title}
+                                        onChange={(e) => setNewTask({ ...newTask, title: e.currentTarget.value })}
+                                        required
+                                    />
+                                    <Textarea
+                                        placeholder="Description (optional)"
+                                        value={newTask.description}
+                                        onChange={(e) => setNewTask({ ...newTask, description: e.currentTarget.value })}
+                                        autosize
+                                        minRows={2}
+                                    />
+                                    <TextInput
+                                        placeholder="Assignee Email/Name (optional)"
+                                        value={newTask.assignee}
+                                        onChange={(e) => setNewTask({ ...newTask, assignee: e.currentTarget.value })}
+                                    />
+                                    <Select
+                                        placeholder="Status"
+                                        value={newTask.status}
+                                        onChange={(value) => setNewTask({ ...newTask, status: value as Task['status'] })}
+                                        data={statuses.map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }))}
+                                    />
+                                    <Select
+                                        placeholder="Priority"
+                                        value={newTask.priority}
+                                        onChange={(value) => setNewTask({ ...newTask, priority: value as Task['priority'] })}
+                                        data={priorities.map(p => ({ value: p, label: p.charAt(0).toUpperCase() + p.slice(1) }))}
+                                    />
+                                    <TextInput
+                                        label="Due Date (optional)"
+                                        type="date"
+                                        value={newTask.dueDate}
+                                        onChange={(e) => setNewTask({ ...newTask, dueDate: e.currentTarget.value })}
+                                    />
+                                    <Button onClick={handleAddTask} loading={addingTask}>Add Task</Button>
+                                </Stack>
+                            </Box>
+
+                            <Box style={{
+                                backgroundColor: styles.cardBackground,
+                                border: `1px solid ${styles.cardBorder}`,
+                                borderRadius: rem(8),
+                                boxShadow: styles.cardShadow,
+                                padding: '2rem',
+                                flexGrow: 1,
+                                overflowY: 'auto'
+                            }}>
+                                <Group justify="space-between" mb="md">
+                                    <Title order={5} style={{ color: styles.textColor }}>Project Tasks</Title>
+                                    <Select
+                                        placeholder="View as"
+                                        value={taskView}
+                                        onChange={(value) => setTaskView(value as 'list' | 'board')}
+                                        data={[
+                                            { value: 'list', label: 'List View' },
+                                            { value: 'board', label: 'Kanban Board' },
+                                        ]}
+                                    />
+                                </Group>
+
+                                {taskView === 'list' && (
+                                    <Stack>
+                                        {tasks.length === 0 && <Text>No tasks added yet.</Text>}
+                                        {tasks.map(task => (
+                                            <Paper key={task.id} p="md" shadow="sm" style={{ border: `1px solid ${styles.cardBorder}`, backgroundColor: styles.tabBackground }}>
+                                                {editingTaskId === task.id ? (
+                                                    <Stack>
                                                         <TextInput
                                                             label="Title"
-                                                            value={newTask.title}
-                                                            onChange={e => {
-                                                                const value = e?.currentTarget?.value ?? '';
-                                                                setNewTask(nt => ({ ...nt, title: value }));
-                                                            }}
-                                                            required
-                                                            style={{ flex: 2 }}
+                                                            value={editTask.title}
+                                                            onChange={(e) => setEditTask({ ...editTask, title: e.currentTarget.value })}
+                                                        />
+                                                        <Textarea
+                                                            label="Description"
+                                                            value={editTask.description}
+                                                            onChange={(e) => setEditTask({ ...editTask, description: e.currentTarget.value })}
+                                                            autosize
+                                                            minRows={2}
                                                         />
                                                         <TextInput
                                                             label="Assignee"
-                                                            value={newTask.assignee}
-                                                            onChange={e => {
-                                                                const value = e?.currentTarget?.value ?? '';
-                                                                setNewTask(nt => ({ ...nt, assignee: value }));
-                                                            }}
-                                                            placeholder="Email or name"
-                                                            style={{ flex: 1 }}
+                                                            value={editTask.assignee}
+                                                            onChange={(e) => setEditTask({ ...editTask, assignee: e.currentTarget.value })}
+                                                        />
+                                                        <Select
+                                                            label="Status"
+                                                            value={editTask.status}
+                                                            onChange={(value) => setEditTask({ ...editTask, status: value as Task['status'] })}
+                                                            data={statuses.map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }))}
+                                                        />
+                                                        <Select
+                                                            label="Priority"
+                                                            value={editTask.priority}
+                                                            onChange={(value) => setEditTask({ ...editTask, priority: value as Task['priority'] })}
+                                                            data={priorities.map(p => ({ value: p, label: p.charAt(0).toUpperCase() + p.slice(1) }))}
                                                         />
                                                         <TextInput
                                                             label="Due Date"
                                                             type="date"
-                                                            value={newTask.dueDate}
-                                                            onChange={e => {
-                                                                const value = e?.currentTarget?.value ?? '';
-                                                                setNewTask(nt => ({ ...nt, dueDate: value }));
-                                                            }}
-                                                            style={{ flex: 1 }}
+                                                            value={editTask.dueDate ? editTask.dueDate.split('T')[0] : ''} // Ensure YYYY-MM-DD for date input
+                                                            onChange={(e) => setEditTask({ ...editTask, dueDate: e.currentTarget.value })}
                                                         />
-                                                        <Select
-                                                            label="Priority"
-                                                            value={newTask.priority}
-                                                            onChange={v => setNewTask(nt => ({ ...nt, priority: v as Task['priority'] }))}
-                                                            data={[
-                                                                { value: 'low', label: 'Low' },
-                                                                { value: 'medium', label: 'Medium' },
-                                                                { value: 'high', label: 'High' },
-                                                                { value: 'critical', label: 'Critical' },
-                                                            ]}
-                                                            style={{ flex: 1 }}
-                                                        />
-                                                        <Button type="submit" loading={addingTask} style={{ flex: 1 }}>Add Task</Button>
-                                                    </Group>
-                                                    <Textarea
-                                                        label="Description"
-                                                        value={newTask.description}
-                                                        onChange={e => {
-                                                            const value = e?.currentTarget?.value ?? '';
-                                                            setNewTask(nt => ({ ...nt, description: value }));
-                                                        }}
-                                                        minRows={2}
-                                                        style={{ marginTop: 8 }}
-                                                    />
-                                                </form>
-                                                <Stack gap="sm">
-                                                    {tasks.length === 0 && <Text c="dimmed">No tasks yet. Add your first task!</Text>}
-                                                    {tasks.map(task => (
-                                                        <Paper key={task.id} withBorder p="md" radius="md" style={{ background: styles.tabPanelBackground, border: styles.cardBorder, color: styles.textColor, boxShadow: styles.cardShadow }}>
-                                                            {editingTaskId === task.id ? (
-                                                                <Stack gap="xs">
-                                                                    <Group gap="xs">
-                                                                        <TextInput
-                                                                            value={editTask.title}
-                                                                            onChange={e => {
-                                                                                const value = e?.currentTarget?.value ?? '';
-                                                                                setEditTask(et => ({ ...et, title: value }));
-                                                                            }}
-                                                                            required
-                                                                            style={{ flex: 2 }}
-                                                                        />
-                                                                        <TextInput
-                                                                            value={editTask.assignee}
-                                                                            onChange={e => {
-                                                                                const value = e?.currentTarget?.value ?? '';
-                                                                                setEditTask(et => ({ ...et, assignee: value }));
-                                                                            }}
-                                                                            placeholder="Email or name"
-                                                                            style={{ flex: 1 }}
-                                                                        />
-                                                                        <TextInput
-                                                                            type="date"
-                                                                            value={editTask.dueDate}
-                                                                            onChange={e => {
-                                                                                const value = e?.currentTarget?.value ?? '';
-                                                                                setEditTask(et => ({ ...et, dueDate: value }));
-                                                                            }}
-                                                                            style={{ flex: 1 }}
-                                                                        />
-                                                                        <Select
-                                                                            value={editTask.priority}
-                                                                            onChange={v => setEditTask(et => ({ ...et, priority: v as Task['priority'] }))}
-                                                                            data={[
-                                                                                { value: 'low', label: 'Low' },
-                                                                                { value: 'medium', label: 'Medium' },
-                                                                                { value: 'high', label: 'High' },
-                                                                                { value: 'critical', label: 'Critical' },
-                                                                            ]}
-                                                                            style={{ flex: 1 }}
-                                                                        />
-                                                                    </Group>
-                                                                    <Textarea
-                                                                        value={editTask.description}
-                                                                        onChange={e => {
-                                                                            const value = e?.currentTarget?.value ?? '';
-                                                                            setEditTask(et => ({ ...et, description: value }));
-                                                                        }}
-                                                                        minRows={2}
-                                                                    />
-                                                                    <Group gap="xs">
-                                                                        <Button onClick={handleSaveEditTask} style={{ flex: 1 }}>Save</Button>
-                                                                        <Button variant="light" color="red" onClick={() => setEditingTaskId(null)} style={{ flex: 1 }}>Cancel</Button>
-                                                                    </Group>
-                                                                </Stack>
-                                                            ) : (
-                                                                <Group justify="space-between" align="flex-start">
-                                                                    <div style={{ flex: 3 }}>
-                                                                        <Group gap="xs">
-                                                                            <Badge color={task.status === 'done' ? 'green' : task.status === 'in-progress' ? 'blue' : task.status === 'blocked' ? 'red' : 'gray'}>{task.status.replace(/-/g, ' ').toUpperCase()}</Badge>
-                                                                            <Badge color={task.priority === 'critical' ? 'red' : task.priority === 'high' ? 'orange' : task.priority === 'medium' ? 'yellow' : 'gray'}>{task.priority.toUpperCase()}</Badge>
-                                                                            {task.dueDate && <Badge color={new Date(task.dueDate) < new Date() ? 'red' : 'blue'}>{new Date(task.dueDate).toLocaleDateString()}</Badge>}
-                                                                        </Group>
-                                                                        <Title order={5} style={{ margin: '4px 0', color: styles.accentColor }}>{task.title}</Title>
-                                                                        <Text size="sm" c={styles.secondaryTextColor}>{task.description}</Text>
-                                                                        {task.assignee && (
-                                                                            <Group gap={4} mt={4}>
-                                                                                <Avatar size={24} color="blue" radius="xl">{getInitials(task.assignee)}</Avatar>
-                                                                                <Text size="xs" c={styles.secondaryTextColor}>{task.assignee}</Text>
-                                                                            </Group>
-                                                                        )}
-                                                                    </div>
-                                                                    <Group gap="xs" style={{ flex: 1, justifyContent: 'flex-end' }}>
-                                                                        <ActionIcon variant="subtle" color="blue" onClick={() => handleEditTask(task)}><IconEdit size={18} /></ActionIcon>
-                                                                        <ActionIcon variant="subtle" color="red" onClick={() => handleDeleteTask(task.id)}><IconTrash size={18} /></ActionIcon>
-                                                                    </Group>
-                                                                </Group>
-                                                            )}
-                                                        </Paper>
-                                                    ))}
-                                                </Stack>
-                                            </>
-                                        ) : (
-                                            <DragDropContext onDragEnd={onDragEnd}>
-                                                <Group align="flex-start" gap="md" style={{ overflowX: 'auto' }}>
-                                                    {kanbanColumns.map(col => (
-                                                        <Droppable droppableId={col.key} key={col.key}>
-                                                            {(provided, snapshot) => (
-                                                                <Box
-                                                                    ref={provided.innerRef}
-                                                                    {...provided.droppableProps}
-                                                                    style={{
-                                                                        background: snapshot.isDraggingOver ? '#e3e8ee' : styles.tabPanelBackground,
-                                                                        border: styles.cardBorder,
-                                                                        borderRadius: 12,
-                                                                        minWidth: 260,
-                                                                        minHeight: 400,
-                                                                        padding: 16,
-                                                                        boxShadow: styles.cardShadow,
-                                                                        marginRight: 8,
-                                                                    }}
-                                                                >
-                                                                    <Title order={5} style={{ color: styles.accentColor, marginBottom: 8 }}>{col.label}</Title>
-                                                                    {tasks.filter(t => t.status === col.key).map((task, idx) => (
-                                                                        <Draggable draggableId={task.id} index={idx} key={task.id}>
-                                                                            {(provided, snapshot) => (
-                                                                                <Paper
-                                                                                    ref={provided.innerRef}
-                                                                                    {...provided.draggableProps}
-                                                                                    {...provided.dragHandleProps}
-                                                                                    withBorder p="md" radius="md"
-                                                                                    style={{
-                                                                                        background: snapshot.isDragging ? '#e3e8ee' : styles.cardBackground,
-                                                                                        border: styles.cardBorder,
-                                                                                        color: styles.textColor,
-                                                                                        boxShadow: styles.cardShadow,
-                                                                                        marginBottom: 12,
-                                                                                        ...provided.draggableProps.style,
-                                                                                    }}
-                                                                                >
-                                                                                    <Group gap="xs">
-                                                                                        <Badge color={task.priority === 'critical' ? 'red' : task.priority === 'high' ? 'orange' : task.priority === 'medium' ? 'yellow' : 'gray'}>{task.priority.toUpperCase()}</Badge>
-                                                                                        {task.dueDate && <Badge color={new Date(task.dueDate) < new Date() ? 'red' : 'blue'}>{new Date(task.dueDate).toLocaleDateString()}</Badge>}
-                                                                                    </Group>
-                                                                                    <Title order={6} style={{ margin: '4px 0', color: styles.accentColor }}>{task.title}</Title>
-                                                                                    <Text size="sm" c={styles.secondaryTextColor}>{task.description}</Text>
-                                                                                    {task.assignee && (
-                                                                                        <Group gap={4} mt={4}>
-                                                                                            <Avatar size={24} color="blue" radius="xl">{getInitials(task.assignee)}</Avatar>
-                                                                                            <Text size="xs" c={styles.secondaryTextColor}>{task.assignee}</Text>
-                                                                                        </Group>
-                                                                                    )}
-                                                                                </Paper>
-                                                                            )}
-                                                                        </Draggable>
-                                                                    ))}
-                                                                    {provided.placeholder}
-                                                                </Box>
-                                                            )}
-                                                        </Droppable>
-                                                    ))}
-                                                </Group>
-                                            </DragDropContext>
-                                        )}
-                                    </Box>
-                                </Box>
-                            </Tabs.Panel>
-                            <Tabs.Panel value="calendar" pt="md">
-                                <Box style={{ flex: 1, minWidth: 0, marginLeft: 32 }}>
-                                    <Box p="md" style={{ background: styles.cardBackground, border: styles.cardBorder, borderRadius: 16, boxShadow: styles.cardShadow, minHeight: 400 }}>
-                                        <Group justify="space-between" align="center" mb={16}>
-                                            <Title order={3} style={{ color: styles.accentColor, marginBottom: 0 }}>Project Calendar</Title>
-                                            <Button variant="light" color="blue" onClick={() => {
-                                                const ics = generateICS(tasks, project?.name || 'Project');
-                                                const blob = new Blob([ics.replace(/\n/g, '\r\n')], { type: 'text/calendar' });
-                                                saveAs(blob, `${project?.name || 'project'}-tasks.ics`);
-                                            }}>Export to Calendar</Button>
-                                        </Group>
-                                        <div style={{ height: 600, background: '#fff', borderRadius: 12, boxShadow: styles.cardShadow, padding: 8 }}>
-                                            <BigCalendar
-                                                localizer={localizer}
-                                                events={tasks.filter(t => t.dueDate).map(task => ({
-                                                    id: task.id,
-                                                    title: task.title,
-                                                    start: new Date(task.dueDate),
-                                                    end: new Date(task.dueDate),
-                                                    allDay: true,
-                                                    resource: task,
-                                                }))}
-                                                startAccessor="start"
-                                                endAccessor="end"
-                                                style={{ height: 540, borderRadius: 12 }}
-                                                eventPropGetter={(event: any) => {
-                                                    const task = event.resource;
-                                                    let backgroundColor = '#1769aa'; // upcoming
-                                                    if (task.status === 'done') backgroundColor = '#b0b7ff'; // completed
-                                                    else if (task.dueDate && new Date(task.dueDate) < new Date() && task.status !== 'done') backgroundColor = '#e57373'; // overdue
-                                                    return {
-                                                        style: {
-                                                            backgroundColor,
-                                                            color: '#fff',
-                                                            borderRadius: 8,
-                                                            border: 'none',
-                                                            fontWeight: 600,
-                                                            fontSize: 15,
-                                                            boxShadow: '0 2px 8px rgba(44,62,80,0.08)',
-                                                        },
-                                                    };
-                                                }}
-                                                onSelectEvent={(event: any) => {
-                                                    setCalendarModalMode('edit');
-                                                    setCalendarTask(event.resource);
-                                                    setCalendarSelectedDate(new Date(event.resource.dueDate));
-                                                    setCalendarModalOpen(true);
-                                                }}
-                                                onSelectSlot={(slotInfo: any) => {
-                                                    setCalendarModalMode('add');
-                                                    setCalendarTask({ title: '', description: '', assignee: '', status: 'todo', priority: 'medium', dueDate: slotInfo.start });
-                                                    setCalendarSelectedDate(slotInfo.start);
-                                                    setCalendarModalOpen(true);
-                                                }}
-                                                selectable
-                                                views={['month', 'week', 'day']}
-                                                popup
-                                            />
-                                        </div>
-                                        <Modal opened={calendarModalOpen} onClose={() => setCalendarModalOpen(false)} title={calendarModalMode === 'add' ? 'Add Task' : 'Edit Task'} centered>
-                                            <form onSubmit={async e => {
-                                                e.preventDefault();
-                                                if (!calendarTask.title?.trim()) return;
-                                                if (calendarModalMode === 'add') {
-                                                    const now = new Date().toISOString();
-                                                    const newTask: Task = {
-                                                        id: Date.now().toString(),
-                                                        title: calendarTask.title!,
-                                                        description: calendarTask.description || '',
-                                                        assignee: calendarTask.assignee || '',
-                                                        status: calendarTask.status || 'todo',
-                                                        priority: calendarTask.priority || 'medium',
-                                                        dueDate: calendarSelectedDate ? calendarSelectedDate.toISOString().slice(0, 10) : '',
-                                                        createdAt: now,
-                                                        updatedAt: now,
-                                                    };
-                                                    await saveTasks([...tasks, { ...newTask, status: (newTask.status ?? 'todo') as Task['status'], priority: (newTask.priority ?? 'medium') as Task['priority'] }]);
-                                                } else if (calendarModalMode === 'edit' && calendarTask.id) {
-                                                    const updatedTasks = tasks.map(t => t.id === calendarTask.id ? { ...t, ...calendarTask, dueDate: calendarSelectedDate ? calendarSelectedDate.toISOString().slice(0, 10) : t.dueDate, updatedAt: new Date().toISOString() } : t);
-                                                    await saveTasks(updatedTasks);
-                                                }
-                                                setCalendarModalOpen(false);
-                                            }}>
-                                                <Stack gap={12}>
-                                                    <TextInput label="Title" value={calendarTask.title} onChange={e => setCalendarTask(t => ({ ...t, title: e.target.value }))} required />
-                                                    <Textarea label="Description" value={calendarTask.description} onChange={e => setCalendarTask(t => ({ ...t, description: e.target.value }))} minRows={2} />
-                                                    <TextInput label="Assignee" value={calendarTask.assignee} onChange={e => setCalendarTask(t => ({ ...t, assignee: e.target.value }))} placeholder="Email or name" />
-                                                    <Select label="Status" value={calendarTask.status} onChange={v => setCalendarTask(t => ({ ...t, status: v as Task['status'] }))} data={[{ value: 'todo', label: 'To Do' }, { value: 'in-progress', label: 'In Progress' }, { value: 'blocked', label: 'Blocked' }, { value: 'done', label: 'Done' }]} />
-                                                    <Select label="Priority" value={calendarTask.priority} onChange={v => setCalendarTask(t => ({ ...t, priority: v as Task['priority'] }))} data={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }, { value: 'critical', label: 'Critical' }]} />
-                                                    <TextInput label="Due Date" type="date" value={calendarSelectedDate ? calendarSelectedDate.toISOString().slice(0, 10) : ''} onChange={e => setCalendarSelectedDate(new Date(e.target.value))} />
-                                                    <Group justify="space-between" mt={8}>
-                                                        {calendarModalMode === 'edit' && calendarTask.id && (
-                                                            <Group gap={8}>
-                                                                <Button color="green" variant="light" onClick={async e => {
-                                                                    e.preventDefault();
-                                                                    const updatedTasks = tasks.map(t => t.id === calendarTask.id ? { ...t, status: 'done' as Task['status'], updatedAt: new Date().toISOString() } : t);
-                                                                    await saveTasks(updatedTasks);
-                                                                    setCalendarModalOpen(false);
-                                                                }}>Mark as Done</Button>
-                                                                <Button color="red" variant="light" onClick={async e => {
-                                                                    e.preventDefault();
-                                                                    if (window.confirm('Delete this task?')) {
-                                                                        const updatedTasks = tasks.filter(t => t.id !== calendarTask.id);
-                                                                        await saveTasks(updatedTasks);
-                                                                        setCalendarModalOpen(false);
-                                                                    }
-                                                                }}>Delete</Button>
-                                                            </Group>
-                                                        )}
-                                                        <Group gap={8}>
-                                                            <Button variant="default" onClick={() => setCalendarModalOpen(false)}>Cancel</Button>
-                                                            <Button type="submit">{calendarModalMode === 'add' ? 'Add Task' : 'Save Changes'}</Button>
+                                                        <Group justify="flex-end">
+                                                            <Button variant="default" onClick={() => setEditingTaskId(null)}>Cancel</Button>
+                                                            <Button onClick={handleSaveTask}>Save</Button>
                                                         </Group>
-                                                    </Group>
-                                                </Stack>
-                                            </form>
-                                        </Modal>
-                                    </Box>
-                                </Box>
-                                <AIWorkflowAutomation context={projectContext} tab="calendar" onEnable={(suggestion) => {
-                                    if (/remind/i.test(suggestion)) {
-                                        showNotification({ title: 'Calendar Reminder Set', message: suggestion, color: 'blue' });
-                                    } else {
-                                        showNotification({ title: 'Automation Enabled', message: suggestion, color: 'green' });
-                                    }
-                                }} />
-                            </Tabs.Panel>
-                            <Tabs.Panel value="files" pt="md">
-                                <Box style={{ flex: 1, minWidth: 0, marginLeft: 32 }}>
-                                    <Box p="md" style={{ background: styles.cardBackground, border: styles.cardBorder, borderRadius: 16, boxShadow: styles.cardShadow }}>
-                                        <Title order={3} style={{ color: styles.accentColor, marginBottom: 12 }}>Files</Title>
-                                        <Group mb="md">
-                                            <input type="file" id="file-upload" style={{ display: 'none' }} onChange={handleProjectFileUpload} />
-                                            <Button
-                                                leftSection={<IconUpload size={18} />}
-                                                onClick={() => document.getElementById('file-upload')?.click()}
-                                                loading={uploading}
-                                                style={{ fontWeight: 700, borderRadius: 12 }}
-                                            >
-                                                Upload File
-                                            </Button>
-                                            {uploadError && <Text c="red">{uploadError}</Text>}
-                                        </Group>
-                                        <Stack gap="sm">
-                                            {files.length === 0 && <Text c="dimmed">No files uploaded yet.</Text>}
-                                            {files.map(file => (
-                                                <Paper key={file.id} withBorder p="md" radius="md" style={{ background: styles.tabPanelBackground, border: styles.cardBorder, color: styles.textColor, boxShadow: styles.cardShadow, display: 'flex', alignItems: 'center', gap: 16 }}>
-                                                    <IconFile size={28} style={{ color: styles.accentColor }} />
-                                                    <div style={{ flex: 1 }}>
-                                                        <Text fw={600}>{file.name}</Text>
-                                                        <Text size="xs" c={styles.secondaryTextColor}>{(file.size / 1024).toFixed(1)} KB • Uploaded by {file.uploader} • {new Date(file.date).toLocaleDateString()}</Text>
-                                                    </div>
-                                                    <Button
-                                                        variant="light"
-                                                        color={styles.accentColor}
-                                                        leftSection={<IconDownload size={16} />}
-                                                        component="a"
-                                                        href={file.url}
-                                                        download={file.name}
-                                                        style={{ fontWeight: 600, borderRadius: 8 }}
-                                                    >
-                                                        Download
-                                                    </Button>
-                                                </Paper>
-                                            ))}
-                                        </Stack>
-                                    </Box>
-                                </Box>
-                                <AIWorkflowAutomation context={projectContext} tab="files" onEnable={(suggestion) => {
-                                    if (/auto-archive/i.test(suggestion)) {
-                                        showNotification({ title: 'Auto-Archive Enabled', message: suggestion, color: 'blue' });
-                                    } else {
-                                        showNotification({ title: 'Automation Enabled', message: suggestion, color: 'green' });
-                                    }
-                                }} />
-                            </Tabs.Panel>
-                            <Tabs.Panel value="research" pt="md">
-                                <Box style={{ flex: 1, minWidth: 0, marginLeft: 32 }}>
-                                    {/* Ask AI/Q&A Section */}
-                                    <Paper p="md" radius={12} withBorder style={{ background: '#fff', border: '1px solid #e3e8ee', marginBottom: 32, boxShadow: '0 2px 12px rgba(44,62,80,0.06)' }}>
-                                        <Stack gap={16}>
-                                            <Group align="flex-end" gap="md">
-                                                <TextInput
-                                                    label={isFollowup ? "Ask a follow-up question" : "Ask AI about your research"}
-                                                    placeholder={isFollowup ? "Type your follow-up question..." : "Type your question..."}
-                                                    value={qaQuestion}
-                                                    onChange={e => setQaQuestion(e.target.value)}
-                                                    style={{ flex: 1 }}
-                                                    disabled={qaLoading}
-                                                />
-                                                <Button onClick={handleAskResearchAI} loading={qaLoading} disabled={!qaQuestion.trim()} style={{ height: 40 }}>
-                                                    {isFollowup ? "Ask Follow-up" : "Ask AI"}
-                                                </Button>
-                                                {qaHistory.length > 0 && (
-                                                    <Button variant="light" color="blue" onClick={handleFollowup} disabled={qaLoading} style={{ height: 40 }}>
-                                                        Follow-up
-                                                    </Button>
+                                                    </Stack>
+                                                ) : (
+                                                    <Stack>
+                                                        <Group justify="space-between" align="center">
+                                                            <Title order={6} style={{ color: styles.textColor }}>{task.title}</Title>
+                                                            <Group gap="xs">
+                                                                <Badge color={getStatusColor(task.status)}>{task.status}</Badge>
+                                                                <Badge color={getPriorityColor(task.priority)}>{task.priority}</Badge>
+                                                            </Group>
+                                                        </Group>
+                                                        {task.description && <Text size="sm">{task.description}</Text>}
+                                                        {task.assignee && <Text size="sm" c="dimmed">Assignee: {task.assignee}</Text>}
+                                                        {task.dueDate && <Text size="sm" c="dimmed">Due: {new Date(task.dueDate).toLocaleDateString()}</Text>}
+                                                        <Text size="xs" c="dimmed">Created: {new Date(task.createdAt).toLocaleString()}</Text>
+                                                        <Text size="xs" c="dimmed">Last Updated: {new Date(task.updatedAt).toLocaleString()}</Text>
+                                                        <Group gap="xs" justify="flex-end">
+                                                            <ActionIcon size="sm" variant="light" color="blue" onClick={() => handleEditTask(task)}><IconEdit size={16} /></ActionIcon>
+                                                            <ActionIcon size="sm" variant="light" color="red" onClick={() => handleDeleteTask(task.id)}><IconTrash size={16} /></ActionIcon>
+                                                        </Group>
+                                                    </Stack>
                                                 )}
-                                            </Group>
-                                            <TextInput
-                                                placeholder="Search Q&A..."
-                                                value={qaSearch}
-                                                onChange={e => setQaSearch(e.target.value)}
-                                            />
-                                            {qaError && <Text c="red">{qaError}</Text>}
-                                            {qaAnswer && (
-                                                <Paper p="md" radius="md" style={{ background: styles.cardBackground, color: styles.textColor }}>
-                                                    <Text size="sm" style={{ whiteSpace: 'pre-line' }}>{qaAnswer}</Text>
-                                                </Paper>
-                                            )}
-                                            {qaHistory.length > 0 && (
-                                                <Stack mt={8}>
-                                                    <Title order={5} mb={4} style={{ color: styles.secondaryTextColor }}>Q&A History</Title>
-                                                    {qaHistory.filter(pair =>
-                                                        !qaSearch.trim() ||
-                                                        pair.question.toLowerCase().includes(qaSearch.toLowerCase()) ||
-                                                        pair.answer.toLowerCase().includes(qaSearch.toLowerCase())
-                                                    ).map((pair, idx) => (
-                                                        <Paper key={pair.id} p="sm" radius="md" style={{ background: styles.tabBackground, color: styles.textColor, marginBottom: 8, position: 'relative' }}>
-                                                            <Text size="sm" fw={600}>Q: {pair.question}</Text>
-                                                            <Text size="sm" style={{ whiteSpace: 'pre-line', marginTop: 4 }}>A: {pair.answer}</Text>
-                                                            <Button size="xs" color="red" variant="light" style={{ position: 'absolute', top: 8, right: 8 }} onClick={() => handleDeleteQAPair(pair.id)}>
-                                                                Delete
-                                                            </Button>
-                                                            <Button size="xs" color="blue" variant="light" style={{ position: 'absolute', top: 8, right: 60 }} onClick={() => handleStartEditQAPair(pair)}>
-                                                                Edit
-                                                            </Button>
-                                                        </Paper>
-                                                    ))}
-                                                    <Modal opened={!!editQAPair} onClose={handleCancelEditQAPair} title="Edit Q&A" centered>
-                                                        {editQAPair && (
-                                                            <Stack>
-                                                                <TextInput
-                                                                    label="Question"
-                                                                    value={editQAPair.question}
-                                                                    onChange={e => setEditQAPair((p: any) => ({ ...p, question: e.target.value }))}
-                                                                    required
-                                                                />
-                                                                <TextInput
-                                                                    label="Answer"
-                                                                    value={editQAPair.answer}
-                                                                    onChange={e => setEditQAPair((p: any) => ({ ...p, answer: e.target.value }))}
-                                                                    required
-                                                                />
-                                                            <Group justify="flex-end">
-                                                                <Button variant="default" onClick={handleCancelEditQAPair}>Cancel</Button>
-                                                                <Button onClick={handleSaveEditQAPair} loading={editQALoading}>Save</Button>
-                                                            </Group>
-                                                        </Stack>
-                                                    )}
-                                                </Modal>
-                                            </Stack>
-                                        )}
+                                            </Paper>
+                                        ))}
                                     </Stack>
-                                </Paper>
-                                {/* Research Add Form Section */}
-                                <Paper p="md" radius={12} withBorder style={{ background: '#fff', border: '1px solid #e3e8ee', marginBottom: 32, boxShadow: '0 2px 12px rgba(44,62,80,0.06)' }}>
-                                    <form onSubmit={handleAddResearch}>
-                                        <Stack gap={16}>
-                                            <Group gap={16} align="flex-end">
-                                                <TextInput label="Title" value={newResearch.title} onChange={e => setNewResearch(r => ({ ...r, title: e.target.value }))} required style={{ flex: 2 }} />
-                                                <TextInput label="Type" value={newResearch.type} onChange={e => setNewResearch(r => ({ ...r, type: e.target.value }))} style={{ flex: 1 }} placeholder="web, note, pdf, ..." />
-                                                <TextInput label="Content" value={newResearch.content} onChange={e => setNewResearch(r => ({ ...r, content: e.target.value }))} required style={{ flex: 3 }} />
-                                                <MultiSelect label="Tags" data={allTags} value={newResearch.tags || []} onChange={tags => setNewResearch(r => ({ ...r, tags }))} searchable style={{ flex: 2 }} />
-                                            </Group>
-                                            <Group gap={16} align="center">
-                                                <input type="file" onChange={e => handleFileChange(e, setNewResearchFile)} style={{ flex: 2 }} />
-                                                <Button variant="outline" color="blue" onClick={handleSuggestTags} loading={suggestingTags} style={{ height: 40 }}>
-                                                    Suggest Tags with AI
-                                                </Button>
-                                                <Button type="submit" loading={researchLoading} style={{ height: 40, minWidth: 100 }}>
-                                                    Add
-                                                </Button>
-                                            </Group>
-                                        </Stack>
-                                    </form>
-                                </Paper>
-                                {/* Filter/Sort Controls */}
-                                <Group mb={20} gap={12} align="center" style={{ background: 'none', padding: 0 }}>
-                                    <MultiSelect label="Filter by tags" data={allTags} value={tagFilter} onChange={setTagFilter} placeholder="Select tags to filter" clearable style={{ minWidth: 220 }} />
-                                    <Text size="sm" c="dimmed">Sort by:</Text>
-                                    <Button size="xs" variant={sortBy === 'date' ? 'filled' : 'outline'} color="blue" onClick={() => setSortBy('date')}>Most Recent</Button>
-                                    <Button size="xs" variant={sortBy === 'title' ? 'filled' : 'outline'} color="blue" onClick={() => setSortBy('title')}>Title</Button>
-                                    <Button size="xs" variant={sortBy === 'type' ? 'filled' : 'outline'} color="blue" onClick={() => setSortBy('type')}>Type</Button>
-                                </Group>
-                                {/* Research Items List (unchanged) */}
-                                <Stack>
-                                    {researchLoading ? (
-                                        <Text>Loading research...</Text>
-                                    ) : sortedResearchItems.filter((item: any) => tagFilter.length === 0 || (item.tags || []).some((tag: string) => tagFilter.includes(tag))).length === 0 ? (
-                                        <Text c="dimmed">No research items match the selected tags.</Text>
-                                    ) : (
-                                        sortedResearchItems.filter((item: any) => tagFilter.length === 0 || (item.tags || []).some((tag: string) => tagFilter.includes(tag))).map((item: any) => {
-                                            const isOpen = expanded[item.id];
-                                            return (
-                                                <Paper key={item.id} withBorder p="md" radius={8} style={{ background: '#fff', border: '1px solid #e3e8ee', color: '#222', marginBottom: 8 }}>
-                                                    <Group justify="space-between" align="center" style={{ cursor: 'pointer' }} onClick={() => setExpanded(e => ({ ...e, [item.id]: !e[item.id] }))}>
-                                                        <Group align="center" gap={8} style={{ flex: 1 }}>
-                                                            <Text fw={700}>{item.title}</Text>
-                                                            <Text size="sm" c="#666">{item.type}</Text>
-                                                            {item.tags && item.tags.length > 0 && (
-                                                                <Group gap="xs">
-                                                                    {item.tags.map((tag: string) => (
-                                                                        <Paper key={tag} p="xs" radius={16} style={{ background: '#f5f7fa', color: '#1769aa', fontWeight: 500, fontSize: 13, border: '1px solid #e3e8ee', boxShadow: 'none' }}>{tag}</Paper>
-                                                                    ))}
-                                                                </Group>
-                                                            )}
-                                                        </Group>
-                                                        <ActionIcon variant="subtle" color="blue" size={28}>
-                                                            {isOpen ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
-                                                        </ActionIcon>
-                                                    </Group>
-                                                    {isOpen && (
-                                                        <Box mt={12}>
-                                                            <Title order={5} mb={4}>{item.title}</Title>
-                                                            <Text size="sm" c="#666" mb={8}>{item.type}</Text>
-                                                            <Group mb={8} gap={4}>
-                                                                {item.tags && item.tags.map((tag: string) => (
-                                                                    <Paper key={tag} p="xs" radius={16} style={{ background: '#f5f7fa', color: '#1769aa', fontWeight: 500, fontSize: 13, border: '1px solid #e3e8ee', boxShadow: 'none' }}>{tag}</Paper>
+                                )}
+
+                                {taskView === 'board' && (
+                                    <DragDropContext onDragEnd={onDragEnd}>
+                                        <Group wrap="nowrap" align="flex-start">
+                                            {statuses.map(status => (
+                                                <Droppable key={status} droppableId={status}>
+                                                    {(provided) => (
+                                                        <Box
+                                                            ref={provided.innerRef}
+                                                            {...provided.droppableProps}
+                                                            style={{
+                                                                flex: 1,
+                                                                minWidth: rem(250),
+                                                                backgroundColor: styles.tabBackground,
+                                                                borderRadius: rem(8),
+                                                                padding: 'md',
+                                                                border: `1px solid ${styles.cardBorder}`,
+                                                                boxShadow: styles.cardShadow,
+                                                                minHeight: rem(200)
+                                                            }}
+                                                        >
+                                                            <Title order={6} mb="sm" style={{ textTransform: 'capitalize', color: styles.textColor }}>
+                                                                {status.replace('-', ' ')} ({tasks.filter(t => t.status === status).length})
+                                                            </Title>
+                                                            <Stack>
+                                                                {tasks.filter(t => t.status === status).map((task, index) => (
+                                                                    <Draggable key={task.id} draggableId={task.id} index={index}>
+                                                                        {(provided, snapshot) => (
+                                                                            <Paper
+                                                                                ref={provided.innerRef}
+                                                                                {...provided.draggableProps}
+                                                                                {...provided.dragHandleProps}
+                                                                                p="sm"
+                                                                                shadow="xs"
+                                                                                style={{
+                                                                                    ...provided.draggableProps.style,
+                                                                                    backgroundColor: snapshot.isDragging ? styles.accentColor + '20' : styles.cardBackground,
+                                                                                    border: `1px solid ${styles.cardBorder}`,
+                                                                                }}
+                                                                            >
+                                                                                <Stack gap="xs">
+                                                                                    <Text size="sm" style={{ fontWeight: 'bold' }}>{task.title}</Text>
+                                                                                    {task.assignee && <Text size="xs" c="dimmed">Assignee: {task.assignee}</Text>}
+                                                                                    {task.dueDate && <Text size="xs" c="dimmed">Due: {new Date(task.dueDate).toLocaleDateString()}</Text>}
+                                                                                    <Group gap="xs">
+                                                                                        <Badge color={getPriorityColor(task.priority)} size="xs">{task.priority}</Badge>
+                                                                                        <ActionIcon size="xs" variant="light" color="blue" onClick={() => handleEditTask(task)}><IconEdit size={12} /></ActionIcon>
+                                                                                        <ActionIcon size="xs" variant="light" color="red" onClick={() => handleDeleteTask(task.id)}><IconTrash size={12} /></ActionIcon>
+                                                                                    </Group>
+                                                                                </Stack>
+                                                                            </Paper>
+                                                                        )}
+                                                                    </Draggable>
                                                                 ))}
-                                                            </Group>
-                                                            <Box mb={12}><ReactMarkdown>{item.content}</ReactMarkdown></Box>
-                                                            {item.fileUrl && (
-                                                                <Box mb={8}>
-                                                                    <a href={item.fileUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#1769aa', textDecoration: 'underline', fontSize: 14 }}>📎 View Attachment</a>
-                                                                </Box>
-                                                            )}
-                                                            {item.summary && (
-                                                                <Paper p="md" mt="sm" radius={8} style={{ background: '#f5f7fa', borderLeft: '4px solid #1769aa', color: '#222', marginBottom: 12 }}>
-                                                                    <Group gap={6} mb={4} align="center">
-                                                                        <IconRobot size={16} color="#1769aa" />
-                                                                        <Text size="xs" fw={700} c="#1769aa">AI Summary</Text>
-                                                                    </Group>
-                                                                    <ReactMarkdown>{item.summary}</ReactMarkdown>
-                                                                </Paper>
-                                                            )}
-                                                            {item.annotations && item.annotations.length > 0 && (
-                                                                <Stack mt={16} gap={8}>
-                                                                    <Text size="sm" fw={600} mb={4}>Comments</Text>
-                                                                    {item.annotations.map((c: any) => (
-                                                                        <Paper key={c.id} p="xs" radius={16} style={{ background: '#f5f7fa', border: '1px solid #e3e8ee', color: '#222', boxShadow: 'none', marginBottom: 4 }}>
-                                                                            <Group align="center" gap={8}>
-                                                                                <Avatar radius="xl" size={20} color="blue">{getInitials(c.author)}</Avatar>
-                                                                                <Text size="xs" fw={600}>{c.author}</Text>
-                                                                                <Text size="xs" c="#888">{new Date(c.createdAt).toLocaleString()}</Text>
-                                                                                <Text size="sm" style={{ flex: 1 }}>{c.content}</Text>
-                                                                                {(c.author === userName || project?.createdBy === userName) && (
-                                                                                    <ActionIcon size={18} color="red" variant="subtle" onClick={e => { e.stopPropagation(); handleDeleteComment(item, c.id); }}>
-                                                                                        <IconTrash size={14} />
-                                                                                    </ActionIcon>
-                                                                                )}
-                                                                            </Group>
-                                                                        </Paper>
-                                                                    ))}
-                                                                </Stack>
-                                                            )}
-                                                            <Text size="xs" c="#888" mt={8}>{new Date(item.createdAt).toLocaleString()}</Text>
+                                                                {provided.placeholder}
+                                                            </Stack>
                                                         </Box>
                                                     )}
-                                                </Paper>
-                                            );
-                                        })
-                                    )}
-                                </Stack>
-                            </Box>
-                            <AIWorkflowAutomation context={projectContext} tab="research" />
-                        </Tabs.Panel>
-                        {activeTab === 'documents' && (
-                          <ProjectDocumentsTab
-                            docTabs={docTabs}
-                            setDocTabs={setDocTabs}
-                            activeDocTab={activeDocTab}
-                            setActiveDocTab={setActiveDocTab}
-                            docRows={docRows}
-                            setDocRows={setDocRows}
-                            addingRowFor={addingRowFor}
-                            setAddingRowFor={setAddingRowFor}
-                            newRowValue={newRowValue}
-                            setNewRowValue={setNewRowValue}
-                            savingRow={savingRow}
-                            setSavingRow={setSavingRow}
-                            editingRow={editingRow}
-                            setEditingRow={setEditingRow}
-                            editRowValue={editRowValue}
-                            setEditRowValue={setEditRowValue}
-                            savingEdit={savingEdit}
-                            setSavingEdit={setSavingEdit}
-                            aiProcessing={aiProcessing}
-                            setAiProcessing={setAiProcessing}
-                            addRowInputRef={addRowInputRef}
-                            handleAddDocument={handleAddDocument}
-                            handleRenameDoc={handleRenameDoc}
-                            handleDeleteDoc={handleDeleteDoc}
-                            handleAddRow={handleAddRow}
-                            handleSaveRow={handleSaveRow}
-                            handleCancelRow={handleCancelRow}
-                            handleDeleteRow={handleDeleteRow}
-                            handleStartEditRow={handleStartEditRow}
-                            handleSaveEditRow={handleSaveEditRow}
-                            handleCancelEditRow={handleCancelEditRow}
-                            handleAiTransformRow={handleAiTransformRow}
-                            docSearch={docSearch}
-                            setDocSearch={setDocSearch}
-                            docPage={docPage}
-                            setDocPage={setDocPage}
-                            DOCS_PER_PAGE={DOCS_PER_PAGE}
-                            styles={styles}
-                            showNotification={showNotification}
-                          />
-                        )}
-                        <Tabs.Panel value="templates" pt="md">
-                            <Box style={{ flex: 1, minWidth: 0, marginLeft: 32 }}>
-                                <AIWorkflowAutomation context={projectContext} tab="templates" />
-                                <Text c="dimmed">Templates tab content coming soon!</Text>
-                            </Box>
-                        </Tabs.Panel>
-                        <Tabs.Panel value="chat" pt="md">
-                            <Box style={{ flex: 1, minWidth: 0, marginLeft: 32 }}>
-                                <AIWorkflowAutomation context={projectContext} tab="chat" />
-                                <Box style={{ width: '100%', background: '#fff', border: '1px solid #e3e8ee', borderRadius: 12, padding: 24 }}>
-                                    <Title order={4} mb={8}>SparkChat</Title>
-                                    <Stack gap="xs" style={{ minHeight: 320, maxHeight: 400, overflowY: 'auto', background: '#f8fafc', borderRadius: 8, padding: 12, border: 'none' }}>
-                                        {chatMessages.length === 0 ? (
-                                            <Text c="dimmed" ta="center">No messages yet. Start the conversation!</Text>
-                                        ) : (
-                                            chatMessages.map((msg, idx) => (
-                                                <Group key={msg.id} align="flex-end" style={{ justifyContent: msg.sender === userName ? 'flex-end' : 'flex-start' }}>
-                                                    <Avatar radius="xl" color={msg.sender === 'ai' ? 'blue' : 'gray'} size={28} style={{ fontWeight: 700 }}>{msg.sender === 'ai' ? <IconRobot size={16} /> : getInitials(msg.senderName)}</Avatar>
-                                                    <Paper p="sm" radius={8} style={{ background: '#fff', color: '#222', minWidth: 80, maxWidth: 480, border: '1px solid #e3e8ee', boxShadow: 'none', fontSize: 15 }}>
-                                                        {msg.sender === 'ai' ? <ReactMarkdown>{msg.content}</ReactMarkdown> : <Text size="sm" fw={500} style={{ wordBreak: 'break-word' }}>{msg.content}</Text>}
-                                                        <Group gap={4} mt={4} align="center">
-                                                            <Text size="xs" c="dimmed">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
-                                                            {msg.reactions && msg.reactions.length > 0 && (
-                                                                <Group gap={2}>{msg.reactions.map((emoji: string, i: number) => (<span key={i} style={{ fontSize: 16 }}>{emoji}</span>))}</Group>
-                                                            )}
-                                                            <ActionIcon size="xs" variant="subtle" color="blue" onClick={() => addReaction(msg.id, '👍')}>👍</ActionIcon>
-                                                            <ActionIcon size="xs" variant="subtle" color="blue" onClick={() => addReaction(msg.id, '😂')}>😂</ActionIcon>
-                                                            <ActionIcon size="xs" variant="subtle" color="blue" onClick={() => addReaction(msg.id, '🎉')}>🎉</ActionIcon>
-                                                        </Group>
-                                                    </Paper>
-                                                </Group>
-                                            ))
-                                        )}
-                                        <div ref={chatEndRef} />
-                                    </Stack>
-                                    <Group mt="md" align="flex-end">
-                                        <TextInput placeholder="Type a message... or use /ai to ask the AI assistant" value={chatInput} onChange={e => setChatInput(e.currentTarget.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { sendMessage(chatInput); } }} style={{ flex: 1, background: '#fff', border: '1px solid #e3e8ee', borderRadius: 8 }} disabled={sending || aiThinking} />
-                                        <ActionIcon variant="filled" color="blue" size={36} onClick={() => sendMessage(chatInput)} loading={sending || aiThinking} disabled={!chatInput.trim()} title="Send"><IconSend size={20} /></ActionIcon>
-                                        <ActionIcon variant="light" color="blue" size={36} onClick={() => sendMessage(`/ai ${chatInput}`)} loading={aiThinking} title="Ask AI"><IconRobot size={20} /></ActionIcon>
-                                    </Group>
-                                </Box>
-                            </Box>
-                        </Tabs.Panel>
-                        <Tabs.Panel value="members" pt="md">
-                            <Box style={{ flex: 1, minWidth: 0, marginLeft: 32 }}>
-                                <AIWorkflowAutomation context={projectContext} tab="members" />
-                                <Stack>
-                                    <Title order={4} mb="xs">Members</Title>
-                                    {Array.isArray(project.members) && project.members.length > 0 ? (
-                                        <Stack gap={12}>
-                                            {project.members.map((email: string, idx: number) => (
-                                                <Group key={email + idx} justify="space-between" align="center" wrap="nowrap" style={{ background: '#fff', border: '1px solid #e3e8ee', borderRadius: 8, padding: '12px 20px', boxShadow: 'none' }}>
-                                                    <Group align="center" gap={12}>
-                                                        <Avatar radius="xl" color="blue" size={32} style={{ fontWeight: 700 }}>{getInitials(email)}</Avatar>
-                                                        <Text style={{ fontWeight: 500, color: '#222', fontSize: 16 }}>{email}</Text>
-                                                    </Group>
-                                                    <Menu shadow="md" width={140} position="bottom-end">
-                                                        <Menu.Target>
-                                                            <ActionIcon variant="subtle" color="blue" size={28} style={{ transition: 'color 0.18s' }}>
-                                                                <IconDots size={18} />
-                                                            </ActionIcon>
-                                                        </Menu.Target>
-                                                        <Menu.Dropdown>
-                                                            <Menu.Item color="red" leftSection={<IconTrash size={16} />} onClick={() => handleRemoveMember(email)} disabled={project.members.length <= 1}>
-                                                                Remove
-                                                            </Menu.Item>
-                                                        </Menu.Dropdown>
-                                                    </Menu>
-                                                </Group>
+                                                </Droppable>
                                             ))}
-                                        </Stack>
-                                    ) : (
-                                        <Text c="dimmed">No members yet.</Text>
-                                    )}
-                                    <Group mt="md" gap={8}>
-                                        <TextInput placeholder="Add member by email" value={newMemberEmail} onChange={(e) => setNewMemberEmail(e.currentTarget.value)} disabled={adding} style={{ flex: 2 }} />
-                                        <Button onClick={handleAddMember} loading={adding} disabled={!newMemberEmail} style={{ flex: 1 }}>Add</Button>
+                                        </Group>
+                                    </DragDropContext>
+                                )}
+                            </Box>
+                        </Box>
+                    </Tabs.Panel>
+
+                    <Tabs.Panel value="files" onDragOver={(e) => e.preventDefault()} onDrop={handleFileDrop}>
+                        <Box style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', maxWidth: 900, margin: '0 auto', padding: '2rem', boxSizing: 'border-box' }}>
+                            <Box style={{
+                                backgroundColor: styles.cardBackground,
+                                border: `1px solid ${styles.cardBorder}`,
+                                borderRadius: rem(8),
+                                boxShadow: styles.cardShadow,
+                                padding: 'md',
+                                marginBottom: 'md',
+                                minHeight: rem(100),
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                borderStyle: 'dashed',
+                                borderColor: styles.secondaryTextColor
+                            }}>
+                                {uploading ? (
+                                    <Group>
+                                        <Loader size="sm" />
+                                        <Text>Uploading files...</Text>
                                     </Group>
+                                ) : (
+                                    <Text c="dimmed">Drag & drop files here to upload, or click to browse</Text>
+                                )}
+                                {uploadError && <Text color="red" size="sm">{uploadError}</Text>}
+                                {/* Hidden file input for Browse */}
+                                <input
+                                    type="file"
+                                    multiple
+                                    style={{ display: 'none' }}
+                                    id="file-browse-input"
+                                    onChange={handleFileDrop as any} // Cast to any to satisfy type for now
+                                />
+                                <label htmlFor="file-browse-input" style={{ marginLeft: '10px' }}>
+                                    <Button component="span" variant="light" size="xs">Browse</Button>
+                                </label>
+                            </Box>
+
+                            <Box style={{
+                                backgroundColor: styles.cardBackground,
+                                border: `1px solid ${styles.cardBorder}`,
+                                borderRadius: rem(8),
+                                boxShadow: styles.cardShadow,
+                                padding: 'md',
+                                flexGrow: 1,
+                                overflowY: 'auto'
+                            }}>
+                                <Title order={5} mb="md" style={{ color: styles.textColor }}>Uploaded Files</Title>
+                                {files.length === 0 && <Text>No files uploaded yet.</Text>}
+                                <Stack>
+                                    {files.map((file) => (
+                                        <Paper key={file.id} p="sm" shadow="xs" style={{ border: `1px solid ${styles.cardBorder}`, backgroundColor: styles.tabBackground }}>
+                                            <Group justify="space-between" align="center">
+                                                <Group gap="xs">
+                                                    <IconFile size={18} />
+                                                    <Text>{file.name}</Text>
+                                                    <Text size="xs" c="dimmed">({(file.size / 1024).toFixed(2)} KB)</Text>
+                                                </Group>
+                                                <Group gap="xs">
+                                                    <ActionIcon variant="light" color="blue" onClick={() => handleFileDownload(file)} title="Download File">
+                                                        <IconDownload size={16} />
+                                                    </ActionIcon>
+                                                    <ActionIcon variant="light" color="red" onClick={() => handleFileDelete(file.id)} title="Delete File">
+                                                        <IconTrash size={16} />
+                                                    </ActionIcon>
+                                                </Group>
+                                            </Group>
+                                        </Paper>
+                                    ))}
                                 </Stack>
                             </Box>
-                        </Tabs.Panel>
-                        <Tabs.Panel value="ai" style={{ padding: 0, background: 'none' }}>
-                            <AIRiskAlerts context={projectContext} onMitigate={(suggestion) => {
-                                if (/reassign/i.test(suggestion) && tasks.some(t => t.status !== 'done')) {
-                                    const overdue = tasks.find(t => t.dueDate && t.dueDate < new Date().toISOString().slice(0, 10) && t.status !== 'done');
-                                    if (overdue && Array.isArray(project.members) && project.members.length > 0) {
-                                        const assignee = project.members[Math.floor(Math.random() * project.members.length)];
-                                        const updatedTasks = tasks.map(t => t.id === overdue.id ? { ...t, assignee } : t);
-                                        saveTasks(updatedTasks);
-                                        showNotification({ title: 'Task Reassigned', message: `Assigned ${overdue.title} to ${assignee}`, color: 'blue' });
-                                    }
-                                } else if (/remind/i.test(suggestion)) {
-                                    showNotification({ title: 'Reminder Sent', message: suggestion, color: 'blue' });
-                                } else if (/mark as blocked/i.test(suggestion) && tasks.some(t => t.status === 'in-progress')) {
-                                    const inProgress = tasks.find(t => t.status === 'in-progress');
-                                    if (inProgress) {
-                                        const updatedTasks = tasks.map(t => t.id === inProgress.id ? { ...t, status: 'blocked' as Task['status'] } : t);
-                                        saveTasks(updatedTasks);
-                                        showNotification({ title: 'Task Blocked', message: `Marked ${inProgress.title} as blocked`, color: 'red' });
-                                    }
-                                } else {
-                                    showNotification({ title: 'Mitigation Actioned', message: suggestion, color: 'green' });
-                                }
-                            }} />
-                            <AIWorkflowAutomation context={projectContext} tab="dashboard" onEnable={(suggestion) => {
-                                showNotification({ title: 'Automation Enabled', message: suggestion, color: 'green' });
-                            }} />
-                        </Tabs.Panel>
-                    </Tabs>
-                </Box>
-            </Container>
-            <ActionIcon
-                variant="light"
-                color="gray"
-                size={36}
-                onClick={() => setSettingsOpened(true)}
-                title="Project Settings"
-                style={{ marginLeft: rem(12) }}
-            >
-                <IconSettings size={22} />
-            </ActionIcon>
-        </Box>
-        <FloatingAssistant currentTab={activeTab} userName={userName} projectContext={projectContext} onAddTask={(title: string) => {
-            const now = new Date().toISOString();
-            const newTask = {
-                id: Date.now().toString(),
-                title,
-                description: 'Added from AI action item',
-                assignee: '',
-                status: 'todo' as Task['status'],
-                priority: 'medium' as Task['priority'],
-                dueDate: '',
-                createdAt: now,
-                updatedAt: now,
-            };
-            saveTasks([...tasks, newTask]);
-            showNotification({ title: 'Task Added', message: `Task "${title}" added from AI action item.`, color: 'green' });
-        }} />
+                        </Box>
+                    </Tabs.Panel>
+
+                    <Tabs.Panel value="calendar">
+                        <Box style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', maxWidth: 900, margin: '0 auto', padding: '2rem', boxSizing: 'border-box' }}>
+                            <Box style={{
+                                backgroundColor: styles.cardBackground,
+                                border: `1px solid ${styles.cardBorder}`,
+                                borderRadius: rem(8),
+                                boxShadow: styles.cardShadow,
+                                padding: 'md',
+                                flexGrow: 1,
+                                overflow: 'hidden'
+                            }}>
+                                <Group justify="space-between" mb="md">
+                                    <Title order={5} style={{ color: styles.textColor }}>Project Calendar</Title>
+                                    <Button onClick={() => handleSelectSlot({ start: new Date() })} size="sm">Add Event</Button>
+                                </Group>
+                                <BigCalendar
+                                    localizer={localizer}
+                                    events={calendarEvents}
+                                    startAccessor="start"
+                                    endAccessor="end"
+                                    style={{ height: 'calc(100vh - 250px)' }}
+                                    onSelectEvent={handleSelectEvent}
+                                    onSelectSlot={handleSelectSlot}
+                                    selectable
+                                    eventPropGetter={(event: any, start: any, end: any, isSelected: any) => ({
+                                        style: {
+                                            backgroundColor: getStatusColor(event.resource.status),
+                                            color: '#fff',
+                                            borderRadius: '5px',
+                                            border: 'none',
+                                        },
+                                    })}
+                                />
+                            </Box>
+                        </Box>
+                    </Tabs.Panel>
+
+                    <Tabs.Panel value="ai">
+                        <Box style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', maxWidth: 900, margin: '0 auto', padding: '2rem', boxSizing: 'border-box' }}>
+                            <Title order={4} mb="md" style={{ color: styles.textColor }}>AI Tools</Title>
+
+                            <Tabs defaultValue="insights" style={{ flexGrow: 1, display: "flex", flexDirection: "column" }}>
+                                <Tabs.List grow>
+                                    <Tabs.Tab value="insights">Insights</Tabs.Tab>
+                                    <Tabs.Tab value="sentiment">Sentiment Analysis</Tabs.Tab>
+                                    <Tabs.Tab value="automation">Workflow Automation</Tabs.Tab>
+                                    <Tabs.Tab value="risk">Risk Alerts</Tabs.Tab>
+                                    <Tabs.Tab value="qa">Q&A on Research</Tabs.Tab>
+                                    <Tabs.Tab value="onboarding">Onboarding Assistant</Tabs.Tab>
+                                </Tabs.List>
+
+                                <Tabs.Panel value="insights" style={{ flexGrow: 1, padding: 'md', backgroundColor: styles.tabPanelBackground }}>
+                                    <AIInsightsPanel />
+                                </Tabs.Panel>
+                                <Tabs.Panel value="sentiment" style={{ flexGrow: 1, padding: 'md', backgroundColor: styles.tabPanelBackground }}>
+                                    <AISentimentInsights context={aiContext} />
+                                </Tabs.Panel>
+                                <Tabs.Panel value="automation" style={{ flexGrow: 1, padding: 'md', backgroundColor: styles.tabPanelBackground }}>
+                                    <AIWorkflowAutomation context={aiContext} />
+                                </Tabs.Panel>
+                                <Tabs.Panel value="risk" style={{ flexGrow: 1, padding: 'md', backgroundColor: styles.tabPanelBackground }}>
+                                    <AIRiskAlerts context={aiContext} />
+                                </Tabs.Panel>
+                                <Tabs.Panel value="qa" style={{ flexGrow: 1, padding: 'md', backgroundColor: styles.tabPanelBackground }}>
+                                    <Box style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                                        <Box style={{
+                                            backgroundColor: styles.cardBackground,
+                                            border: `1px solid ${styles.cardBorder}`,
+                                            borderRadius: rem(8),
+                                            boxShadow: styles.cardShadow,
+                                            padding: 'md',
+                                            marginBottom: 'md'
+                                        }}>
+                                            <Title order={5} mb="sm" style={{ color: styles.textColor }}>Ask AI about your Research</Title>
+                                            <Stack>
+                                                <Textarea
+                                                    placeholder={isFollowup ? "Ask a follow-up question..." : "Enter your question here..."}
+                                                    value={qaQuestion}
+                                                    onChange={(e) => setQaQuestion(e.currentTarget.value)}
+                                                    autosize
+                                                    minRows={2}
+                                                />
+                                                <Group>
+                                                    <Button onClick={handleAskResearchAI} loading={qaLoading}>Ask AI</Button>
+                                                    {qaHistory.length > 0 && (
+                                                        <Button variant="outline" onClick={handleFollowup} disabled={isFollowup}>Ask Follow-up</Button>
+                                                    )}
+                                                </Group>
+                                                {qaError && <Text color="red">{qaError}</Text>}
+                                                {qaAnswer && (
+                                                    <Paper p="sm" shadow="xs" style={{ backgroundColor: styles.tabBackground, border: `1px solid ${styles.cardBorder}` }}>
+                                                        <Text size="sm" style={{ fontWeight: 'bold' }}>AI Answer:</Text>
+                                                        <ReactMarkdown>{qaAnswer}</ReactMarkdown>
+                                                    </Paper>
+                                                )}
+                                            </Stack>
+                                        </Box>
+
+                                        <Box style={{
+                                            backgroundColor: styles.cardBackground,
+                                            border: `1px solid ${styles.cardBorder}`,
+                                            borderRadius: rem(8),
+                                            boxShadow: styles.cardShadow,
+                                            padding: 'md',
+                                            flexGrow: 1,
+                                            overflowY: 'auto'
+                                        }}>
+                                            <Group justify="space-between" mb="md">
+                                                <Title order={5} style={{ color: styles.textColor }}>Q&A History</Title>
+                                                <TextInput
+                                                    placeholder="Search Q&A history"
+                                                    value={qaSearch}
+                                                    onChange={(event) => setQaSearch(event.currentTarget.value)}
+                                                    style={{ width: rem(200) }}
+                                                />
+                                            </Group>
+                                            <Stack>
+                                                {filteredQaHistory.length === 0 && <Text>No Q&A history yet.</Text>}
+                                                {filteredQaHistory.map((pair, index) => (
+                                                    <Paper key={pair.id} p="md" shadow="sm" style={{ border: `1px solid ${styles.cardBorder}`, backgroundColor: styles.tabBackground }}>
+                                                        <Group justify="space-between">
+                                                            <Title order={6} style={{ color: styles.textColor }}>Question {filteredQaHistory.length - index}:</Title>
+                                                            <Group gap="xs">
+                                                                <ActionIcon size="sm" variant="light" color="blue" onClick={() => handleStartEditQAPair(pair)}><IconEdit size={16} /></ActionIcon>
+                                                                <ActionIcon size="sm" variant="light" color="red" onClick={() => handleDeleteQAPair(pair.id)}><IconTrash size={16} /></ActionIcon>
+                                                            </Group>
+                                                        </Group>
+                                                        <Text mb="xs">{pair.question}</Text>
+                                                        <Title order={6} style={{ color: styles.textColor }}>Answer:</Title>
+                                                        <ReactMarkdown>{pair.answer}</ReactMarkdown>
+                                                        <Text size="xs" c="dimmed" mt="xs">Asked by {pair.createdBy} on {new Date(pair.createdAt).toLocaleString()}</Text>
+                                                    </Paper>
+                                                ))}
+                                            </Stack>
+                                        </Box>
+                                    </Box>
+                                </Tabs.Panel>
+                                <Tabs.Panel value="onboarding" style={{ flexGrow: 1, padding: 'md', backgroundColor: styles.tabPanelBackground }}>
+                                    <OnboardingAssistant />
+                                </Tabs.Panel>
+                            </Tabs>
+                        </Box>
+                    </Tabs.Panel>
+                </Tabs>
+                <Container fluid pt="md" pb="md" style={{ borderTop: `1px solid ${styles.cardBorder}`, width: '100%' }}>
+                    <Text size="sm" c="dimmed" ta="center">&copy; {new Date().getFullYear()} Sparkpad. All rights reserved.</Text>
+                </Container>
+                <ActionIcon
+                    variant="light"
+                    color="gray"
+                    size={36}
+                    onClick={() => setSettingsOpened(true)}
+                    title="Project Settings"
+                    style={{ marginLeft: rem(12) }}
+                >
+                    <IconSettings size={22} />
+                </ActionIcon>
+                <FloatingAssistant
+                    currentTab={activeTab}
+                    userName={userName}
+                    onAddTask={(title: string) => {
+                        const now = new Date().toISOString();
+                        const newTask = {
+                            id: Date.now().toString(),
+                            title,
+                            description: 'Added from AI action item',
+                            assignee: '',
+                            status: 'todo' as Task['status'],
+                            priority: 'medium' as Task['priority'],
+                            dueDate: '',
+                            createdAt: now,
+                            updatedAt: now,
+                        };
+                        saveTasks([...tasks, newTask]);
+                        showNotification({ title: 'Task Added', message: `Task "${title}" added from AI action item.`, color: 'green' });
+                    }}
+                />
+            </Box>
         </>
     );
 }

@@ -428,22 +428,6 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                                     onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '2px solid #1769aa'; }}
                                     onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '2px solid #1769aa' : '2px solid transparent'; }}
                                 >Projects</Link>
-                                <Link href="/research" style={{
-                                    color: pathname.startsWith("/research") ? '#1769aa' : '#222',
-                                    fontWeight: 600,
-                                    fontSize: 16,
-                                    padding: '0 18px',
-                                    height: 40,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    borderBottom: pathname.startsWith("/research") ? '2px solid #1769aa' : '2px solid transparent',
-                                    background: 'none',
-                                    textDecoration: 'none',
-                                    transition: 'color 0.18s, border-bottom 0.18s',
-                                }}
-                                    onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '2px solid #1769aa'; }}
-                                    onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/research") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/research") ? '2px solid #1769aa' : '2px solid transparent'; }}
-                                >Research</Link>
                             </>}
                         </Group>
                     )}
@@ -609,7 +593,6 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                     </>}
                     {isLoggedIn && <>
                         <Link href="/projects" onClick={() => setDrawerOpened(false)}><Text size="lg">Projects</Text></Link>
-                        <Link href="/research" onClick={() => setDrawerOpened(false)}><Text size="lg">Research</Text></Link>
                     </>}
                     <Divider my="sm" />
                     {isLoggedIn && <>

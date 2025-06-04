@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { askAI } from '../utils/ai';
-import { Paper, Text, Group, Button, Loader, Stack } from '@mantine/core';
+import { Paper, Text, Group, Button, Loader, Stack, Accordion } from '@mantine/core';
 import { showNotification } from '@mantine/notifications';
 
 interface Props {
@@ -81,18 +81,27 @@ export default function AIWorkflowAutomation({ context, tab, onEnable }: Props) 
             </Group>
             {loading && <Loader size="sm" mt={8} />}
             {error && <Text c="red" mt={8}>{error}</Text>}
-            <Stack gap={8} mt={8}>
-                {suggestions.map((s, i) => (
-                    <Paper key={i} p="sm" radius={8} style={{ background: '#e3eaff', border: '1px solid #1769aa' }}>
-                        <Group justify="space-between" align="center">
-                            <Text fw={500} color="blue">⚡ {s}</Text>
-                            <Button size="xs" color="blue" variant="outline" onClick={() => handleEnable(s)}>
-                                Enable
-                            </Button>
-                        </Group>
-                    </Paper>
-                ))}
-            </Stack>
+            <Accordion defaultValue={null} mt={8}>
+                <Accordion.Item value="notifications">
+                    <Accordion.Control>
+                        Notifications ({suggestions.length})
+                    </Accordion.Control>
+                    <Accordion.Panel>
+                        <Stack gap={8}>
+                            {suggestions.map((s, i) => (
+                                <Paper key={i} p="sm" radius={8} style={{ background: '#e3eaff', border: '1px solid #1769aa' }}>
+                                    <Group justify="space-between" align="center">
+                                        <Text fw={500} color="blue">⚡ {s}</Text>
+                                        <Button size="xs" color="blue" variant="outline" onClick={() => handleEnable(s)}>
+                                            Enable
+                                        </Button>
+                                    </Group>
+                                </Paper>
+                            ))}
+                        </Stack>
+                    </Accordion.Panel>
+                </Accordion.Item>
+            </Accordion>
             {error && (
                 <Text size="xs" c="dimmed" mt={8}>
                     If this problem persists, please check your API key or network connection. Sample suggestions are shown above.
