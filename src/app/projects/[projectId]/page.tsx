@@ -27,6 +27,8 @@ import { useMediaQuery } from '@mantine/hooks';
 import OnboardingAssistant from '../../../components/OnboardingAssistant';
 // @ts-ignore
 import ProjectDocumentsTab from '../../../components/ProjectDocumentsTab';
+import { PieChart, PieChartProps, BarChart, BarChartProps } from '@mantine/charts';
+import { randomColor } from '@/utils/randomColor'; // If you have a color util, otherwise define a palette inline
 
 // Add module declarations for missing types
 // @ts-ignore
@@ -98,6 +100,17 @@ function loadProjectsFromLocal() {
     } catch { return []; }
 }
 
+// Expense type for budgeting/finance
+export interface Expense {
+    id: string;
+    description: string;
+    amount: number;
+    date: string;
+    category: string;
+    linkedTaskId?: string;
+    receiptUrl?: string;
+}
+
 // Task interface/type
 interface Task {
     id: string;
@@ -109,6 +122,9 @@ interface Task {
     dueDate: string;
     createdAt: string;
     updatedAt: string;
+    // Budgeting fields
+    budget?: number; // Optional budget allocated to this task
+    expenses?: Expense[]; // Expenses for this task
 }
 
 // Document tab type
@@ -275,6 +291,21 @@ export default function ProjectViewPage() {
     });
 
     const addRowInputRef = useRef<HTMLTextAreaElement | null>(null);
+
+    // 1. Add state for finance tab
+    const [financeBudget, setFinanceBudget] = useState<number>(project?.budget || 0);
+    const [financeCurrency, setFinanceCurrency] = useState<string>(project?.currency || 'USD');
+    const [financeExpenses, setFinanceExpenses] = useState<Expense[]>(project?.expenses || []);
+    const [addExpenseModalOpen, setAddExpenseModalOpen] = useState(false);
+    const [newExpense, setNewExpense] = useState<Partial<Expense>>({ amount: 0, date: '', description: '', category: '' });
+    // Add state for AI finance Q&A
+    const [financeAiQuestion, setFinanceAiQuestion] = useState('');
+    const [financeAiAnswer, setFinanceAiAnswer] = useState('');
+    const [financeAiLoading, setFinanceAiLoading] = useState(false);
+    const [financeAiError, setFinanceAiError] = useState('');
+    // Add state for AI category suggestion
+    const [categorySuggesting, setCategorySuggesting] = useState(false);
+    const [categorySuggestError, setCategorySuggestError] = useState('');
 
     useEffect(() => {
         const user = localStorage.getItem("user");
@@ -1066,16 +1097,16 @@ export default function ProjectViewPage() {
         if (!editQAPair) return;
         setEditQALoading(true);
         try {
-            const user = localStorage.getItem("user");
-            const userName = user ? JSON.parse(user).name : "anonymous";
-            const res = await fetch(`/api/projects/${projectId}/research/qa?id=${editQAPair.id}`, {
+        const user = localStorage.getItem("user");
+        const userName = user ? JSON.parse(user).name : "anonymous";
+        const res = await fetch(`/api/projects/${projectId}/research/qa?id=${editQAPair.id}`, {
                 method: "PUT",
                 headers: { "Content-Type": "application/json", user: userName },
                 body: JSON.stringify(editQAPair),
             });
-            if (res.ok) {
+        if (res.ok) {
                 setQaHistory(h => h.map(pair => pair.id === editQAPair.id ? editQAPair : pair));
-                setEditQAPair(null);
+            setEditQAPair(null);
                 showNotification({ title: "Updated", message: "Q&A pair updated.", color: "green" });
             } else {
                 showNotification({ title: "Error", message: "Failed to update Q&A pair.", color: "red" });
@@ -1096,11 +1127,11 @@ export default function ProjectViewPage() {
     // Save tasks to Civil Memory
     const saveTasks = async (updatedTasks: Task[]) => {
         if (!projectId || Array.isArray(projectId)) return;
-        const userEmail = localStorage.getItem("user:username");
+            const userEmail = localStorage.getItem("user:username");
         if (!userEmail) return;
         try {
             await fetch(`http://localhost:3333/tasks?mode=disk&key=${encodeURIComponent(userEmail)}:${encodeURIComponent(projectId)}`, {
-                method: "POST",
+                    method: "POST",
                 body: JSON.stringify(updatedTasks),
             });
         } catch {
@@ -1271,10 +1302,10 @@ export default function ProjectViewPage() {
         const newFiles = await Promise.all(droppedFiles.map(async (file) => {
             const dataUrl = await fileToDataUrl(file);
             return {
-                id: Date.now().toString(),
-                name: file.name,
+                    id: Date.now().toString(),
+                    name: file.name,
                 type: file.type,
-                size: file.size,
+                    size: file.size,
                 dataUrl: dataUrl,
                 uploadedAt: new Date().toISOString(),
             };
@@ -1285,7 +1316,7 @@ export default function ProjectViewPage() {
         await saveFiles(updatedFiles);
 
         setUploading(false);
-        showNotification({
+                    showNotification({
             title: 'Files Uploaded',
             message: `${newFiles.length} file(s) uploaded successfully.`,
             color: 'green',
@@ -1408,6 +1439,48 @@ export default function ProjectViewPage() {
 
     const aiContext = `Project: ${project?.name}\nMembers: ${(project?.members || []).join(', ')}\nTasks: ${tasks.length} total\nFiles: ${files.length} uploaded`;
 
+    // Handler for AI finance Q&A
+    async function handleAskFinanceAI() {
+      if (!financeAiQuestion.trim()) return;
+      setFinanceAiLoading(true);
+      setFinanceAiError('');
+      setFinanceAiAnswer('');
+      try {
+        const gemini = getGeminiClient();
+        const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+        // Compose context from budget and expenses
+        const context = `Project Budget: ${financeCurrency} ${financeBudget}\nExpenses:\n` +
+          financeExpenses.map(e => `- ${e.description} (${e.category}): ${financeCurrency} ${e.amount} on ${e.date}`).join("\n");
+        const prompt = `${context}\n\nQuestion: ${financeAiQuestion}`;
+        const result = await model.generateContent(prompt);
+        const answer = result.response.text().trim();
+        setFinanceAiAnswer(answer);
+      } catch (err: any) {
+        setFinanceAiError(err.message || 'AI failed to answer.');
+      } finally {
+        setFinanceAiLoading(false);
+      }
+    }
+
+    // Handler for AI category suggestion
+    async function handleSuggestCategory() {
+      if (!newExpense.description) return;
+      setCategorySuggesting(true);
+      setCategorySuggestError('');
+      try {
+        const gemini = getGeminiClient();
+        const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const prompt = `Suggest a concise expense category for: "${newExpense.description}". Only return the category name, e.g. Travel, Software, Supplies, Meals, etc.`;
+        const result = await model.generateContent(prompt);
+        const suggestion = result.response.text().trim().split(/\n|\r/)[0];
+        setNewExpense(exp => ({ ...exp, category: suggestion }));
+      } catch (err: any) {
+        setCategorySuggestError(err.message || 'AI failed to suggest category.');
+      } finally {
+        setCategorySuggesting(false);
+      }
+    }
+
     if (loading || !project) {
         return (
             <Center style={{ height: "100vh" }}>
@@ -1421,6 +1494,17 @@ export default function ProjectViewPage() {
     );
     const totalDocPages = Math.ceil(filteredDocRows.length / DOCS_PER_PAGE);
     const paginatedDocRows = filteredDocRows.slice((docPage - 1) * DOCS_PER_PAGE, docPage * DOCS_PER_PAGE);
+
+    // Inside the Finance tab, above the budget/expense form ...
+    const pieColors = [
+      'blue', 'cyan', 'teal', 'green', 'yellow', 'orange', 'red', 'grape', 'violet', 'indigo', 'pink', 'lime', 'gray',
+    ];
+    const pieData = Object.entries(
+      financeExpenses.reduce((acc, e) => {
+        acc[e.category || 'Uncategorized'] = (acc[e.category || 'Uncategorized'] || 0) + (e.amount || 0);
+        return acc;
+      }, {} as Record<string, number>)
+    ).map(([category, value], i) => ({ name: category, value, color: pieColors[i % pieColors.length] }));
 
     return (
         <>
@@ -1446,7 +1530,7 @@ export default function ProjectViewPage() {
                                     <IconTrash size={16} />
                                 </ActionIcon>
                             )}
-                        </Group>
+                                                    </Group>
                     ))}
                     <TextInput
                         placeholder="Add member by email"
@@ -1455,7 +1539,7 @@ export default function ProjectViewPage() {
                         rightSection={adding ? <Loader size="xs" /> : null}
                     />
                     <Button onClick={handleAddMember} loading={adding}>Add Member</Button>
-                </Stack>
+                                                </Stack>
             </Modal>
 
             {/* Calendar Event Modal */}
@@ -1506,7 +1590,7 @@ export default function ProjectViewPage() {
                             <Button variant="outline" color="red" onClick={handleCalendarModalDelete}>Delete</Button>
                         )}
                         <Button onClick={handleCalendarModalSave}>Save</Button>
-                    </Group>
+                                                            </Group>
                 </Stack>
             </Modal>
 
@@ -1575,6 +1659,7 @@ export default function ProjectViewPage() {
                         <Tabs.Tab value="files">Files</Tabs.Tab>
                         <Tabs.Tab value="calendar">Calendar</Tabs.Tab>
                         <Tabs.Tab value="ai">AI Tools</Tabs.Tab>
+                        <Tabs.Tab value="finance">Finance</Tabs.Tab>
                     </Tabs.List>
 
                     <Tabs.Panel value="chat">
@@ -1584,9 +1669,7 @@ export default function ProjectViewPage() {
                                     {msg.sender !== localStorage.getItem("user:username") && msg.sender !== "ai" && (
                                         <Avatar color="blue" radius="xl">{getInitials(msg.senderName || msg.sender)}</Avatar>
                                     )}
-                                    {msg.sender === "ai" && (
-                                        <Avatar color="violet" radius="xl"><IconRobot size={20} /></Avatar>
-                                    )}
+                                    {msg.sender === "ai" && null}
                                     <Paper
                                         shadow="xs"
                                         radius="md"
@@ -1602,9 +1685,15 @@ export default function ProjectViewPage() {
                                         <Text size="xs" style={{ fontWeight: 'bold', color: msg.sender === localStorage.getItem("user:username") ? 'rgba(255,255,255,0.8)' : styles.secondaryTextColor }}>
                                             {msg.senderName || msg.sender}
                                         </Text>
-                                        {msg.type === "text" && <ReactMarkdown>{msg.content}</ReactMarkdown>}
-                                        {msg.type === "image" && msg.fileUrl && <img src={msg.fileUrl} alt="uploaded" style={{ maxWidth: '100%', borderRadius: '4px' }} />}
-                                        {msg.type === "ai" && <ReactMarkdown>{msg.content}</ReactMarkdown>}
+                                        {msg.type === "text" ? (
+                                            <ReactMarkdown>{msg.content}</ReactMarkdown>
+                                        ) : (
+                                            msg.type === "ai" ? (
+                                                <ReactMarkdown>{msg.content}</ReactMarkdown>
+                                            ) : (
+                                                msg.type === "image" && msg.fileUrl && <img src={msg.fileUrl} alt="uploaded" style={{ maxWidth: '100%', borderRadius: '4px' }} />
+                                            )
+                                        )}
                                         <Text size="xs" style={{ color: msg.sender === localStorage.getItem("user:username") ? 'rgba(255,255,255,0.6)' : styles.secondaryTextColor, marginTop: 'xs', textAlign: 'right' }}>
                                             {new Date(msg.timestamp).toLocaleTimeString()}
                                         </Text>
@@ -1629,12 +1718,11 @@ export default function ProjectViewPage() {
                                                 </Menu.Dropdown>
                                             </Menu>
                                         </Group>
-                                    </Paper>
+                                                        </Paper>
                                 </Group>
                             ))}
                             {aiThinking && (
                                 <Group gap="xs" wrap="nowrap" align="flex-start" style={{ marginBottom: 'sm' }}>
-                                    <Avatar color="violet" radius="xl"><IconRobot size={20} /></Avatar>
                                     <Paper shadow="xs" radius="md" p="sm" style={{ backgroundColor: styles.cardBackground, color: styles.textColor, maxWidth: '70%', wordBreak: 'break-word' }}>
                                         <Text size="xs" style={{ fontWeight: 'bold', color: styles.secondaryTextColor }}>AI Assistant</Text>
                                         <Loader size="xs" />
@@ -1673,7 +1761,7 @@ export default function ProjectViewPage() {
                                 </ActionIcon>
                             </label>
                             <AskAI />
-                        </Group>
+                                                            </Group>
                     </Tabs.Panel>
 
                     <Tabs.Panel value="documents">
@@ -1742,7 +1830,7 @@ export default function ProjectViewPage() {
                                             )}
                                         </Group>
                                     ))}
-                                </Stack>
+                                                </Stack>
                             </Box>
 
                             <Box style={{ flexGrow: 1, paddingLeft: isMobile ? '0' : 'md', paddingTop: isMobile ? 'md' : '0' }}>
@@ -1798,9 +1886,9 @@ export default function ProjectViewPage() {
                                         showNotification={showNotification}
                                     />
                                 </Box>
-                            </Box>
-                        </Box>
-                    </Tabs.Panel>
+                                        </Box>
+                                    </Box>
+                                </Tabs.Panel>
 
                     <Tabs.Panel value="research">
                         <Box style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', maxWidth: 900, margin: '0 auto', padding: '2rem', boxSizing: 'border-box' }}>
@@ -1848,12 +1936,6 @@ export default function ProjectViewPage() {
                                             searchable
                                             value={newResearch.tags}
                                             onChange={(value) => setNewResearch({ ...newResearch, tags: value })}
-                                            creatable
-                                            getCreateLabel={(query) => `+ Create ${query}`}
-                                            onCreate={(query) => {
-                                                setNewResearch(r => ({ ...r, tags: [...(r.tags || []), query] }));
-                                                return query;
-                                            }}
                                         />
                                         <Button
                                             onClick={handleSuggestTags}
@@ -1863,7 +1945,7 @@ export default function ProjectViewPage() {
                                         >
                                             Suggest Tags with AI
                                         </Button>
-                                        <Group>
+                                                <Group>
                                             <input
                                                 type="file"
                                                 id="new-research-file-upload"
@@ -1939,12 +2021,6 @@ export default function ProjectViewPage() {
                                                         searchable
                                                         value={editResearch.tags}
                                                         onChange={(value) => setEditResearch({ ...editResearch, tags: value })}
-                                                        creatable
-                                                        getCreateLabel={(query) => `+ Create ${query}`}
-                                                        onCreate={(query) => {
-                                                            setEditResearch((r: any) => ({ ...r, tags: [...(r.tags || []), query] }));
-                                                            return query;
-                                                        }}
                                                     />
                                                     <Button
                                                         onClick={handleEditSuggestTags}
@@ -1987,14 +2063,14 @@ export default function ProjectViewPage() {
                                                     <Text size="sm" c="dimmed">Added by {item.createdBy} on {new Date(item.createdAt).toLocaleDateString()}</Text>
                                                     <Text>{item.summary || item.content}</Text>
                                                     {item.summary && (
-                                                        <Button
+                                                    <Button
                                                             variant="light"
                                                             size="xs"
                                                             onClick={() => setExpanded(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
                                                             leftSection={expanded[item.id] ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
                                                         >
                                                             {expanded[item.id] ? 'Show Less' : 'Show More (Full Content)'}
-                                                        </Button>
+                                                    </Button>
                                                     )}
                                                     {expanded[item.id] && item.summary && (
                                                         <Box mt="xs">
@@ -2024,7 +2100,7 @@ export default function ProjectViewPage() {
                                                         </Button>
                                                         <ActionIcon size="sm" variant="light" color="blue" onClick={() => handleEditResearch(item)}><IconEdit size={16} /></ActionIcon>
                                                         <ActionIcon size="sm" variant="light" color="red" onClick={() => handleDeleteResearch(item.id)}><IconTrash size={16} /></ActionIcon>
-                                                    </Group>
+                                                </Group>
                                                     <Divider my="xs" />
                                                     <Title order={6}>Comments</Title>
                                                     <Stack gap="xs">
@@ -2036,9 +2112,9 @@ export default function ProjectViewPage() {
                                                                     <Text size="xs" c="dimmed">{new Date(comment.createdAt).toLocaleString()}</Text>
                                                                 </Box>
                                                                 <ActionIcon size="xs" variant="light" color="red" onClick={() => handleDeleteComment(item, comment.id)}><IconTrash size={12} /></ActionIcon>
-                                                            </Group>
+                                            </Group>
                                                         ))}
-                                                        <TextInput
+                                                            <TextInput
                                                             placeholder="Add a comment..."
                                                             value={commentInputs[item.id] || ''}
                                                             onChange={(e) => setCommentInputs(prev => ({ ...prev, [item.id]: e.currentTarget.value }))}
@@ -2073,7 +2149,7 @@ export default function ProjectViewPage() {
                                         placeholder="Task Title"
                                         value={newTask.title}
                                         onChange={(e) => setNewTask({ ...newTask, title: e.currentTarget.value })}
-                                        required
+                                                                required
                                     />
                                     <Textarea
                                         placeholder="Description (optional)"
@@ -2081,10 +2157,10 @@ export default function ProjectViewPage() {
                                         onChange={(e) => setNewTask({ ...newTask, description: e.currentTarget.value })}
                                         autosize
                                         minRows={2}
-                                    />
-                                    <TextInput
+                                                            />
+                                                            <TextInput
                                         placeholder="Assignee Email/Name (optional)"
-                                        value={newTask.assignee}
+                                                                value={newTask.assignee}
                                         onChange={(e) => setNewTask({ ...newTask, assignee: e.currentTarget.value })}
                                     />
                                     <Select
@@ -2098,11 +2174,11 @@ export default function ProjectViewPage() {
                                         value={newTask.priority}
                                         onChange={(value) => setNewTask({ ...newTask, priority: value as Task['priority'] })}
                                         data={priorities.map(p => ({ value: p, label: p.charAt(0).toUpperCase() + p.slice(1) }))}
-                                    />
-                                    <TextInput
+                                                            />
+                                                            <TextInput
                                         label="Due Date (optional)"
-                                        type="date"
-                                        value={newTask.dueDate}
+                                                                type="date"
+                                                                value={newTask.dueDate}
                                         onChange={(e) => setNewTask({ ...newTask, dueDate: e.currentTarget.value })}
                                     />
                                     <Button onClick={handleAddTask} loading={addingTask}>Add Task</Button>
@@ -2120,27 +2196,27 @@ export default function ProjectViewPage() {
                             }}>
                                 <Group justify="space-between" mb="md">
                                     <Title order={5} style={{ color: styles.textColor }}>Project Tasks</Title>
-                                    <Select
+                                                            <Select
                                         placeholder="View as"
                                         value={taskView}
                                         onChange={(value) => setTaskView(value as 'list' | 'board')}
-                                        data={[
+                                                                data={[
                                             { value: 'list', label: 'List View' },
                                             { value: 'board', label: 'Kanban Board' },
                                         ]}
                                     />
-                                </Group>
+                                                        </Group>
 
                                 {taskView === 'list' && (
                                     <Stack>
                                         {tasks.length === 0 && <Text>No tasks added yet.</Text>}
-                                        {tasks.map(task => (
+                                                        {tasks.map(task => (
                                             <Paper key={task.id} p="md" shadow="sm" style={{ border: `1px solid ${styles.cardBorder}`, backgroundColor: styles.tabBackground }}>
-                                                {editingTaskId === task.id ? (
+                                                                {editingTaskId === task.id ? (
                                                     <Stack>
-                                                        <TextInput
+                                                                            <TextInput
                                                             label="Title"
-                                                            value={editTask.title}
+                                                                                value={editTask.title}
                                                             onChange={(e) => setEditTask({ ...editTask, title: e.currentTarget.value })}
                                                         />
                                                         <Textarea
@@ -2149,10 +2225,10 @@ export default function ProjectViewPage() {
                                                             onChange={(e) => setEditTask({ ...editTask, description: e.currentTarget.value })}
                                                             autosize
                                                             minRows={2}
-                                                        />
-                                                        <TextInput
+                                                                            />
+                                                                            <TextInput
                                                             label="Assignee"
-                                                            value={editTask.assignee}
+                                                                                value={editTask.assignee}
                                                             onChange={(e) => setEditTask({ ...editTask, assignee: e.currentTarget.value })}
                                                         />
                                                         <Select
@@ -2160,10 +2236,10 @@ export default function ProjectViewPage() {
                                                             value={editTask.status}
                                                             onChange={(value) => setEditTask({ ...editTask, status: value as Task['status'] })}
                                                             data={statuses.map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }))}
-                                                        />
-                                                        <Select
+                                                                            />
+                                                                            <Select
                                                             label="Priority"
-                                                            value={editTask.priority}
+                                                                                value={editTask.priority}
                                                             onChange={(value) => setEditTask({ ...editTask, priority: value as Task['priority'] })}
                                                             data={priorities.map(p => ({ value: p, label: p.charAt(0).toUpperCase() + p.slice(1) }))}
                                                         />
@@ -2176,17 +2252,17 @@ export default function ProjectViewPage() {
                                                         <Group justify="flex-end">
                                                             <Button variant="default" onClick={() => setEditingTaskId(null)}>Cancel</Button>
                                                             <Button onClick={handleSaveTask}>Save</Button>
-                                                        </Group>
-                                                    </Stack>
-                                                ) : (
+                                                                        </Group>
+                                                                    </Stack>
+                                                                ) : (
                                                     <Stack>
                                                         <Group justify="space-between" align="center">
                                                             <Title order={6} style={{ color: styles.textColor }}>{task.title}</Title>
-                                                            <Group gap="xs">
+                                                                            <Group gap="xs">
                                                                 <Badge color={getStatusColor(task.status)}>{task.status}</Badge>
                                                                 <Badge color={getPriorityColor(task.priority)}>{task.priority}</Badge>
-                                                            </Group>
-                                                        </Group>
+                                                                            </Group>
+                                                                                </Group>
                                                         {task.description && <Text size="sm">{task.description}</Text>}
                                                         {task.assignee && <Text size="sm" c="dimmed">Assignee: {task.assignee}</Text>}
                                                         {task.dueDate && <Text size="sm" c="dimmed">Due: {new Date(task.dueDate).toLocaleDateString()}</Text>}
@@ -2195,31 +2271,31 @@ export default function ProjectViewPage() {
                                                         <Group gap="xs" justify="flex-end">
                                                             <ActionIcon size="sm" variant="light" color="blue" onClick={() => handleEditTask(task)}><IconEdit size={16} /></ActionIcon>
                                                             <ActionIcon size="sm" variant="light" color="red" onClick={() => handleDeleteTask(task.id)}><IconTrash size={16} /></ActionIcon>
-                                                        </Group>
+                                                                        </Group>
                                                     </Stack>
-                                                )}
-                                            </Paper>
-                                        ))}
-                                    </Stack>
+                                                                )}
+                                                            </Paper>
+                                                        ))}
+                                                    </Stack>
                                 )}
 
                                 {taskView === 'board' && (
-                                    <DragDropContext onDragEnd={onDragEnd}>
+                                                <DragDropContext onDragEnd={onDragEnd}>
                                         <Group wrap="nowrap" align="flex-start">
                                             {statuses.map(status => (
                                                 <Droppable key={status} droppableId={status}>
                                                     {(provided) => (
-                                                        <Box
-                                                            ref={provided.innerRef}
-                                                            {...provided.droppableProps}
-                                                            style={{
+                                                                    <Box
+                                                                        ref={provided.innerRef}
+                                                                        {...provided.droppableProps}
+                                                                        style={{
                                                                 flex: 1,
                                                                 minWidth: rem(250),
                                                                 backgroundColor: styles.tabBackground,
                                                                 borderRadius: rem(8),
                                                                 padding: 'md',
                                                                 border: `1px solid ${styles.cardBorder}`,
-                                                                boxShadow: styles.cardShadow,
+                                                                            boxShadow: styles.cardShadow,
                                                                 minHeight: rem(200)
                                                             }}
                                                         >
@@ -2229,45 +2305,45 @@ export default function ProjectViewPage() {
                                                             <Stack>
                                                                 {tasks.filter(t => t.status === status).map((task, index) => (
                                                                     <Draggable key={task.id} draggableId={task.id} index={index}>
-                                                                        {(provided, snapshot) => (
-                                                                            <Paper
-                                                                                ref={provided.innerRef}
-                                                                                {...provided.draggableProps}
-                                                                                {...provided.dragHandleProps}
+                                                                                {(provided, snapshot) => (
+                                                                                    <Paper
+                                                                                        ref={provided.innerRef}
+                                                                                        {...provided.draggableProps}
+                                                                                        {...provided.dragHandleProps}
                                                                                 p="sm"
                                                                                 shadow="xs"
-                                                                                style={{
-                                                                                    ...provided.draggableProps.style,
+                                                                                        style={{
+                                                                                            ...provided.draggableProps.style,
                                                                                     backgroundColor: snapshot.isDragging ? styles.accentColor + '20' : styles.cardBackground,
                                                                                     border: `1px solid ${styles.cardBorder}`,
-                                                                                }}
-                                                                            >
+                                                                                        }}
+                                                                                    >
                                                                                 <Stack gap="xs">
                                                                                     <Text size="sm" style={{ fontWeight: 'bold' }}>{task.title}</Text>
                                                                                     {task.assignee && <Text size="xs" c="dimmed">Assignee: {task.assignee}</Text>}
                                                                                     {task.dueDate && <Text size="xs" c="dimmed">Due: {new Date(task.dueDate).toLocaleDateString()}</Text>}
-                                                                                    <Group gap="xs">
+                                                                                        <Group gap="xs">
                                                                                         <Badge color={getPriorityColor(task.priority)} size="xs">{task.priority}</Badge>
                                                                                         <ActionIcon size="xs" variant="light" color="blue" onClick={() => handleEditTask(task)}><IconEdit size={12} /></ActionIcon>
                                                                                         <ActionIcon size="xs" variant="light" color="red" onClick={() => handleDeleteTask(task.id)}><IconTrash size={12} /></ActionIcon>
-                                                                                    </Group>
+                                                                                        </Group>
                                                                                 </Stack>
-                                                                            </Paper>
-                                                                        )}
-                                                                    </Draggable>
-                                                                ))}
-                                                                {provided.placeholder}
+                                                                                    </Paper>
+                                                                                )}
+                                                                            </Draggable>
+                                                                        ))}
+                                                                        {provided.placeholder}
                                                             </Stack>
-                                                        </Box>
-                                                    )}
-                                                </Droppable>
-                                            ))}
-                                        </Group>
-                                    </DragDropContext>
-                                )}
-                            </Box>
-                        </Box>
-                    </Tabs.Panel>
+                                                                    </Box>
+                                                                )}
+                                                            </Droppable>
+                                                        ))}
+                                                    </Group>
+                                                </DragDropContext>
+                                            )}
+                                        </Box>
+                                    </Box>
+                                </Tabs.Panel>
 
                     <Tabs.Panel value="files" onDragOver={(e) => e.preventDefault()} onDrop={handleFileDrop}>
                         <Box style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', maxWidth: 900, margin: '0 auto', padding: '2rem', boxSizing: 'border-box' }}>
@@ -2289,7 +2365,7 @@ export default function ProjectViewPage() {
                                     <Group>
                                         <Loader size="sm" />
                                         <Text>Uploading files...</Text>
-                                    </Group>
+                                            </Group>
                                 ) : (
                                     <Text c="dimmed">Drag & drop files here to upload, or click to browse</Text>
                                 )}
@@ -2326,7 +2402,7 @@ export default function ProjectViewPage() {
                                                     <IconFile size={18} />
                                                     <Text>{file.name}</Text>
                                                     <Text size="xs" c="dimmed">({(file.size / 1024).toFixed(2)} KB)</Text>
-                                                </Group>
+                                                                </Group>
                                                 <Group gap="xs">
                                                     <ActionIcon variant="light" color="blue" onClick={() => handleFileDownload(file)} title="Download File">
                                                         <IconDownload size={16} />
@@ -2334,14 +2410,14 @@ export default function ProjectViewPage() {
                                                     <ActionIcon variant="light" color="red" onClick={() => handleFileDelete(file.id)} title="Delete File">
                                                         <IconTrash size={16} />
                                                     </ActionIcon>
-                                                </Group>
-                                            </Group>
+                                                            </Group>
+                                                        </Group>
                                         </Paper>
                                     ))}
-                                </Stack>
-                            </Box>
-                        </Box>
-                    </Tabs.Panel>
+                                                    </Stack>
+                                        </Box>
+                                    </Box>
+                                </Tabs.Panel>
 
                     <Tabs.Panel value="calendar">
                         <Box style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', maxWidth: 900, margin: '0 auto', padding: '2rem', boxSizing: 'border-box' }}>
@@ -2357,7 +2433,7 @@ export default function ProjectViewPage() {
                                 <Group justify="space-between" mb="md">
                                     <Title order={5} style={{ color: styles.textColor }}>Project Calendar</Title>
                                     <Button onClick={() => handleSelectSlot({ start: new Date() })} size="sm">Add Event</Button>
-                                </Group>
+                                            </Group>
                                 <BigCalendar
                                     localizer={localizer}
                                     events={calendarEvents}
@@ -2376,9 +2452,9 @@ export default function ProjectViewPage() {
                                         },
                                     })}
                                 />
-                            </Box>
-                        </Box>
-                    </Tabs.Panel>
+                                        </Box>
+                                    </Box>
+                                </Tabs.Panel>
 
                     <Tabs.Panel value="ai">
                         <Box style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', maxWidth: 900, margin: '0 auto', padding: '2rem', boxSizing: 'border-box' }}>
@@ -2420,7 +2496,7 @@ export default function ProjectViewPage() {
                                             <Stack>
                                                 <Textarea
                                                     placeholder={isFollowup ? "Ask a follow-up question..." : "Enter your question here..."}
-                                                    value={qaQuestion}
+                                                        value={qaQuestion}
                                                     onChange={(e) => setQaQuestion(e.currentTarget.value)}
                                                     autosize
                                                     minRows={2}
@@ -2452,41 +2528,180 @@ export default function ProjectViewPage() {
                                         }}>
                                             <Group justify="space-between" mb="md">
                                                 <Title order={5} style={{ color: styles.textColor }}>Q&A History</Title>
-                                                <TextInput
+                                                                    <TextInput
                                                     placeholder="Search Q&A history"
                                                     value={qaSearch}
                                                     onChange={(event) => setQaSearch(event.currentTarget.value)}
                                                     style={{ width: rem(200) }}
                                                 />
-                                            </Group>
-                                            <Stack>
+                                                                    </Group>
+                                        <Stack>
                                                 {filteredQaHistory.length === 0 && <Text>No Q&A history yet.</Text>}
                                                 {filteredQaHistory.map((pair, index) => (
                                                     <Paper key={pair.id} p="md" shadow="sm" style={{ border: `1px solid ${styles.cardBorder}`, backgroundColor: styles.tabBackground }}>
                                                         <Group justify="space-between">
                                                             <Title order={6} style={{ color: styles.textColor }}>Question {filteredQaHistory.length - index}:</Title>
-                                                            <Group gap="xs">
+                                                                        <Group gap="xs">
                                                                 <ActionIcon size="sm" variant="light" color="blue" onClick={() => handleStartEditQAPair(pair)}><IconEdit size={16} /></ActionIcon>
                                                                 <ActionIcon size="sm" variant="light" color="red" onClick={() => handleDeleteQAPair(pair.id)}><IconTrash size={16} /></ActionIcon>
-                                                            </Group>
-                                                        </Group>
+                                                                        </Group>
+                                                                </Group>
                                                         <Text mb="xs">{pair.question}</Text>
                                                         <Title order={6} style={{ color: styles.textColor }}>Answer:</Title>
                                                         <ReactMarkdown>{pair.answer}</ReactMarkdown>
                                                         <Text size="xs" c="dimmed" mt="xs">Asked by {pair.createdBy} on {new Date(pair.createdAt).toLocaleString()}</Text>
-                                                    </Paper>
-                                                ))}
-                                            </Stack>
-                                        </Box>
+                                                                                </Paper>
+                                                                            ))}
+                                                                        </Stack>
+                                                                </Box>
                                     </Box>
                                 </Tabs.Panel>
                                 <Tabs.Panel value="onboarding" style={{ flexGrow: 1, padding: 'md', backgroundColor: styles.tabPanelBackground }}>
                                     <OnboardingAssistant />
                                 </Tabs.Panel>
                             </Tabs>
+                                    </Box>
+                                </Tabs.Panel>
+
+                    <Tabs.Panel value="finance">
+                      <Box style={{ maxWidth: 600, margin: '0 auto', padding: '2rem', background: styles.cardBackground, border: `1px solid ${styles.cardBorder}`, borderRadius: rem(8), boxShadow: styles.cardShadow }}>
+                        <Title order={5} mb="md" style={{ color: styles.textColor }}>Project Budget & Expenses</Title>
+                        <Group mb="md">
+                          <TextInput
+                            label="Project Budget"
+                            type="number"
+                            value={financeBudget}
+                            onChange={e => setFinanceBudget(Number(e.currentTarget.value))}
+                            style={{ flex: 1 }}
+                            min={0}
+                          />
+                          <Select
+                            label="Currency"
+                            value={financeCurrency}
+                            onChange={value => setFinanceCurrency(value || 'USD')}
+                            data={[{ value: 'USD', label: 'USD' }, { value: 'EUR', label: 'EUR' }, { value: 'GBP', label: 'GBP' }, { value: 'KES', label: 'KES' }]}
+                            style={{ width: 120 }}
+                          />
+                        </Group>
+                        <Group mb="md">
+                          <Text fw={700}>Total Spent:</Text>
+                          <Text>{financeCurrency} {financeExpenses.reduce((sum, e) => sum + (e.amount || 0), 0).toFixed(2)}</Text>
+                          <Text fw={700} ml="lg">Remaining:</Text>
+                          <Text>{financeCurrency} {(financeBudget - financeExpenses.reduce((sum, e) => sum + (e.amount || 0), 0)).toFixed(2)}</Text>
+                        </Group>
+                        <Button onClick={() => setAddExpenseModalOpen(true)} mb="md">Add Expense</Button>
+                        <Stack>
+                          {financeExpenses.length === 0 ? (
+                            <Text c="dimmed">No expenses recorded yet.</Text>
+                          ) : (
+                            financeExpenses.map(exp => (
+                              <Group key={exp.id} justify="space-between" style={{ borderBottom: `1px solid ${styles.cardBorder}`, padding: '8px 0' }}>
+                                <Text>{exp.description}</Text>
+                                <Text>{exp.category}</Text>
+                                <Text>{financeCurrency} {exp.amount?.toFixed(2)}</Text>
+                                <Text>{exp.date}</Text>
+                              </Group>
+                            ))
+                          )}
+                        </Stack>
+                        <Modal opened={addExpenseModalOpen} onClose={() => setAddExpenseModalOpen(false)} title="Add Expense">
+                          <Stack>
+                            <TextInput label="Description" value={newExpense.description || ''} onChange={e => setNewExpense({ ...newExpense, description: e.currentTarget.value })} required />
+                            <TextInput label="Category" value={newExpense.category || ''} onChange={e => setNewExpense({ ...newExpense, category: e.currentTarget.value })} required />
+                            <TextInput label="Amount" type="number" value={newExpense.amount || ''} onChange={e => setNewExpense({ ...newExpense, amount: Number(e.currentTarget.value) })} required min={0} />
+                            <TextInput label="Date" type="date" value={newExpense.date || ''} onChange={e => setNewExpense({ ...newExpense, date: e.currentTarget.value })} required />
+                            <Group align="flex-end" gap="xs">
+                              <TextInput label="Category" value={newExpense.category || ''} onChange={e => setNewExpense({ ...newExpense, category: e.currentTarget.value })} required style={{ flex: 1 }} />
+                              <Button variant="light" loading={categorySuggesting} onClick={handleSuggestCategory} disabled={!newExpense.description}>
+                                Suggest Category
+                              </Button>
+                            </Group>
+                            {categorySuggestError && <Text color="red" size="xs">{categorySuggestError}</Text>}
+                            <Group justify="flex-end">
+                              <Button onClick={() => {
+                                if (!newExpense.description || !newExpense.category || !newExpense.amount || !newExpense.date) return;
+                                const expense: Expense = {
+                                  id: Date.now().toString(),
+                                  description: newExpense.description,
+                                  category: newExpense.category,
+                                  amount: Number(newExpense.amount),
+                                  date: newExpense.date,
+                                };
+                                setFinanceExpenses([...financeExpenses, expense]);
+                                setAddExpenseModalOpen(false);
+                                setNewExpense({ amount: 0, date: '', description: '', category: '' });
+                              }}>Add</Button>
+                            </Group>
+                          </Stack>
+                        </Modal>
+                        <Paper withBorder p="md" mb="xl" radius="md" style={{ background: styles.tabPanelBackground, border: `1px solid ${styles.cardBorder}` }}>
+                          <Title order={6} mb="md" style={{ color: styles.textColor }}>Finance Analytics</Title>
+                          <Group align="flex-start" grow>
+                            {/* Pie Chart: Expense by Category */}
+                            <Stack style={{ flex: 1 }}>
+                              <Text size="sm" fw={500} mb="xs">By Category</Text>
+                              <PieChart
+                                data={pieData}
+                                withTooltip
+                                width={180}
+                                height={180}
+                              />
+                            </Stack>
+                            {/* Bar Chart: Spending over Time */}
+                            <Stack style={{ flex: 1 }}>
+                              <Text size="sm" fw={500} mb="xs">Spending Over Time</Text>
+                              <BarChart
+                                h={180}
+                                data={Object.entries(
+                                  financeExpenses.reduce((acc, e) => {
+                                    const date = e.date || 'Unknown';
+                                    acc[date] = (acc[date] || 0) + (e.amount || 0);
+                                    return acc;
+                                  }, {} as Record<string, number>)
+                                ).map(([date, value]) => ({ date, value }))}
+                                dataKey="date"
+                                series={[{ name: 'value', color: 'blue' }]}
+                                withTooltip
+                              />
+                            </Stack>
+                            {/* Key Stats */}
+                            <Stack style={{ flex: 1 }}>
+                              <Text size="sm" fw={500} mb="xs">Key Stats</Text>
+                              <Text size="xs">Largest Expense: {financeExpenses.length ? `${financeCurrency} ${Math.max(...financeExpenses.map(e => e.amount || 0)).toFixed(2)}` : 'N/A'}</Text>
+                              <Text size="xs">Most Frequent Category: {(() => {
+                                if (!financeExpenses.length) return 'N/A';
+                                const freq = financeExpenses.reduce((acc, e) => { acc[e.category || 'Uncategorized'] = (acc[e.category || 'Uncategorized'] || 0) + 1; return acc; }, {} as Record<string, number>);
+                                return Object.entries(freq).sort((a, b) => b[1] - a[1])[0][0];
+                              })()}</Text>
+                              <Text size="xs">Average Expense: {financeExpenses.length ? `${financeCurrency} ${(financeExpenses.reduce((sum, e) => sum + (e.amount || 0), 0) / financeExpenses.length).toFixed(2)}` : 'N/A'}</Text>
+                            </Stack>
+                          </Group>
+                        </Paper>
+                        <Box mt="xl" style={{ background: styles.tabPanelBackground, borderRadius: rem(8), padding: '1.5rem', border: `1px solid ${styles.cardBorder}` }}>
+                          <Title order={6} mb="xs" style={{ color: styles.textColor }}>Ask AI about your finances</Title>
+                          <Stack>
+                            <Textarea
+                              placeholder="E.g. What is my biggest expense? Are we on track with the budget?"
+                              value={financeAiQuestion}
+                              onChange={e => setFinanceAiQuestion(e.currentTarget.value)}
+                              minRows={2}
+                              autosize
+                            />
+                            <Group>
+                              <Button onClick={handleAskFinanceAI} loading={financeAiLoading}>Ask AI</Button>
+                            </Group>
+                            {financeAiError && <Text color="red">{financeAiError}</Text>}
+                            {financeAiAnswer && (
+                              <Paper p="sm" shadow="xs" style={{ backgroundColor: styles.tabBackground, border: `1px solid ${styles.cardBorder}` }}>
+                                <Text size="sm" style={{ fontWeight: 'bold' }}>AI Answer:</Text>
+                                <ReactMarkdown>{financeAiAnswer}</ReactMarkdown>
+                              </Paper>
+                            )}
+                          </Stack>
                         </Box>
+                      </Box>
                     </Tabs.Panel>
-                </Tabs>
+                        </Tabs>
                 <Container fluid pt="md" pb="md" style={{ borderTop: `1px solid ${styles.cardBorder}`, width: '100%' }}>
                     <Text size="sm" c="dimmed" ta="center">&copy; {new Date().getFullYear()} Sparkpad. All rights reserved.</Text>
                 </Container>

@@ -28,7 +28,7 @@ interface NavigationBarProps {
 
 export function NavigationBar({ userName, onLogout, showBackButton = false }: NavigationBarProps) {
     const router = useRouter();
-    const pathname = usePathname();
+    const pathname = usePathname() || "";
     const { theme } = useTheme();
     const [modalOpened, setModalOpened] = useState(false);
     const [editName, setEditName] = useState("");
@@ -317,6 +317,13 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
         }
     };
 
+    const handleLogout = () => {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        localStorage.removeItem('user:username');
+        window.location.href = '/login';
+    };
+
     return (
         <>
             <Group justify="space-between" align="center" p={0} style={styles}>
@@ -428,6 +435,22 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                                     onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '2px solid #1769aa'; }}
                                     onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '2px solid #1769aa' : '2px solid transparent'; }}
                                 >Projects</Link>
+                                <Link href="http://localhost:3000/accounting" style={{
+                                    color: pathname.startsWith("/accounting") ? '#1769aa' : '#222',
+                                    fontWeight: 600,
+                                    fontSize: 16,
+                                    padding: '0 18px',
+                                    height: 40,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    borderBottom: pathname.startsWith("/accounting") ? '2px solid #1769aa' : '2px solid transparent',
+                                    background: 'none',
+                                    textDecoration: 'none',
+                                    transition: 'color 0.18s, border-bottom 0.18s',
+                                }}
+                                    onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '2px solid #1769aa'; }}
+                                    onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/accounting") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/accounting") ? '2px solid #1769aa' : '2px solid transparent'; }}
+                                >Financial Accounts</Link>
                             </>}
                         </Group>
                     )}
@@ -546,7 +569,7 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                                     <Menu.Item leftSection={<IconLock size={16} />} onClick={() => setModalOpened(true)}>
                                         Change Password
                                     </Menu.Item>
-                                    <Menu.Item leftSection={<IconLogout size={16} />} onClick={onLogout} style={{ color: '#d32f2f', fontWeight: 700 }}>
+                                    <Menu.Item leftSection={<IconLogout size={16} />} onClick={handleLogout} style={{ color: '#d32f2f', fontWeight: 700 }}>
                                         Logout
                                     </Menu.Item>
                                 </Menu.Dropdown>
@@ -593,6 +616,7 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                     </>}
                     {isLoggedIn && <>
                         <Link href="/projects" onClick={() => setDrawerOpened(false)}><Text size="lg">Projects</Text></Link>
+                        <Link href="http://localhost:3000/accounting" onClick={() => setDrawerOpened(false)}><Text size="lg">Financial Accounts</Text></Link>
                     </>}
                     <Divider my="sm" />
                     {isLoggedIn && <>
@@ -619,7 +643,7 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                         </Group>
                         <Button fullWidth variant="light" leftSection={<IconEdit size={16} />} onClick={() => { handleNameClick(); setDrawerOpened(false); }}>Edit Profile</Button>
                         <Button fullWidth variant="light" leftSection={<IconLock size={16} />} onClick={() => { setModalOpened(true); setDrawerOpened(false); }}>Change Password</Button>
-                        <Button fullWidth variant="light" color="red" leftSection={<IconLogout size={16} />} onClick={() => { onLogout?.(); setDrawerOpened(false); }}>Logout</Button>
+                        <Button fullWidth variant="light" color="red" leftSection={<IconLogout size={16} />} onClick={() => { handleLogout(); setDrawerOpened(false); }}>Logout</Button>
                     </>}
                 </Stack>
             </Drawer>

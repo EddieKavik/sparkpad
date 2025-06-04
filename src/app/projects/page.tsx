@@ -5,6 +5,18 @@ import { Container, Title, Text, Button, Group, Card, Stack, TextInput, ActionIc
 import { IconPlus, IconDotsVertical, IconEdit, IconTrash, IconShare, IconUsers, IconCalendar, IconTag, IconSearch, IconFilter, IconSortAscending, IconSortDescending, IconChartBar, IconChartPie, IconChartLine } from "@tabler/icons-react";
 import { showNotification } from "@mantine/notifications";
 import { useTheme } from '@/contexts/ThemeContext';
+import { getGeminiClient } from '@/utils/gemini';
+
+// Expense type for budgeting/finance
+export interface Expense {
+    id: string;
+    description: string;
+    amount: number;
+    date: string;
+    category: string;
+    linkedTaskId?: string;
+    receiptUrl?: string;
+}
 
 interface Project {
     id: string;
@@ -12,10 +24,14 @@ interface Project {
     description: string;
     createdAt: string;
     status: 'active' | 'archived' | 'completed';
-    members: number;
+    members: string[];
     tags: string[];
     goals?: string;
     timeline?: { start: string; end: string };
+    // Budgeting fields
+    budget?: number; // Total project budget
+    currency?: string; // e.g., 'USD'
+    expenses?: Expense[]; // Project-level expenses
 }
 
 interface ProjectStats {
@@ -90,6 +106,11 @@ export default function ProjectsPage() {
     const [creatingProject, setCreatingProject] = useState(false);
     const { theme } = useTheme();
     const styles = themeStyles['executive'];
+    const [budgetSuggesting, setBudgetSuggesting] = useState(false);
+    const [budgetSuggestError, setBudgetSuggestError] = useState('');
+    const [newProjectBudget, setNewProjectBudget] = useState(0);
+    const [newProjectCurrency, setNewProjectCurrency] = useState('USD');
+    const [loadingProjectId, setLoadingProjectId] = useState<string | null>(null);
 
     useEffect(() => {
         if (searchParams && searchParams.get('showStats') === '1') {
@@ -327,7 +348,7 @@ export default function ProjectsPage() {
             if (!project) throw new Error("Project not found");
             const updatedProject = {
                 ...project,
-                members: project.members + 1,
+                members: project.members,
             };
             const updatedProjects = projects.map(p => p.id === projectId ? updatedProject : p);
             const res = await fetch(
@@ -406,19 +427,20 @@ export default function ProjectsPage() {
                     : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
             } else {
                 return sortOrder === 'asc'
-                    ? a.members - b.members
-                    : b.members - a.members;
+                    ? a.members.length - b.members.length
+                    : b.members.length - a.members.length;
             }
         });
 
     // Calculate project statistics
+    const allMemberEmails = Array.from(new Set(safeProjects.flatMap(p => Array.isArray(p.members) ? p.members : [])));
     const projectStats: ProjectStats = {
         totalProjects: safeProjects.length,
         activeProjects: safeProjects.filter(p => p.status === 'active').length,
         completedProjects: safeProjects.filter(p => p.status === 'completed').length,
         archivedProjects: safeProjects.filter(p => p.status === 'archived').length,
-        totalMembers: safeProjects.reduce((sum, p) => sum + p.members, 0),
-        averageMembersPerProject: safeProjects.length ? Math.round(safeProjects.reduce((sum, p) => sum + p.members, 0) / safeProjects.length) : 0,
+        totalMembers: allMemberEmails.length,
+        averageMembersPerProject: safeProjects.length ? Math.round(safeProjects.reduce((sum, p) => sum + (Array.isArray(p.members) ? p.members.length : 0), 0) / safeProjects.length) : 0,
         mostUsedTags: Object.entries(
             safeProjects.flatMap(p => p.tags).reduce((acc, tag) => {
                 acc[tag] = (acc[tag] || 0) + 1;
@@ -431,7 +453,7 @@ export default function ProjectsPage() {
         recentActivity: safeProjects
             .map(p => [
                 { type: 'created', project: p.name, time: p.createdAt },
-                ...(p.members > 1 ? [{ type: 'shared', project: p.name, time: p.createdAt }] : [])
+                ...(p.members.length > 1 ? [{ type: 'shared', project: p.name, time: p.createdAt }] : [])
             ])
             .flat()
             .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
@@ -445,7 +467,7 @@ export default function ProjectsPage() {
                 return acc;
             }, [] as { date: string; count: number }[]),
         memberDistribution: safeProjects
-            .map(p => ({ project: p.name, members: p.members }))
+            .map(p => ({ project: p.name, members: p.members.length }))
             .sort((a, b) => b.members - a.members)
             .slice(0, 5),
         statusTrend: safeProjects
@@ -467,11 +489,30 @@ export default function ProjectsPage() {
         mostActiveProjects: safeProjects
             .map(p => ({
                 name: p.name,
-                activityCount: p.members + (p.tags?.length || 0) + (p.status === 'active' ? 1 : 0)
+                activityCount: p.members.length + (p.tags?.length || 0) + (p.status === 'active' ? 1 : 0)
             }))
             .sort((a, b) => b.activityCount - a.activityCount)
             .slice(0, 5)
     };
+
+    // Handler for AI budget suggestion
+    async function handleSuggestBudget() {
+        setBudgetSuggesting(true);
+        setBudgetSuggestError('');
+        try {
+            const gemini = getGeminiClient();
+            const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const prompt = `Suggest a reasonable total budget (in ${newProjectCurrency || 'USD'}) for a project with the following details. Only return a number (no currency symbol or text).\nName: ${newProjectName}\nDescription: ${newProjectDescription}\nGoals: ${newProjectGoals}\nTeam size: 1`;
+            const result = await model.generateContent(prompt);
+            const suggestion = parseFloat(result.response.text().replace(/[^\d.]/g, ''));
+            if (!isNaN(suggestion)) setNewProjectBudget(suggestion);
+            else setBudgetSuggestError('AI did not return a valid number.');
+        } catch (err: any) {
+            setBudgetSuggestError(err.message || 'AI failed to suggest budget.');
+        } finally {
+            setBudgetSuggesting(false);
+        }
+    }
 
     return (
         <div style={{ minHeight: '100vh', background: styles.background, position: 'relative', overflow: 'hidden' }}>
@@ -568,6 +609,15 @@ export default function ProjectsPage() {
                                         <IconUsers size={40} color="var(--mantine-color-blue-6)" />
                                         <Text size="xl" fw={700}>{projectStats.totalMembers}</Text>
                                         <Text size="sm" fw={500}>Total Members</Text>
+                                        <Stack gap={2} align="center">
+                                            {allMemberEmails.length === 0 ? (
+                                                <Text size="xs" c="dimmed">No members</Text>
+                                            ) : (
+                                                allMemberEmails.map(email => (
+                                                    <Text key={email} size="xs" c="dimmed" style={{ wordBreak: 'break-all' }}>{email}</Text>
+                                                ))
+                                            )}
+                                        </Stack>
                                         <Text size="xs" c="dimmed">
                                             {projectStats.averageMembersPerProject} members per project
                                         </Text>
@@ -806,6 +856,9 @@ export default function ProjectsPage() {
                                     </Menu>
                                 </Group>
                                 <Text size="sm" c={styles.secondaryTextColor} mb="md" lineClamp={2}>{project.description}</Text>
+                                {project.timeline && project.timeline.start && (
+                                    <Text size="xs" c="dimmed" mb="xs"><b>Start date:</b> {new Date(project.timeline.start).toLocaleDateString()}</Text>
+                                )}
                                 {project.goals && (
                                     <Text size="xs" c="dimmed" mb="xs"><b>Goals:</b> {project.goals}</Text>
                                 )}
@@ -822,7 +875,7 @@ export default function ProjectsPage() {
                                         <Tooltip label="Members" color={theme === 'futuristic' ? 'gray' : 'blue'}>
                                             <Group gap={4}>
                                                 <IconUsers size={16} color={styles.secondaryTextColor} />
-                                                <Text size="sm" style={{ color: styles.secondaryTextColor }}>{project.members}</Text>
+                                                <Text size="sm" style={{ color: styles.secondaryTextColor }}>{project.members.length}</Text>
                                             </Group>
                                         </Tooltip>
                                         <Tooltip label="Created" color={theme === 'futuristic' ? 'gray' : 'blue'}>
@@ -835,12 +888,22 @@ export default function ProjectsPage() {
                                         </Tooltip>
                                     </Group>
                                     <Button
-                                        variant={theme === 'futuristic' ? 'gradient' : 'filled'}
-                                        gradient={theme === 'futuristic' ? styles.buttonGradient : undefined}
-                                        color={theme === 'classic' ? 'blue' : undefined}
+                                        variant="gradient"
+                                        gradient={{ from: '#1769aa', to: '#1e88e5', deg: 90 }}
                                         size="sm"
-                                        style={{ fontWeight: 700, color: '#fff', boxShadow: styles.cardShadow }}
-                                        onClick={() => router.push(`/projects/${project.id}`)}
+                                        style={{
+                                            fontWeight: 700,
+                                            boxShadow: styles.cardShadow,
+                                            color: '#fff',
+                                            background: 'linear-gradient(90deg, #1769aa 0%, #1e88e5 100%)',
+                                            transition: 'none',
+                                        }}
+                                        loading={loadingProjectId === project.id}
+                                        onClick={async () => {
+                                            setLoadingProjectId(project.id);
+                                            await router.push(`/projects/${project.id}`);
+                                            setLoadingProjectId(null);
+                                        }}
                                     >
                                         View Details
                                     </Button>
@@ -924,6 +987,13 @@ export default function ProjectsPage() {
                             onChange={(e) => setNewProjectTags(e.currentTarget.value)}
                             placeholder="e.g. web, design, marketing"
                         />
+                        <Group align="flex-end" gap="xs">
+                            <TextInput label="Budget" type="number" value={newProjectBudget || ''} onChange={e => setNewProjectBudget(Number(e.currentTarget.value))} min={0} style={{ flex: 1 }} />
+                            <Button variant="light" loading={budgetSuggesting} onClick={handleSuggestBudget}>
+                                Suggest Budget
+                            </Button>
+                        </Group>
+                        {budgetSuggestError && <Text color="red" size="xs">{budgetSuggestError}</Text>}
                         <Button
                             type="submit"
                             fullWidth

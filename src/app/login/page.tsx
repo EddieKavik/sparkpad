@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
     TextInput,
     PasswordInput,
@@ -77,6 +77,13 @@ export default function LoginPage() {
     const [password, setPassword] = useState("");
     const [loading, setLoading] = useState(false);
     const router = useRouter();
+
+    // Redirect logged-in users away from login page
+    useEffect(() => {
+        if (typeof window !== 'undefined' && localStorage.getItem('token')) {
+            router.replace('/projects');
+        }
+    }, [router]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
