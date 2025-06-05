@@ -418,40 +418,42 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                                     onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/login") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/login") ? '2px solid #1769aa' : '2px solid transparent'; }}
                                 >Login</Link>
                             </>}
-                            {isLoggedIn && <>
-                                <Link href="/projects" style={{
-                                    color: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '#1769aa' : '#222',
-                                    fontWeight: 600,
-                                    fontSize: 16,
-                                    padding: '0 18px',
-                                    height: 40,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    borderBottom: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '2px solid #1769aa' : '2px solid transparent',
-                                    background: 'none',
-                                    textDecoration: 'none',
-                                    transition: 'color 0.18s, border-bottom 0.18s',
-                                }}
-                                    onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '2px solid #1769aa'; }}
-                                    onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '2px solid #1769aa' : '2px solid transparent'; }}
-                                >Projects</Link>
-                                <Link href="http://localhost:3000/accounting" style={{
-                                    color: pathname.startsWith("/accounting") ? '#1769aa' : '#222',
-                                    fontWeight: 600,
-                                    fontSize: 16,
-                                    padding: '0 18px',
-                                    height: 40,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    borderBottom: pathname.startsWith("/accounting") ? '2px solid #1769aa' : '2px solid transparent',
-                                    background: 'none',
-                                    textDecoration: 'none',
-                                    transition: 'color 0.18s, border-bottom 0.18s',
-                                }}
-                                    onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '2px solid #1769aa'; }}
-                                    onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/accounting") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/accounting") ? '2px solid #1769aa' : '2px solid transparent'; }}
-                                >Financial Accounts</Link>
-                            </>}
+                            {isLoggedIn && (
+                                <>
+                                    <Link href="/projects" style={{
+                                        color: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '#1769aa' : '#222',
+                                        fontWeight: 600,
+                                        fontSize: 16,
+                                        padding: '0 18px',
+                                        height: 40,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        borderBottom: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '2px solid #1769aa' : '2px solid transparent',
+                                        background: 'none',
+                                        textDecoration: 'none',
+                                        transition: 'color 0.18s, border-bottom 0.18s',
+                                    }}
+                                        onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '2px solid #1769aa'; }}
+                                        onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '2px solid #1769aa' : '2px solid transparent'; }}
+                                    >Projects</Link>
+                                    <Link href="http://localhost:3000/accounting" style={{
+                                        color: pathname.startsWith("/accounting") ? '#1769aa' : '#222',
+                                        fontWeight: 600,
+                                        fontSize: 16,
+                                        padding: '0 18px',
+                                        height: 40,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        borderBottom: pathname.startsWith("/accounting") ? '2px solid #1769aa' : '2px solid transparent',
+                                        background: 'none',
+                                        textDecoration: 'none',
+                                        transition: 'color 0.18s, border-bottom 0.18s',
+                                    }}
+                                        onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '2px solid #1769aa'; }}
+                                        onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/accounting") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/accounting") ? '2px solid #1769aa' : '2px solid transparent'; }}
+                                    >Financial Accounts</Link>
+                                </>
+                            )}
                         </Group>
                     )}
                 </Group>

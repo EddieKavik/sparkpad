@@ -1490,7 +1490,7 @@ export default function ProjectViewPage() {
     }
 
     const filteredDocRows = (docRows[activeDocTab] || []).filter(row =>
-        row.toLowerCase().includes(docSearch.toLowerCase())
+        typeof row === "string" && row.toLowerCase().includes(docSearch.toLowerCase())
     );
     const totalDocPages = Math.ceil(filteredDocRows.length / DOCS_PER_PAGE);
     const paginatedDocRows = filteredDocRows.slice((docPage - 1) * DOCS_PER_PAGE, docPage * DOCS_PER_PAGE);

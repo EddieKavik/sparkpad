@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, Paper, Group, TextInput, Button, ActionIcon, Stack, Textarea, Menu, Text } from '@mantine/core';
+import { Box, Paper, Group, TextInput, Button, ActionIcon, Stack, Textarea, Menu, Text, Loader } from '@mantine/core';
 import { IconEdit, IconTrash, IconDots, IconRobot } from '@tabler/icons-react';
 import ReactMarkdown from 'react-markdown';
 import type { RefObject } from 'react';
@@ -100,6 +100,34 @@ const ProjectDocumentsTab = ({
   const [renamingDocId, setRenamingDocId] = useState<string | null>(null);
   const [renameDocValue, setRenameDocValue] = useState("");
 
+  // Add state for AI prompt
+  const [aiPrompt, setAiPrompt] = useState("What are some foods that can be made with ____");
+  const [aiResults, setAiResults] = useState<Record<string, string>>({});
+  const [aiLoading, setAiLoading] = useState(false);
+
+  async function runAiForRows() {
+    setAiLoading(true);
+    setAiResults({});
+    const rows = (docRows[activeDocTab] || []).filter(row => typeof row === "string");
+    try {
+      const queries = rows.map(row => {
+        const prompt = aiPrompt.replace("____", row);
+        return fetch("/api/ai", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt }),
+        })
+          .then(res => res.json())
+          .then(data => [row, data.result || data.response || JSON.stringify(data)]);
+      });
+      const results = await Promise.all(queries);
+      setAiResults(Object.fromEntries(results));
+    } catch (e) {
+      showNotification({ color: 'red', message: 'AI query failed.' });
+    }
+    setAiLoading(false);
+  }
+
   return (
     <Box style={{ flex: 1, minWidth: 0, marginLeft: 32, maxWidth: 800, marginRight: 'auto' }}>
       <Paper p="md" radius={12} withBorder style={{ marginBottom: 24, display: 'flex', alignItems: 'center', gap: 16, background: styles.cardBackground, border: styles.cardBorder }}>
@@ -194,78 +222,109 @@ const ProjectDocumentsTab = ({
           )}
         </Group>
       </Paper>
+      {/* AI for each row controls */}
+      <Paper p="md" radius={12} withBorder style={{ marginBottom: 16, background: styles.cardBackground, border: styles.cardBorder }}>
+        <Group align="flex-end" gap={8}>
+          <TextInput
+            label="AI Prompt (use ____ for row value)"
+            value={aiPrompt}
+            onChange={e => setAiPrompt(e.currentTarget.value)}
+            style={{ flex: 1, minWidth: 220 }}
+            disabled={aiLoading}
+          />
+          <Button onClick={runAiForRows} loading={aiLoading} disabled={aiLoading || (docRows[activeDocTab]||[]).length === 0}>
+            Run AI for Each Row
+          </Button>
+          {aiLoading && <Loader size="sm" />}
+        </Group>
+      </Paper>
       <Stack mt="md">
-        {(docRows[activeDocTab] || []).map((row, idx) => {
-          const isEditing = editingRow && editingRow.docId === activeDocTab && editingRow.idx === idx;
-          const isAI = aiProcessing && aiProcessing.docId === activeDocTab && aiProcessing.idx === idx;
-          return (
-            <Group key={idx} justify="space-between" align="center" style={{ position: "relative" }}>
-              {isEditing ? (
-                <>
-                  <Textarea
-                    value={editRowValue}
-                    onChange={e => setEditRowValue(e.currentTarget.value)}
-                    autoFocus
-                    style={{ flex: 1 }}
-                    minRows={2}
-                    disabled={!!isAI}
-                    onKeyDown={e => {
-                      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                        handleSaveEditRow();
-                      }
-                    }}
-                    placeholder="Type your Markdown here... (Ctrl+Enter to save)"
-                    ref={addRowInputRef}
-                  />
-                  <Button size="xs" color={styles.accentColor} onClick={handleSaveEditRow} loading={savingEdit || !!isAI} disabled={!!isAI} style={{ background: styles.buttonGradient, color: '#fff', fontWeight: 700, borderRadius: 12 }}>
-                    Save
-                  </Button>
-                  <Button size="xs" variant="default" onClick={handleCancelEditRow} disabled={savingEdit || !!isAI} style={{ background: styles.tabBackground, color: styles.secondaryTextColor, fontWeight: 600, borderRadius: 12 }}>
-                    Cancel
-                  </Button>
-                  <ActionIcon
-                    size={28}
-                    color={styles.accentColor}
-                    variant="light"
-                    onClick={() => handleAiTransformRow(activeDocTab, idx, editRowValue)}
-                    loading={!!isAI}
-                    disabled={!!isAI}
-                    title="Transform with AI"
+        {(docRows[activeDocTab] || [])
+          .filter(row => typeof row === "string")
+          .map((row, idx) => {
+            const isEditing = editingRow && editingRow.docId === activeDocTab && editingRow.idx === idx;
+            const isAI = aiProcessing && aiProcessing.docId === activeDocTab && aiProcessing.idx === idx;
+            return (
+              <Group key={idx} justify="space-between" align="center" style={{ position: "relative" }}>
+                {isEditing ? (
+                  <>
+                    <Textarea
+                      value={editRowValue}
+                      onChange={e => setEditRowValue(e.currentTarget.value)}
+                      autoFocus
+                      style={{ flex: 1 }}
+                      minRows={2}
+                      disabled={!!isAI}
+                      onKeyDown={e => {
+                        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                          handleSaveEditRow();
+                        }
+                      }}
+                      placeholder="Type your Markdown here... (Ctrl+Enter to save)"
+                      ref={addRowInputRef}
+                    />
+                    <Button size="xs" color={styles.accentColor} onClick={handleSaveEditRow} loading={savingEdit || !!isAI} disabled={!!isAI} style={{ background: styles.buttonGradient, color: '#fff', fontWeight: 700, borderRadius: 12 }}>
+                      Save
+                    </Button>
+                    <Button size="xs" variant="default" onClick={handleCancelEditRow} disabled={savingEdit || !!isAI} style={{ background: styles.tabBackground, color: styles.secondaryTextColor, fontWeight: 600, borderRadius: 12 }}>
+                      Cancel
+                    </Button>
+                    <ActionIcon
+                      size={28}
+                      color={styles.accentColor}
+                      variant="light"
+                      onClick={() => handleAiTransformRow(activeDocTab, idx, editRowValue)}
+                      loading={!!isAI}
+                      disabled={!!isAI}
+                      title="Transform with AI"
+                    >
+                      <IconRobot size={18} />
+                    </ActionIcon>
+                  </>
+                ) : (
+                  <Paper
+                    p="sm"
+                    withBorder
+                    radius="md"
+                    style={{ flex: 1, minWidth: 0, cursor: "pointer", background: styles.tabBackground, color: styles.secondaryTextColor, border: styles.cardBorder }}
+                    onClick={() => handleStartEditRow(activeDocTab, idx, row)}
+                    title="Click to edit"
                   >
-                    <IconRobot size={18} />
-                  </ActionIcon>
-                </>
-              ) : (
-                <Paper
-                  p="sm"
-                  withBorder
-                  radius="md"
-                  style={{ flex: 1, minWidth: 0, cursor: "pointer", background: styles.tabBackground, color: styles.secondaryTextColor, border: styles.cardBorder }}
-                  onClick={() => handleStartEditRow(activeDocTab, idx, row)}
-                  title="Click to edit"
-                >
-                  <ReactMarkdown>{row}</ReactMarkdown>
-                </Paper>
-              )}
-              <Menu shadow="md" width={120} position="bottom-end" withinPortal>
-                <Menu.Target>
-                  <ActionIcon variant="subtle" color="gray" size={28} style={{ opacity: 0.7 }}>
-                    <IconDots size={18} />
-                  </ActionIcon>
-                </Menu.Target>
-                <Menu.Dropdown>
-                  <Menu.Item
-                    color="red"
-                    leftSection={<IconTrash size={16} />}
-                    onClick={() => handleDeleteRow(activeDocTab, idx)}
-                  >
-                    Delete
-                  </Menu.Item>
-                </Menu.Dropdown>
-              </Menu>
-            </Group>
-          );
-        })}
+                    <ReactMarkdown>{row}</ReactMarkdown>
+                  </Paper>
+                )}
+                <Menu shadow="md" width={120} position="bottom-end" withinPortal>
+                  <Menu.Target>
+                    <ActionIcon variant="subtle" color="gray" size={28} style={{ opacity: 0.7 }}>
+                      <IconDots size={18} />
+                    </ActionIcon>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    <Menu.Item
+                      color="red"
+                      leftSection={<IconTrash size={16} />}
+                      onClick={() => handleDeleteRow(activeDocTab, idx)}
+                    >
+                      Delete
+                    </Menu.Item>
+                  </Menu.Dropdown>
+                </Menu>
+                {/* AI result for this row */}
+                {aiResults[row] && (
+                  <Paper p="xs" mt={4} radius="sm" withBorder style={{ background: styles.tabBackground, border: styles.cardBorder }}>
+                    <ReactMarkdown
+                      components={{
+                        p: ({node, ...props}) => <Text size="sm" color="blue" {...props} />,
+                        li: ({node, ...props}) => <li style={{ marginLeft: 16 }} {...props} />,
+                      }}
+                    >
+                      {aiResults[row]}
+                    </ReactMarkdown>
+                  </Paper>
+                )}
+              </Group>
+            );
+          })}
         {addingRowFor === activeDocTab ? (
           <Group>
             <Textarea
