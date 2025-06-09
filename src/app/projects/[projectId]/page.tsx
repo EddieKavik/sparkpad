@@ -306,6 +306,11 @@ export default function ProjectViewPage() {
     // Add state for AI category suggestion
     const [categorySuggesting, setCategorySuggesting] = useState(false);
     const [categorySuggestError, setCategorySuggestError] = useState('');
+    // --- Add state for document transition feature ---
+    const [transitionSource, setTransitionSource] = useState<string | null>(null);
+    const [transitionTarget, setTransitionTarget] = useState<string | null>(null);
+    const [transitionLoading, setTransitionLoading] = useState(false);
+    const [transitionResult, setTransitionResult] = useState<string | null>(null);
 
     useEffect(() => {
         const user = localStorage.getItem("user");
@@ -1481,6 +1486,30 @@ export default function ProjectViewPage() {
       }
     }
 
+    // --- Add handler for AI transition calculation ---
+    async function handleCalculateTransition() {
+      if (!transitionSource || !transitionTarget) return;
+      setTransitionLoading(true);
+      setTransitionResult(null);
+      try {
+        const sourceTitle = docTabs.find(t => t.id === transitionSource)?.title || 'Source';
+        const targetTitle = docTabs.find(t => t.id === transitionTarget)?.title || 'Target';
+        const sourceRows = (docRows[transitionSource] || []).join('\n');
+        const targetRows = (docRows[transitionTarget] || []).join('\n');
+        const prompt = `Given the following two documents in a project management system, analyze the transition from the first (source) to the second (target).\n\nSource document: ${sourceTitle}\nRows:\n${sourceRows}\n\nTarget document: ${targetTitle}\nRows:\n${targetRows}\n\nPlease provide a detailed report on what is required to transition from the source to the target. For example, if the source lists available ingredients and the target lists recipe steps, check if all required ingredients are available, and report any missing or insufficient items. Suggest what actions are needed to complete the transition.`;
+        const gemini = getGeminiClient();
+        const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const result = await model.generateContent(prompt);
+        const aiText = result.response.text().trim();
+        setTransitionResult(aiText);
+      } catch (err: any) {
+        setTransitionResult('AI analysis failed.');
+        showNotification({ color: 'red', message: 'AI analysis failed.' });
+      }
+      setTransitionLoading(false);
+    }
+    // ... existing code ...
+
     if (loading || !project) {
         return (
             <Center style={{ height: "100vh" }}>
@@ -1766,15 +1795,7 @@ export default function ProjectViewPage() {
 
                     <Tabs.Panel value="documents">
                         <Box style={{ flexGrow: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', maxWidth: 900, margin: '0 auto', padding: '2rem', boxSizing: 'border-box' }}>
-                            <Box style={{
-                                width: isMobile ? '100%' : rem(250),
-                                flexShrink: 0,
-                                borderRight: isMobile ? 'none' : `1px solid ${styles.cardBorder}`,
-                                borderBottom: isMobile ? `1px solid ${styles.cardBorder}` : 'none',
-                                paddingRight: isMobile ? '0' : 'md',
-                                paddingBottom: isMobile ? 'md' : '0',
-                                overflowY: 'auto'
-                            }}>
+                            <Box style={{ width: isMobile ? '100%' : rem(250), flexShrink: 0, borderRight: isMobile ? 'none' : `1px solid ${styles.cardBorder}`, borderBottom: isMobile ? `1px solid ${styles.cardBorder}` : 'none', paddingRight: isMobile ? '0' : 'md', paddingBottom: isMobile ? 'md' : '0', overflowY: 'auto' }}>
                                 <Group justify="space-between" align="center" mb="md">
                                     <Title order={5} style={{ color: styles.textColor }}>Documents</Title>
                                     <Button size="xs" onClick={handleAddDocument}>Add Document</Button>
@@ -1830,20 +1851,49 @@ export default function ProjectViewPage() {
                                             )}
                                         </Group>
                                     ))}
-                                                </Stack>
+                                </Stack>
                             </Box>
-
                             <Box style={{ flexGrow: 1, paddingLeft: isMobile ? '0' : 'md', paddingTop: isMobile ? 'md' : '0' }}>
-                                <Box style={{
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    height: '100%',
-                                    backgroundColor: styles.cardBackground,
-                                    border: `1px solid ${styles.cardBorder}`,
-                                    borderRadius: rem(8),
-                                    boxShadow: styles.cardShadow,
-                                    overflow: 'hidden'
-                                }}>
+                                {/* --- Transition Feature UI --- */}
+                                <Paper p="md" mb="md" withBorder shadow="sm" style={{ background: styles.tabBackground }}>
+                                    <Group align="flex-end" gap="md">
+                                        <Select
+                                            label="Source Document"
+                                            data={docTabs.map(tab => ({ value: tab.id, label: tab.title }))}
+                                            value={transitionSource}
+                                            onChange={setTransitionSource}
+                                            placeholder="Select source document"
+                                            style={{ minWidth: 180 }}
+                                        />
+                                        <Select
+                                            label="Target Document"
+                                            data={docTabs.map(tab => ({ value: tab.id, label: tab.title }))}
+                                            value={transitionTarget}
+                                            onChange={setTransitionTarget}
+                                            placeholder="Select target document"
+                                            style={{ minWidth: 180 }}
+                                        />
+                                        <Button
+                                            leftSection={<IconRobot size={16} />}
+                                            onClick={handleCalculateTransition}
+                                            loading={transitionLoading}
+                                            disabled={!transitionSource || !transitionTarget || transitionSource === transitionTarget}
+                                        >
+                                            Calculate Transition
+                                        </Button>
+                                    </Group>
+                                    {transitionLoading && (
+                                        <Group mt="md"><Loader size="sm" /><Text>AI is analyzing the transition...</Text></Group>
+                                    )}
+                                    {transitionResult && (
+                                        <Paper mt="md" p="md" withBorder shadow="xs" style={{ background: styles.cardBackground }}>
+                                            <Text fw={700} mb="xs">AI Transition Report</Text>
+                                            <ReactMarkdown>{transitionResult}</ReactMarkdown>
+                                        </Paper>
+                                    )}
+                                </Paper>
+                                {/* --- End Transition Feature UI --- */}
+                                <Box style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: styles.cardBackground, border: `1px solid ${styles.cardBorder}`, borderRadius: rem(8), boxShadow: styles.cardShadow, overflow: 'hidden' }}>
                                     <ProjectDocumentsTab
                                         docTabs={docTabs}
                                         setDocTabs={setDocTabs}
@@ -1886,9 +1936,9 @@ export default function ProjectViewPage() {
                                         showNotification={showNotification}
                                     />
                                 </Box>
-                                        </Box>
-                                    </Box>
-                                </Tabs.Panel>
+                            </Box>
+                        </Box>
+                    </Tabs.Panel>
 
                     <Tabs.Panel value="research">
                         <Box style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', maxWidth: 900, margin: '0 auto', padding: '2rem', boxSizing: 'border-box' }}>
@@ -2414,10 +2464,10 @@ export default function ProjectViewPage() {
                                                         </Group>
                                         </Paper>
                                     ))}
-                                                    </Stack>
-                                        </Box>
-                                    </Box>
-                                </Tabs.Panel>
+                                </Stack>
+                            </Box>
+                        </Box>
+                    </Tabs.Panel>
 
                     <Tabs.Panel value="calendar">
                         <Box style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', maxWidth: 900, margin: '0 auto', padding: '2rem', boxSizing: 'border-box' }}>
