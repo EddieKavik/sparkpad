@@ -1681,14 +1681,14 @@ export default function ProjectViewPage() {
                     }}
                 >
                     <Tabs.List grow>
-                        <Tabs.Tab value="chat">Chat</Tabs.Tab>
                         <Tabs.Tab value="documents">Documents</Tabs.Tab>
                         <Tabs.Tab value="research">Research</Tabs.Tab>
-                        <Tabs.Tab value="tasks">Tasks</Tabs.Tab>
                         <Tabs.Tab value="files">Files</Tabs.Tab>
+                        <Tabs.Tab value="tasks">Tasks</Tabs.Tab>
                         <Tabs.Tab value="calendar">Calendar</Tabs.Tab>
-                        <Tabs.Tab value="ai">AI Tools</Tabs.Tab>
-                        <Tabs.Tab value="finance">Finance</Tabs.Tab>
+                        <Tabs.Tab value="chat">SparkComms</Tabs.Tab>
+                        <Tabs.Tab value="finance">Project Budget</Tabs.Tab>
+                        <Tabs.Tab value="ai">SparkAI</Tabs.Tab>
                     </Tabs.List>
 
                     <Tabs.Panel value="chat">
@@ -2508,7 +2508,7 @@ export default function ProjectViewPage() {
 
                     <Tabs.Panel value="ai">
                         <Box style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', maxWidth: 900, margin: '0 auto', padding: '2rem', boxSizing: 'border-box' }}>
-                            <Title order={4} mb="md" style={{ color: styles.textColor }}>AI Tools</Title>
+                            <Title order={4} mb="md" style={{ color: styles.textColor }}>SparkAI</Title>
 
                             <Tabs defaultValue="insights" style={{ flexGrow: 1, display: "flex", flexDirection: "column" }}>
                                 <Tabs.List grow>
@@ -2542,7 +2542,7 @@ export default function ProjectViewPage() {
                                             padding: 'md',
                                             marginBottom: 'md'
                                         }}>
-                                            <Title order={5} mb="sm" style={{ color: styles.textColor }}>Ask AI about your Research</Title>
+                                            <Title order={5} mb="sm" style={{ color: styles.textColor }}>Ask SparkAI about your Research</Title>
                                             <Stack>
                                                 <Textarea
                                                     placeholder={isFollowup ? "Ask a follow-up question..." : "Enter your question here..."}
@@ -2552,7 +2552,7 @@ export default function ProjectViewPage() {
                                                     minRows={2}
                                                 />
                                                 <Group>
-                                                    <Button onClick={handleAskResearchAI} loading={qaLoading}>Ask AI</Button>
+                                                    <Button onClick={handleAskResearchAI} loading={qaLoading}>Ask SparkAI</Button>
                                                     {qaHistory.length > 0 && (
                                                         <Button variant="outline" onClick={handleFollowup} disabled={isFollowup}>Ask Follow-up</Button>
                                                     )}
@@ -2560,7 +2560,7 @@ export default function ProjectViewPage() {
                                                 {qaError && <Text color="red">{qaError}</Text>}
                                                 {qaAnswer && (
                                                     <Paper p="sm" shadow="xs" style={{ backgroundColor: styles.tabBackground, border: `1px solid ${styles.cardBorder}` }}>
-                                                        <Text size="sm" style={{ fontWeight: 'bold' }}>AI Answer:</Text>
+                                                        <Text size="sm" style={{ fontWeight: 'bold' }}>SparkAI Answer:</Text>
                                                         <ReactMarkdown>{qaAnswer}</ReactMarkdown>
                                                     </Paper>
                                                 )}
@@ -2728,7 +2728,7 @@ export default function ProjectViewPage() {
                           </Group>
                         </Paper>
                         <Box mt="xl" style={{ background: styles.tabPanelBackground, borderRadius: rem(8), padding: '1.5rem', border: `1px solid ${styles.cardBorder}` }}>
-                          <Title order={6} mb="xs" style={{ color: styles.textColor }}>Ask AI about your finances</Title>
+                          <Title order={6} mb="xs" style={{ color: styles.textColor }}>Ask SparkAI about your finances</Title>
                           <Stack>
                             <Textarea
                               placeholder="E.g. What is my biggest expense? Are we on track with the budget?"
@@ -2738,12 +2738,12 @@ export default function ProjectViewPage() {
                               autosize
                             />
                             <Group>
-                              <Button onClick={handleAskFinanceAI} loading={financeAiLoading}>Ask AI</Button>
+                              <Button onClick={handleAskFinanceAI} loading={financeAiLoading}>Ask SparkAI</Button>
                             </Group>
                             {financeAiError && <Text color="red">{financeAiError}</Text>}
                             {financeAiAnswer && (
                               <Paper p="sm" shadow="xs" style={{ backgroundColor: styles.tabBackground, border: `1px solid ${styles.cardBorder}` }}>
-                                <Text size="sm" style={{ fontWeight: 'bold' }}>AI Answer:</Text>
+                                <Text size="sm" style={{ fontWeight: 'bold' }}>SparkAI Answer:</Text>
                                 <ReactMarkdown>{financeAiAnswer}</ReactMarkdown>
                               </Paper>
                             )}

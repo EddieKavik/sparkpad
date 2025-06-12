@@ -6,6 +6,7 @@ import { IconPlus, IconDotsVertical, IconEdit, IconTrash, IconShare, IconUsers, 
 import { showNotification } from "@mantine/notifications";
 import { useTheme } from '@/contexts/ThemeContext';
 import { getGeminiClient } from '@/utils/gemini';
+import Link from "next/link";
 
 // Expense type for budgeting/finance
 export interface Expense {
@@ -111,6 +112,8 @@ export default function ProjectsPage() {
     const [newProjectBudget, setNewProjectBudget] = useState(0);
     const [newProjectCurrency, setNewProjectCurrency] = useState('USD');
     const [loadingProjectId, setLoadingProjectId] = useState<string | null>(null);
+    const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+    const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
 
     useEffect(() => {
         if (searchParams && searchParams.get('showStats') === '1') {
@@ -849,7 +852,7 @@ export default function ProjectsPage() {
                                             <Menu.Item leftSection={<IconShare size={16} />} onClick={() => { setEditingProject(project); setShareModalOpened(true); }}>
                                                 Share
                                             </Menu.Item>
-                                            <Menu.Item leftSection={<IconTrash size={16} />} color="red" onClick={() => handleDeleteProject(project.id)}>
+                                            <Menu.Item leftSection={<IconTrash size={16} />} color="red" onClick={() => { setProjectToDelete(project); setDeleteConfirmOpen(true); }}>
                                                 Delete
                                             </Menu.Item>
                                         </Menu.Dropdown>
@@ -887,26 +890,32 @@ export default function ProjectsPage() {
                                             </Group>
                                         </Tooltip>
                                     </Group>
-                                    <Button
-                                        variant="gradient"
-                                        gradient={{ from: '#1769aa', to: '#1e88e5', deg: 90 }}
-                                        size="sm"
-                                        style={{
-                                            fontWeight: 700,
-                                            boxShadow: styles.cardShadow,
-                                            color: '#fff',
-                                            background: 'linear-gradient(90deg, #1769aa 0%, #1e88e5 100%)',
-                                            transition: 'none',
-                                        }}
-                                        loading={loadingProjectId === project.id}
-                                        onClick={async () => {
-                                            setLoadingProjectId(project.id);
-                                            await router.push(`/projects/${project.id}`);
-                                            setLoadingProjectId(null);
-                                        }}
-                                    >
-                                        View Details
-                                    </Button>
+                                    <Link href={`/projects/${project.id}`} style={{ textDecoration: 'none' }}>
+                                        <Button
+                                            variant="gradient"
+                                            gradient={{ from: '#1769aa', to: '#1e88e5', deg: 90 }}
+                                            size="sm"
+                                            style={{
+                                                fontWeight: 700,
+                                                boxShadow: styles.cardShadow,
+                                                color: '#fff',
+                                                background: 'linear-gradient(90deg, #1769aa 0%, #1e88e5 100%)',
+                                                transition: 'none',
+                                            }}
+                                            loading={loadingProjectId === project.id}
+                                            onClick={async (e) => {
+                                                setLoadingProjectId(project.id);
+                                                // Only navigate if not opening in new tab/window
+                                                if (!(e.ctrlKey || e.metaKey || e.button === 1)) {
+                                                    e.preventDefault();
+                                                    await router.push(`/projects/${project.id}`);
+                                                    setLoadingProjectId(null);
+                                                }
+                                            }}
+                                        >
+                                            View Details
+                                        </Button>
+                                    </Link>
                                 </Group>
                             </Card>
                         ))}
@@ -1034,6 +1043,37 @@ export default function ProjectsPage() {
                     >
                         Share Project
                     </Button>
+                </Stack>
+            </Modal>
+
+            <Modal
+                opened={deleteConfirmOpen}
+                onClose={() => { setDeleteConfirmOpen(false); setProjectToDelete(null); }}
+                title="Confirm Delete"
+                centered
+                styles={{
+                    content: {
+                        background: styles.cardBackground,
+                        border: styles.cardBorder,
+                        boxShadow: styles.cardShadow,
+                        color: styles.textColor,
+                        borderRadius: 24,
+                        padding: 32,
+                    },
+                }}
+            >
+                <Stack>
+                    <Text>Are you sure you want to delete the project "{projectToDelete?.name}"? This action cannot be undone.</Text>
+                    <Group justify="flex-end">
+                        <Button variant="default" onClick={() => { setDeleteConfirmOpen(false); setProjectToDelete(null); }}>Cancel</Button>
+                        <Button color="red" onClick={async () => {
+                            if (projectToDelete) {
+                                await handleDeleteProject(projectToDelete.id);
+                            }
+                            setDeleteConfirmOpen(false);
+                            setProjectToDelete(null);
+                        }}>Delete</Button>
+                    </Group>
                 </Stack>
             </Modal>
         </div>
