@@ -233,9 +233,7 @@ const ProjectDocumentsTab = ({
               }}
               placeholder="Select language"
               searchable
-              nothingFound="No options"
               disabled={translating}
-              withinPortal
             />
             {translating && <Loader size="xs" mt="sm" />}
           </Popover.Dropdown>
