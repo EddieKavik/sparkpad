@@ -4,7 +4,7 @@ export default function LoginPage() {
     return (
         <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#181c2b] via-[#23243a] to-[#2e254d] text-white">
             <div className="bg-[#23243a] p-8 rounded-xl shadow-2xl w-full max-w-md">
-                <h1 className="text-3xl font-bold mb-6 text-center">Login to Sparkpad</h1>
+                <h1 className="text-3xl font-bold mb-6 text-center">Login to SparkPad</h1>
                 <form className="flex flex-col gap-4">
                     <input
                         type="email"

@@ -136,7 +136,7 @@ function generateICS(tasks: Task[], projectName: string) {
         const d = new Date(dateStr);
         return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}00Z`;
     };
-    let ics = `BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:Sparkpad\nCALSCALE:GREGORIAN\n`;
+    let ics = `BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:SparkPad\nCALSCALE:GREGORIAN\n`;
     tasks.filter(t => t.dueDate).forEach(task => {
         ics += `BEGIN:VEVENT\nSUMMARY:${task.title}\nDESCRIPTION:${task.description || ''}\nDTSTART:${formatDate(task.dueDate)}\nDTEND:${formatDate(task.dueDate)}\nSTATUS:${task.status}\nPRIORITY:${task.priority}\nEND:VEVENT\n`;
     });
@@ -3005,7 +3005,7 @@ export default function ProjectViewPage() {
                     </Tabs.Panel>
                         </Tabs>
                 <Container fluid pt="md" pb="md" style={{ borderTop: `1px solid ${styles.cardBorder}`, width: '100%' }}>
-                    <Text size="sm" c="dimmed" ta="center">&copy; {new Date().getFullYear()} Sparkpad. All rights reserved.</Text>
+                    <Text size="sm" c="dimmed" ta="center">&copy; {new Date().getFullYear()} SparkPad. All rights reserved.</Text>
                 </Container>
                 <ActionIcon
                     variant="light"

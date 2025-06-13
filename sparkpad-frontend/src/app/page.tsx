@@ -32,7 +32,7 @@ export default function Home() {
           transition={{ duration: 1 }}
           className="text-5xl md:text-7xl font-extrabold tracking-tight bg-gradient-to-r from-violet-400 via-blue-300 to-fuchsia-400 bg-clip-text text-transparent drop-shadow-lg"
         >
-          Sparkpad
+          SparkPad
         </motion.h1>
         <motion.p
           initial={{ opacity: 0, y: 20 }}
@@ -58,7 +58,7 @@ export default function Home() {
         >
           <Link href="/login">
             <button className="px-10 py-4 rounded-full bg-gradient-to-r from-fuchsia-600 via-violet-600 to-blue-600 text-white font-bold text-lg shadow-xl hover:scale-105 hover:shadow-2xl transition-all duration-300 border-2 border-transparent hover:border-blue-300">
-              Get Started with Sparkpad
+              Get Started with SparkPad
             </button>
           </Link>
         </motion.div>
@@ -79,7 +79,7 @@ export default function Home() {
             transition={{ duration: 0.8 }}
             className="text-3xl md:text-4xl font-bold mb-4 text-violet-300"
           >
-            What is Sparkpad?
+            What is SparkPad?
           </motion.h2>
           <motion.p
             initial={{ opacity: 0, x: -20 }}
@@ -88,7 +88,7 @@ export default function Home() {
             transition={{ duration: 0.8, delay: 0.2 }}
             className="text-lg text-blue-100 mb-6"
           >
-            Sparkpad is your all-in-one, AI-powered workspace for notes, chat, tagging, and collaboration. Experience the next generation of productivity with real-time AI assistance, futuristic design, and seamless teamwork.
+            SparkPad is your all-in-one, AI-powered workspace for notes, chat, tagging, and collaboration. Experience the next generation of productivity with real-time AI assistance, futuristic design, and seamless collaboration.
           </motion.p>
           <ul className="space-y-4">
             <li className="flex items-center gap-3 text-blue-200"><IconSparkles className="text-fuchsia-400" size={28} /> AI-Driven Note-Taking & Organization</li>

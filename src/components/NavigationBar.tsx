@@ -354,7 +354,7 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
         <>
             <Group justify="space-between" align="center" p={0} style={styles}>
                 <Group align="center" gap={0} style={{ minHeight: 58, paddingLeft: 16 }}>
-                    <Link href="/" style={{ color: '#1769aa', fontWeight: 900, fontSize: 24, letterSpacing: 1, textDecoration: 'none', padding: '0 0', borderBottom: '2px solid transparent', transition: 'color 0.2s, border-bottom 0.2s', display: 'flex', alignItems: 'center', height: 58 }}>Sparkpad</Link>
+                    <Link href="/" style={{ color: '#1769aa', fontWeight: 900, fontSize: 24, letterSpacing: 1, textDecoration: 'none', padding: '0 0', borderBottom: '2px solid transparent', transition: 'color 0.2s, border-bottom 0.2s', display: 'flex', alignItems: 'center', height: 58 }}>SparkPad</Link>
                     {isMobile ? (
                         <ActionIcon size={40} variant="subtle" color="blue" onClick={() => setDrawerOpened(true)} style={{ marginLeft: 8 }}>
                             <IconMenu size={28} />

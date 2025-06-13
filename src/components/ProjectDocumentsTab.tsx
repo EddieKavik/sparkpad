@@ -534,22 +534,44 @@ const ProjectDocumentsTab = ({
                 <Group gap={4}>
                   {commentCount > 0 && (
                     <Tooltip label={`${commentCount} comment${commentCount > 1 ? 's' : ''} on this row`}>
-                      <ActionIcon
-                        variant="light"
-                        color="blue"
-                        onClick={() => {
-                          setSidebarOpen(true);
-                          // Optionally, filter/focus sidebar to this row's comments
-                          // For now, just open sidebar and scroll to first annotation for this row
-                          if (rowAnnotations.length > 0) {
-                            setActiveAnnotationId(rowAnnotations[0].annotation_id);
-                          }
-                        }}
-                        title="Show comments for this row"
-                      >
-                        <IconMessageCircle size={18} />
-                        <Badge color="blue" size="xs" style={{ position: 'absolute', top: -6, right: -6 }}>{commentCount}</Badge>
-                      </ActionIcon>
+                      <div style={{ position: 'relative', display: 'inline-block', width: 32, height: 32 }}>
+                        <ActionIcon
+                          variant="light"
+                          color="blue"
+                          onClick={() => {
+                            setSidebarOpen(true);
+                            if (rowAnnotations.length > 0) {
+                              setActiveAnnotationId(rowAnnotations[0].annotation_id);
+                            }
+                          }}
+                          title="Show comments for this row"
+                          size={32}
+                          style={{ position: 'relative' }}
+                        >
+                          <IconMessageCircle size={18} />
+                        </ActionIcon>
+                        <Badge
+                          color="blue"
+                          size="xs"
+                          style={{
+                            position: 'absolute',
+                            top: 2,
+                            right: 2,
+                            pointerEvents: 'none',
+                            zIndex: 1,
+                            minWidth: 16,
+                            height: 16,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 10,
+                            padding: 0,
+                          }}
+                          radius="xl"
+                        >
+                          {commentCount}
+                        </Badge>
+                      </div>
                     </Tooltip>
                   )}
                   <Tooltip label="Add a comment to this row">

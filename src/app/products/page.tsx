@@ -4,7 +4,7 @@ export default function Products() {
       <section style={{ width: '100%', padding: '80px 0 40px 0', textAlign: 'center', background: '#fff' }}>
         <h1 style={{ fontSize: '2.8rem', fontWeight: 900, letterSpacing: 2, marginBottom: 16, color: '#1769aa' }}>Our Products</h1>
         <p style={{ color: '#5c5f66', fontSize: 20, maxWidth: 900, margin: '0 auto 32px' }}>
-          Discover the Sparkpad suite—designed for executive productivity, collaboration, and AI-powered insights.
+          Discover the SparkPad suite—designed for executive productivity, collaboration, and AI-powered insights.
         </p>
       </section>
       <section style={{ width: '100%', background: '#f5f7fa', padding: '40px 0', textAlign: 'center' }}>
@@ -24,9 +24,9 @@ export default function Products() {
         </div>
       </section>
       <section style={{ width: '100%', background: '#f5f7fa', padding: '40px 0', textAlign: 'center' }}>
-        <h2 style={{ color: '#1769aa', fontWeight: 700, fontSize: 28, marginBottom: 16 }}>Why Sparkpad?</h2>
+        <h2 style={{ color: '#1769aa', fontWeight: 700, fontSize: 28, marginBottom: 16 }}>Why SparkPad?</h2>
         <p style={{ color: '#5c5f66', fontSize: 18, maxWidth: 800, margin: '0 auto 32px' }}>
-          Sparkpad brings together everything your team needs to succeed—beautifully designed, AI-powered, and ready for the future.
+          SparkPad brings together everything your team needs to succeed—beautifully designed, AI-powered, and ready for the future.
         </p>
       </section>
     </main>

@@ -17,11 +17,11 @@ export default function ContactPage() {
                     </div>
                     <div>
                         <label htmlFor="subject" className="neon-text" style={{ fontWeight: 600 }}>Subject</label>
-                        <input id="subject" name="subject" type="text" defaultValue="Inquiry about Sparkpad" className="glass" style={{ width: '100%', padding: '12px 18px', fontSize: 18, borderRadius: 12, border: 'none', marginTop: 6, color: '#ededed', background: 'rgba(35,43,77,0.18)' }} />
+                        <input id="subject" name="subject" type="text" defaultValue="Inquiry about SparkPad" className="glass" style={{ width: '100%', padding: '12px 18px', fontSize: 18, borderRadius: 12, border: 'none', marginTop: 6, color: '#ededed', background: 'rgba(35,43,77,0.18)' }} />
                     </div>
                     <div>
                         <label htmlFor="message" className="neon-text" style={{ fontWeight: 600 }}>Message</label>
-                        <textarea id="message" name="message" rows={5} defaultValue="I am highly interested in learning more about Sparkpad and its potential applications for my organization." className="glass" style={{ width: '100%', padding: '12px 18px', fontSize: 18, borderRadius: 12, border: 'none', marginTop: 6, color: '#ededed', background: 'rgba(35,43,77,0.18)', resize: 'vertical' }} />
+                        <textarea id="message" name="message" rows={5} defaultValue="I am highly interested in learning more about SparkPad and its potential applications for my organization." className="glass" style={{ width: '100%', padding: '12px 18px', fontSize: 18, borderRadius: 12, border: 'none', marginTop: 6, color: '#ededed', background: 'rgba(35,43,77,0.18)', resize: 'vertical' }} />
                     </div>
                     <button type="submit" className="futuristic-btn" style={{ fontSize: '1.1rem', marginTop: 12 }}>Submit</button>
                 </form>
