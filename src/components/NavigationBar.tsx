@@ -60,6 +60,7 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
     };
 
     useEffect(() => {
+        let errorNotified = false; // Prevent repeated error notifications
         const fetchNotifications = async () => {
             const userEmail = localStorage.getItem("user:username");
             if (!userEmail) return;
@@ -77,15 +78,40 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                                 id: notification.id || Date.now(),
                                 read: notification.read || false
                             })));
+                        errorNotified = false; // Reset error flag on success
                     } else {
                         setNotifications([]);
+                        if (!errorNotified) {
+                            showNotification({
+                                title: "Notification Error",
+                                message: "Malformed notifications data received.",
+                                color: "red"
+                            });
+                            errorNotified = true;
+                        }
                     }
                 } else {
                     setNotifications([]);
+                    if (!errorNotified) {
+                        showNotification({
+                            title: "Notification Error",
+                            message: `Failed to fetch notifications: ${res.statusText}`,
+                            color: "red"
+                        });
+                        errorNotified = true;
+                    }
                 }
             } catch (error) {
                 console.error('Failed to fetch notifications:', error);
                 setNotifications([]);
+                if (!errorNotified) {
+                    showNotification({
+                        title: "Notification Error",
+                        message: "Failed to fetch notifications. Please check your connection.",
+                        color: "red"
+                    });
+                    errorNotified = true;
+                }
             }
         };
 
@@ -589,7 +615,11 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                 padding="md"
                 size="80vw"
                 position="left"
-                overlayProps={{ color: themeObj.colorScheme === 'dark' ? themeObj.colors.dark[9] : themeObj.colors.gray[2], opacity: 0.55, blur: 2 }}
+                overlayProps={{
+                  color: theme === 'classic' ? themeObj.colors.gray[2] : themeObj.colors.dark[9],
+                  opacity: 0.55,
+                  blur: 2,
+                }}
                 zIndex={1000}
             >
                 <Stack gap="md">

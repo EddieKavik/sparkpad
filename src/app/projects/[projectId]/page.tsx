@@ -1,9 +1,9 @@
 "use client";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
-import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack, Modal, ActionIcon, rem, Menu, Avatar, Paper, MultiSelect, Textarea, Badge, Divider, Select } from "@mantine/core";
+import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack, Modal, ActionIcon, rem, Menu, Avatar, Paper, MultiSelect, Textarea, Badge, Divider, Select, Accordion, Popover } from "@mantine/core";
 import { showNotification } from "@mantine/notifications";
-import { IconSettings, IconDots, IconTrash, IconArrowLeft, IconSend, IconFile, IconMoodSmile, IconRobot, IconEdit, IconSparkles, IconChevronDown, IconChevronUp, IconDownload, IconUpload } from "@tabler/icons-react";
+import { IconSettings, IconDots, IconTrash, IconArrowLeft, IconSend, IconFile, IconMoodSmile, IconRobot, IconEdit, IconSparkles, IconChevronDown, IconChevronUp, IconDownload, IconUpload, IconWorld, IconSearch } from "@tabler/icons-react";
 import { getGeminiClient } from "@/utils/gemini";
 import { useTheme } from '@/contexts/ThemeContext';
 import { useDisclosure } from '@mantine/hooks';
@@ -128,7 +128,7 @@ interface Task {
 }
 
 // Document tab type
-export type DocTab = { id: string; title: string };
+export type DocTab = { id: string; title: string; tags?: string[] };
 
 function generateICS(tasks: Task[], projectName: string) {
     const pad = (n: number) => n < 10 ? '0' + n : n;
@@ -208,7 +208,7 @@ export default function ProjectViewPage() {
     const [renaming, setRenaming] = useState(false);
     // Document tabs state
     const [docTabs, setDocTabs] = useState<DocTab[]>([{ id: "default", title: "Documents" }]);
-    const [activeTab, setActiveTab] = useState("default");
+    const [activeTab, setActiveTab] = useState("documents");
     const [activeDocTab, setActiveDocTab] = useState(docTabs[0]?.id || "default");
     // Document rows state
     const [docRows, setDocRows] = useState<{ [docId: string]: string[] }>({});
@@ -238,7 +238,6 @@ export default function ProjectViewPage() {
     const [editResearch, setEditResearch] = useState<any | null>(null);
     const [editResearchLoading, setEditResearchLoading] = useState(false);
     const [summarizingId, setSummarizingId] = useState<string | null>(null);
-    const [tagFilter, setTagFilter] = useState<string[]>([]);
     const [newResearchFile, setNewResearchFile] = useState<File | null>(null);
     const [editResearchFile, setEditResearchFile] = useState<File | null>(null);
     const [commentInputs, setCommentInputs] = useState<{ [id: string]: string }>({});
@@ -311,6 +310,36 @@ export default function ProjectViewPage() {
     const [transitionTarget, setTransitionTarget] = useState<string | null>(null);
     const [transitionLoading, setTransitionLoading] = useState(false);
     const [transitionResult, setTransitionResult] = useState<string | null>(null);
+    // Add state for sidebar controls
+    const [translationLang, setTranslationLang] = useState<string | null>(null);
+    const [showLangSelect, setShowLangSelect] = useState<string | null>(null);
+    const [translating, setTranslating] = useState(false);
+    const languageOptions = [
+      { value: 'en', label: 'English' },
+      { value: 'fr', label: 'French' },
+      { value: 'sw', label: 'Swahili' },
+      { value: 'am', label: 'Amharic' },
+      { value: 'ar', label: 'Arabic' },
+      { value: 'zu', label: 'Zulu' },
+      { value: 'ha', label: 'Hausa' },
+      { value: 'yo', label: 'Yoruba' },
+    ];
+    const [tagFilter, setTagFilter] = useState<string[]>([]);
+    const allTags = Array.from(new Set(docTabs.flatMap(tab => tab.tags || [])));
+    const filteredTabs = docTabs.filter(tab =>
+      tab.title.toLowerCase().includes(docSearch.toLowerCase()) &&
+      (tagFilter.length === 0 || (tab.tags || []).some(tag => tagFilter.includes(tag)))
+    );
+
+    // Add state for AI Prompt dropdown
+    const [aiPrompt, setAiPrompt] = useState("");
+    const [aiPromptProcessing, setAiPromptProcessing] = useState(false);
+    // Handler stub for running AI for each row
+    const runAiForEachRow = () => {
+      setAiPromptProcessing(true);
+      // TODO: Implement AI logic for each row
+      setTimeout(() => setAiPromptProcessing(false), 1000);
+    };
 
     useEffect(() => {
         const user = localStorage.getItem("user");
@@ -522,9 +551,10 @@ export default function ProjectViewPage() {
         try {
             if (!projectId || Array.isArray(projectId)) throw new Error("Invalid projectId");
             const newId = `doc-${Date.now()}`;
+            const tabsWithTags = docTabs.map(t => ({ ...t, tags: t.tags ?? [] }));
             const newTabs = [
-                ...docTabs,
-                { id: newId, title: "Untitled Document" }
+                ...tabsWithTags,
+                { id: newId, title: "Untitled Document", tags: [] }
             ];
             setDocTabs(newTabs);
             await saveDocTabsToCivilMemory(projectId, newTabs);
@@ -543,9 +573,10 @@ export default function ProjectViewPage() {
         }
     };
 
-    const handleRenameDoc = async (tabId: string, newTitle: string) => {
+    const handleRenameDoc = async (tabId: string, newTitle: string, newTags?: string[]) => {
         if (!projectId || Array.isArray(projectId)) return;
-        const newTabs = docTabs.map(t => t.id === tabId ? { ...t, title: newTitle } : t);
+        const tabsWithTags = docTabs.map(t => ({ ...t, tags: t.tags ?? [] }));
+        const newTabs = tabsWithTags.map(t => t.id === tabId ? { ...t, title: newTitle, tags: newTags ?? t.tags ?? [] } : t);
         setDocTabs(newTabs);
         await saveDocTabsToCivilMemory(projectId, newTabs);
     };
@@ -928,7 +959,7 @@ export default function ProjectViewPage() {
     };
 
     // Helper to get all unique tags from researchItems
-    const allTags = Array.from(new Set(researchItems.flatMap((item: any) => item.tags || [])));
+    const allResearchTags = Array.from(new Set(researchItems.flatMap((item: any) => item.tags || [])));
 
     function fileToDataUrl(file: File): Promise<string> {
         return new Promise((resolve, reject) => {
@@ -1535,6 +1566,88 @@ export default function ProjectViewPage() {
       }, {} as Record<string, number>)
     ).map(([category, value], i) => ({ name: category, value, color: pieColors[i % pieColors.length] }));
 
+    // Handler for translating a document's title and rows
+    const handleTranslateDocument = async (docId: string, lang: string) => {
+      try {
+        const userEmail = localStorage.getItem("user:username");
+        if (!userEmail) return;
+
+        // Get the document tab and rows
+        const docTab = docTabs.find(tab => tab.id === docId);
+        if (!docTab) return;
+
+        const rows = docRows[docId] || [];
+        if (rows.length === 0) {
+          showNotification({ title: "Translation", message: "No content to translate", color: "blue" });
+          return;
+        }
+
+        setTranslating(true);
+
+        // First translate the document title
+        const gemini = getGeminiClient();
+        const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+        try {
+          const titlePrompt = `Translate the following text to ${languageOptions.find(l => l.value === lang)?.label || lang}. Only return the translated text.\n\nText: ${docTab.title}`;
+          const titleResult = await model.generateContent(titlePrompt);
+          const translatedTitle = titleResult.response.text().trim();
+
+          // Update the document title
+          await fetch(`http://localhost:3333/doctabs?mode=disk&key=${encodeURIComponent(userEmail)}:${encodeURIComponent(projectId)}`, {
+            method: "POST",
+            body: JSON.stringify(docTabs.map(tab =>
+              tab.id === docId ? { ...tab, title: translatedTitle } : tab
+            ))
+          });
+
+          // Update local state
+          setDocTabs(docTabs.map(tab =>
+            tab.id === docId ? { ...tab, title: translatedTitle } : tab
+          ));
+
+          showNotification({ title: "Translation", message: "Document title translated", color: "green" });
+        } catch (err) {
+          showNotification({ title: "Error", message: "Failed to translate title", color: "red" });
+        }
+
+        // Then translate all rows
+        try {
+          const translatedRows = [];
+          for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            if (typeof row !== 'string') {
+              translatedRows.push(row);
+              continue;
+            }
+
+            const prompt = `Translate the following text to ${languageOptions.find(l => l.value === lang)?.label || lang}. Only return the translated text.\n\nText: ${row}`;
+            const result = await model.generateContent(prompt);
+            const translatedRow = result.response.text().trim();
+            translatedRows.push(translatedRow);
+          }
+
+          // Update the rows in storage
+          const updatedRows = { ...docRows, [docId]: translatedRows };
+          await fetch(`http://localhost:3333/docs?mode=disk&key=${encodeURIComponent(userEmail)}`, {
+            method: "POST",
+            body: JSON.stringify(updatedRows)
+          });
+
+          // Update local state
+          setDocRows(updatedRows);
+
+          showNotification({ title: "Translation", message: "Document content translated", color: "green" });
+        } catch (err) {
+          showNotification({ title: "Error", message: "Failed to translate content", color: "red" });
+        }
+      } catch (err) {
+        showNotification({ title: "Error", message: "Translation failed", color: "red" });
+      } finally {
+        setTranslating(false);
+      }
+    };
+
     return (
         <>
             <Modal opened={settingsOpened} onClose={() => setSettingsOpened(false)} title="Project Settings" overlayProps={{ backgroundOpacity: 0.55, blur: styles.overlay.filter || 3 }}>
@@ -1674,9 +1787,23 @@ export default function ProjectViewPage() {
                         </Menu.Dropdown>
                     </Menu>
                 </Group>
-                <Tabs value={activeTab} onChange={(value) => value && setActiveTab(value)} style={{ flexGrow: 1, display: "flex", flexDirection: "column", width: '100%' }}
+                <Tabs
+                  value={activeTab}
+                  onChange={(value) => value && setActiveTab(value)}
+                  style={{ flexGrow: 1, display: "flex", flexDirection: "column", width: '100%' }}
                     styles={{
-                        tab: { borderColor: styles.accentColor, color: styles.accentColor },
+                    tab: (theme: any, params: { active: boolean }) => ({
+                      borderColor: params.active ? theme.colors.blue[6] : 'transparent',
+                      color: params.active ? theme.colors.blue[6] : theme.colors.gray[7],
+                      fontWeight: params.active ? 700 : 500,
+                      background: params.active ? theme.colors.blue[0] : 'transparent',
+                      transition: 'background 0.2s, color 0.2s',
+                      '&:hover': {
+                        background: theme.colors.blue[1],
+                        color: theme.colors.blue[7],
+                        borderColor: theme.colors.blue[6],
+                      },
+                    }),
                         panel: { flexGrow: 1, display: "flex", flexDirection: "column", padding: 'lg', backgroundColor: styles.tabPanelBackground, borderRadius: rem(8), maxWidth: 1200, margin: '0 auto' },
                     }}
                 >
@@ -1795,20 +1922,42 @@ export default function ProjectViewPage() {
 
                     <Tabs.Panel value="documents">
                         <Box style={{ flexGrow: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', maxWidth: 900, margin: '0 auto', padding: '2rem', boxSizing: 'border-box' }}>
-                            <Box style={{ width: isMobile ? '100%' : rem(250), flexShrink: 0, borderRight: isMobile ? 'none' : `1px solid ${styles.cardBorder}`, borderBottom: isMobile ? `1px solid ${styles.cardBorder}` : 'none', paddingRight: isMobile ? '0' : 'md', paddingBottom: isMobile ? 'md' : '0', overflowY: 'auto' }}>
-                                <Group justify="space-between" align="center" mb="md">
-                                    <Title order={5} style={{ color: styles.textColor }}>Documents</Title>
-                                    <Button size="xs" onClick={handleAddDocument}>Add Document</Button>
-                                </Group>
-                                <Stack>
-                                    {docTabs.map(tab => (
-                                        <Group key={tab.id} wrap="nowrap" justify="space-between"
+                            {/* Sidebar with search, filter, and document list */}
+                            <Box style={{ width: isMobile ? '100%' : rem(320), minWidth: isMobile ? '100%' : 320, maxWidth: 400, background: styles.cardBackground, borderRight: isMobile ? 'none' : styles.cardBorder, borderBottom: isMobile ? styles.cardBorder : 'none', padding: 16, display: 'flex', flexDirection: 'column', gap: 12, height: '100%' }}>
+                              {/* Search bar with icon */}
+                              <TextInput
+                                placeholder="Search documents..."
+                                value={docSearch}
+                                onChange={e => setDocSearch(e.currentTarget.value)}
+                                size="sm"
+                                leftSection={<IconSearch size={16} />}
+                                style={{ width: '100%', marginBottom: 8 }}
+                              />
+                              {/* Tag filter below search bar */}
+                              <MultiSelect
+                                data={allTags.map(tag => ({ value: tag, label: tag }))}
+                                value={tagFilter}
+                                onChange={setTagFilter}
+                                placeholder="Filter by tag"
+                                clearable
+                                searchable
+                                size="sm"
+                                style={{ width: '100%', marginBottom: 12 }}
+                              />
+                              {/* Document list */}
+                              <Stack style={{ flexGrow: 1, overflowY: 'auto', minHeight: 0 }}>
+                                {filteredTabs
+                                  .slice((docPage - 1) * DOCS_PER_PAGE, docPage * DOCS_PER_PAGE)
+                                  .map(tab => (
+                                  <Box key={tab.id} style={{ position: 'relative' }}>
+                                    <Group wrap="nowrap" justify="space-between" align="center"
                                             style={{
                                                 backgroundColor: activeDocTab === tab.id ? styles.accentColor + '15' : 'transparent',
                                                 borderRadius: rem(4),
                                                 padding: rem(8),
                                                 cursor: 'pointer',
-                                                border: activeDocTab === tab.id ? `1px solid ${styles.accentColor}` : 'none'
+                                        border: activeDocTab === tab.id ? `1px solid ${styles.accentColor}` : 'none',
+                                        transition: 'background 0.2s',
                                             }}
                                             onClick={() => {
                                                 if (activeDocTab === tab.id && renamingDocId !== tab.id) {
@@ -1816,7 +1965,7 @@ export default function ProjectViewPage() {
                                                     setRenameDocValue(tab.title);
                                                 } else {
                                                     setActiveDocTab(tab.id);
-                                                    setRenamingDocId(null); // Exit rename mode if switching tabs
+                                          setRenamingDocId(null);
                                                 }
                                             }}
                                         >
@@ -1839,21 +1988,98 @@ export default function ProjectViewPage() {
                                                     autoFocus
                                                 />
                                             ) : (
-                                                <Text style={{ flexGrow: 1, color: styles.textColor, fontWeight: activeDocTab === tab.id ? 'bold' : 'normal' }}>
+                                        <Text style={{ flexGrow: 1, color: styles.textColor, fontWeight: activeDocTab === tab.id ? 'bold' : 'normal', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                     {tab.title}
                                                 </Text>
                                             )}
-
-                                            {tab.id !== "default" && ( // Prevent deleting the default tab
-                                                <ActionIcon variant="light" color="red" size="sm" onClick={(e) => { e.stopPropagation(); handleDeleteDoc(tab.id); }}>
+                                      <Group gap={4}>
+                                        {/* Globe icon for translation */}
+                                        <Popover
+                                          opened={showLangSelect === tab.id}
+                                          onChange={(opened: boolean | undefined) => setShowLangSelect(opened ? tab.id : null)}
+                                          position="bottom-start"
+                                          withinPortal
+                                          shadow="md"
+                                        >
+                                          <Popover.Target>
+                                            <ActionIcon
+                                              variant="light"
+                                              color="blue"
+                                              size="sm"
+                                              onClick={e => {
+                                                e.stopPropagation();
+                                                setShowLangSelect(showLangSelect === tab.id ? null : tab.id);
+                                              }}
+                                              title="Translate document"
+                                            >
+                                              <IconWorld size={16} />
+                                            </ActionIcon>
+                                          </Popover.Target>
+                                          <Popover.Dropdown>
+                                            <Select
+                                              data={languageOptions}
+                                              value={translationLang}
+                                              onChange={async value => {
+                                                if (value) {
+                                                  setTranslationLang(value);
+                                                  await handleTranslateDocument(tab.id, value);
+                                                  setShowLangSelect(null);
+                                                }
+                                              }}
+                                              placeholder="Select language"
+                                              searchable
+                                              clearable
+                                              size="xs"
+                                              disabled={translating}
+                                            />
+                                          </Popover.Dropdown>
+                                        </Popover>
+                                        {/* Delete icon */}
+                                        {tab.id !== "default" && (
+                                          <ActionIcon variant="light" color="red" size="sm" onClick={e => { e.stopPropagation(); handleDeleteDoc(tab.id); }}>
                                                     <IconTrash size={14} />
                                                 </ActionIcon>
                                             )}
                                         </Group>
-                                    ))}
-                                </Stack>
+                                    </Group>
+                                  </Box>
+                                ))}
+                              </Stack>
+                              {/* Add Document button at the bottom */}
+                              <Button size="xs" mt={8} onClick={handleAddDocument} fullWidth>Add Document</Button>
+                              
+                              {/* Add pagination controls */}
+                              {docTabs.length > DOCS_PER_PAGE && (
+                                <Group justify="center" mt={12}>
+                                  <ActionIcon 
+                                    size="sm" 
+                                    variant="light" 
+                                    disabled={docPage === 1}
+                                    onClick={() => setDocPage(p => Math.max(1, p - 1))}
+                                  >
+                                    &lt;
+                                  </ActionIcon>
+                                  <Text size="sm">
+                                    {docPage} / {Math.ceil(docTabs.length / DOCS_PER_PAGE)}
+                                  </Text>
+                                  <ActionIcon 
+                                    size="sm" 
+                                    variant="light" 
+                                    disabled={docPage >= Math.ceil(docTabs.length / DOCS_PER_PAGE)}
+                                    onClick={() => setDocPage(p => Math.min(Math.ceil(docTabs.length / DOCS_PER_PAGE), p + 1))}
+                                  >
+                                    &gt;
+                                  </ActionIcon>
+                                </Group>
+                              )}
                             </Box>
-                            <Box style={{ flexGrow: 1, paddingLeft: isMobile ? '0' : 'md', paddingTop: isMobile ? 'md' : '0' }}>
+                            {/* Main document content area, ensure rows are visible and scrollable */}
+                            <Box style={{ flexGrow: 1, paddingLeft: isMobile ? '0' : 'md', paddingTop: isMobile ? 'md' : '0', minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+                              {/* SparkTransition dropdown */}
+                              <Accordion variant="contained" mb="md">
+                                <Accordion.Item value="sparktransition">
+                                  <Accordion.Control>SparkTransition</Accordion.Control>
+                                  <Accordion.Panel>
                                 {/* --- Transition Feature UI --- */}
                                 <Paper p="md" mb="md" withBorder shadow="sm" style={{ background: styles.tabBackground }}>
                                     <Group align="flex-end" gap="md">
@@ -1892,49 +2118,76 @@ export default function ProjectViewPage() {
                                         </Paper>
                                     )}
                                 </Paper>
-                                {/* --- End Transition Feature UI --- */}
+                                  </Accordion.Panel>
+                                </Accordion.Item>
+                              </Accordion>
+                              {/* AI Prompt dropdown */}
+                              <Accordion variant="contained" mb="md">
+                                <Accordion.Item value="aiprompt">
+                                  <Accordion.Control>AI Prompt</Accordion.Control>
+                                  <Accordion.Panel>
+                                    {/* AI Prompt for each row UI here */}
+                                    <Paper p="md" withBorder shadow="sm" style={{ marginBottom: 16 }}>
+                                      <Text fw={500} mb="xs">AI Prompt (use ____ for row value)</Text>
+                                      <Group align="flex-end" gap="sm">
+                                        <TextInput
+                                          placeholder="What are some foods that can be made with ____?"
+                                          value={aiPrompt}
+                                          onChange={e => setAiPrompt(e.currentTarget.value)}
+                                          style={{ flexGrow: 1 }}
+                                        />
+                                        <Button onClick={runAiForEachRow} loading={aiPromptProcessing}>Run AI for Each Row</Button>
+                                      </Group>
+                                    </Paper>
+                                  </Accordion.Panel>
+                                </Accordion.Item>
+                              </Accordion>
+                              {/* ...rest of main content... */}
                                 <Box style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: styles.cardBackground, border: `1px solid ${styles.cardBorder}`, borderRadius: rem(8), boxShadow: styles.cardShadow, overflow: 'hidden' }}>
-                                    <ProjectDocumentsTab
-                                        docTabs={docTabs}
-                                        setDocTabs={setDocTabs}
-                                        activeDocTab={activeDocTab}
-                                        setActiveDocTab={setActiveDocTab}
-                                        docRows={docRows}
-                                        setDocRows={setDocRows}
-                                        addingRowFor={addingRowFor}
-                                        setAddingRowFor={setAddingRowFor}
-                                        newRowValue={newRowValue}
-                                        setNewRowValue={setNewRowValue}
-                                        savingRow={savingRow}
-                                        setSavingRow={setSavingRow}
-                                        editingRow={editingRow}
-                                        setEditingRow={setEditingRow}
-                                        editRowValue={editRowValue}
-                                        setEditRowValue={setEditRowValue}
-                                        savingEdit={savingEdit}
-                                        setSavingEdit={setSavingEdit}
-                                        aiProcessing={aiProcessing}
-                                        setAiProcessing={setAiProcessing}
-                                        addRowInputRef={addRowInputRef}
-                                        handleAddDocument={handleAddDocument}
-                                        handleRenameDoc={handleRenameDoc}
-                                        handleDeleteDoc={handleDeleteDoc}
-                                        handleAddRow={handleAddRow}
-                                        handleSaveRow={handleSaveRow}
-                                        handleCancelRow={handleCancelRow}
-                                        handleDeleteRow={handleDeleteRow}
-                                        handleStartEditRow={handleStartEditRow}
-                                        handleSaveEditRow={handleSaveEditRow}
-                                        handleCancelEditRow={handleCancelEditRow}
-                                        handleAiTransformRow={handleAiTransformRow}
-                                        docSearch={docSearch}
-                                        setDocSearch={setDocSearch}
-                                        docPage={docPage}
-                                        setDocPage={setDocPage}
-                                        DOCS_PER_PAGE={DOCS_PER_PAGE}
-                                        styles={styles}
-                                        showNotification={showNotification}
-                                    />
+                                <ProjectDocumentsTab
+                                  projectId={typeof projectId === 'string' ? projectId : Array.isArray(projectId) ? projectId[0] : undefined}
+                                  docTabs={filteredTabs}
+                                  setDocTabs={setDocTabs}
+                                  activeDocTab={activeDocTab}
+                                  setActiveDocTab={setActiveDocTab}
+                                  docRows={docRows}
+                                  setDocRows={setDocRows}
+                                  addingRowFor={addingRowFor}
+                                  setAddingRowFor={setAddingRowFor}
+                                  newRowValue={newRowValue}
+                                  setNewRowValue={setNewRowValue}
+                                  savingRow={savingRow}
+                                  setSavingRow={setSavingRow}
+                                  editingRow={editingRow}
+                                  setEditingRow={setEditingRow}
+                                  editRowValue={editRowValue}
+                                  setEditRowValue={setEditRowValue}
+                                  savingEdit={savingEdit}
+                                  setSavingEdit={setSavingEdit}
+                                  aiProcessing={aiProcessing}
+                                  setAiProcessing={setAiProcessing}
+                                  addRowInputRef={addRowInputRef}
+                                  handleAddDocument={handleAddDocument}
+                                  handleRenameDoc={handleRenameDoc}
+                                  handleDeleteDoc={handleDeleteDoc}
+                                  handleAddRow={handleAddRow}
+                                  handleSaveRow={handleSaveRow}
+                                  handleCancelRow={handleCancelRow}
+                                  handleDeleteRow={handleDeleteRow}
+                                  handleStartEditRow={handleStartEditRow}
+                                  handleSaveEditRow={handleSaveEditRow}
+                                  handleCancelEditRow={handleCancelEditRow}
+                                  handleAiTransformRow={handleAiTransformRow}
+                                  docSearch={docSearch}
+                                  setDocSearch={setDocSearch}
+                                  docPage={docPage}
+                                  setDocPage={setDocPage}
+                                  DOCS_PER_PAGE={DOCS_PER_PAGE}
+                                  styles={styles}
+                                  showNotification={showNotification}
+                                  translating={translating}
+                                  setTranslating={setTranslating}
+                                />
                                 </Box>
                             </Box>
                         </Box>
@@ -1981,7 +2234,7 @@ export default function ProjectViewPage() {
                                             required
                                         />
                                         <MultiSelect
-                                            data={allTags}
+                                            data={allResearchTags}
                                             placeholder="Add tags"
                                             searchable
                                             value={newResearch.tags}
@@ -2066,7 +2319,7 @@ export default function ProjectViewPage() {
                                                         minRows={3}
                                                     />
                                                     <MultiSelect
-                                                        data={allTags}
+                                                        data={allResearchTags}
                                                         placeholder="Add tags"
                                                         searchable
                                                         value={editResearch.tags}
@@ -2693,8 +2946,7 @@ export default function ProjectViewPage() {
                               <PieChart
                                 data={pieData}
                                 withTooltip
-                                width={180}
-                                height={180}
+                                h={180}
                               />
                             </Stack>
                             {/* Bar Chart: Spending over Time */}

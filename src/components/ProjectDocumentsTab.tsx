@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
-import { Box, Paper, Group, TextInput, Button, ActionIcon, Stack, Textarea, Menu, Text, Loader } from '@mantine/core';
-import { IconEdit, IconTrash, IconDots, IconRobot } from '@tabler/icons-react';
+import { Box, Paper, Group, TextInput, Button, ActionIcon, Stack, Textarea, Menu, Text, Loader, MultiSelect, Select, Notification, Popover } from '@mantine/core';
+import { IconEdit, IconTrash, IconDots, IconRobot, IconWorld, IconArrowBack } from '@tabler/icons-react';
 import ReactMarkdown from 'react-markdown';
 import type { RefObject } from 'react';
+import { getGeminiClient } from '@/utils/gemini';
+import { MultiSelect as MantineMultiSelect, MultiSelectProps } from '@mantine/core';
 
 // Define the props type
 interface ProjectDocumentsTabProps {
-  docTabs: { id: string; title: string }[];
-  setDocTabs: (tabs: { id: string; title: string }[]) => void;
+  projectId?: string;
+  docTabs: { id: string; title: string; tags?: string[] }[];
+  setDocTabs: (tabs: { id: string; title: string; tags?: string[] }[]) => void;
   activeDocTab: string;
   setActiveDocTab: (id: string) => void;
   docRows: { [docId: string]: string[] };
@@ -28,7 +31,7 @@ interface ProjectDocumentsTabProps {
   setAiProcessing: (v: { docId: string; idx: number } | null) => void;
   addRowInputRef: RefObject<HTMLTextAreaElement | null>;
   handleAddDocument: () => Promise<void>;
-  handleRenameDoc: (tabId: string, newTitle: string) => Promise<void>;
+  handleRenameDoc: (tabId: string, newTitle: string, newTags?: string[]) => Promise<void>;
   handleDeleteDoc: (tabId: string) => Promise<void>;
   handleAddRow: (docId: string) => void;
   handleSaveRow: (docId: string) => Promise<void>;
@@ -49,6 +52,7 @@ interface ProjectDocumentsTabProps {
 
 // Accept all necessary props for state and handlers
 const ProjectDocumentsTab = ({
+  projectId,
   docTabs,
   setDocTabs,
   activeDocTab,
@@ -89,158 +93,157 @@ const ProjectDocumentsTab = ({
   styles,
   showNotification,
 }: ProjectDocumentsTabProps) => {
+  // Add state for renaming document
+  const [renamingDocId, setRenamingDocId] = useState<string | null>(null);
+  const [renameDocValue, setRenameDocValue] = useState("");
+  
+  // Add state for tag filtering
+  const [tagFilter, setTagFilter] = useState<string[]>([]);
+
+  // Add state for translation feature
+  const [translating, setTranslating] = useState(false);
+  const [translatedRows, setTranslatedRows] = useState<string[] | null>(null);
+  const [translationLang, setTranslationLang] = useState<string | null>(null);
+  const [showLangSelect, setShowLangSelect] = useState<string | null>(null);
+
+  // List of supported languages
+  const languageOptions = [
+    { value: 'en', label: 'English' },
+    { value: 'fr', label: 'French' },
+    { value: 'sw', label: 'Swahili' },
+    { value: 'am', label: 'Amharic' },
+    { value: 'ar', label: 'Arabic' },
+    { value: 'zu', label: 'Zulu' },
+    { value: 'ha', label: 'Hausa' },
+    { value: 'yo', label: 'Yoruba' },
+    // Add more as needed
+  ];
+
   // Compute filtered and paginated tabs
-  const filteredTabs = docTabs.filter(tab => tab.title.toLowerCase().includes(docSearch.toLowerCase()));
+  const filteredTabs = docTabs.filter(tab =>
+    tab.title.toLowerCase().includes(docSearch.toLowerCase())
+  );
   const totalPages = Math.max(1, Math.ceil(filteredTabs.length / DOCS_PER_PAGE));
   const paginatedTabs = docSearch
     ? filteredTabs // show all matches if searching
     : filteredTabs.slice((docPage - 1) * DOCS_PER_PAGE, docPage * DOCS_PER_PAGE);
 
-  // Add state for renaming document
-  const [renamingDocId, setRenamingDocId] = useState<string | null>(null);
-  const [renameDocValue, setRenameDocValue] = useState("");
-
-  // Add state for AI prompt
-  const [aiPrompt, setAiPrompt] = useState("What are some foods that can be made with ____");
-  const [aiResults, setAiResults] = useState<Record<string, string>>({});
-  const [aiLoading, setAiLoading] = useState(false);
-
-  async function runAiForRows() {
-    setAiLoading(true);
-    setAiResults({});
-    const rows = (docRows[activeDocTab] || []).filter(row => typeof row === "string");
+  // Translation handler
+  async function handleTranslateDocument(docId: string, targetLang: string) {
+    setTranslating(true);
+    setTranslationLang(targetLang);
     try {
-      const queries = rows.map(row => {
-        const prompt = aiPrompt.replace("____", row);
-        return fetch("/api/ai", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt }),
-        })
-          .then(res => res.json())
-          .then(data => [row, data.result || data.response || JSON.stringify(data)]);
-      });
-      const results = await Promise.all(queries);
-      setAiResults(Object.fromEntries(results));
-    } catch (e) {
-      showNotification({ color: 'red', message: 'AI query failed.' });
+      const gemini = getGeminiClient();
+      const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const rows = (docRows[docId] || []).filter(row => typeof row === "string");
+      
+      if (rows.length === 0) {
+        showNotification({ color: 'blue', message: 'No content to translate.' });
+        setTranslating(false);
+        return;
+      }
+      
+      // First translate the document title
+      const docTab = docTabs.find(tab => tab.id === docId);
+      if (docTab) {
+        const titlePrompt = `Translate the following text to ${languageOptions.find(l => l.value === targetLang)?.label || targetLang}. Only return the translated text.\n\nText: ${docTab.title}`;
+        try {
+          const titleResult = await model.generateContent(titlePrompt);
+          const translatedTitle = titleResult.response.text().trim();
+          // Update the document title
+          await handleRenameDoc(docId, translatedTitle, docTab.tags);
+          showNotification({ color: 'green', message: 'Document title translated.' });
+        } catch (err: any) {
+          showNotification({ color: 'red', message: 'Failed to translate document title.' });
+        }
+      }
+      
+      // Then translate all rows
+      const translated: string[] = [];
+      for (let i = 0; i < rows.length; ++i) {
+        const prompt = `Translate the following text to ${languageOptions.find(l => l.value === targetLang)?.label || targetLang}. Only return the translated text.\n\nText: ${rows[i]}`;
+        try {
+          const result = await model.generateContent(prompt);
+          const aiText = result.response.text().trim();
+          translated.push(aiText);
+        } catch (err: any) {
+          showNotification({ color: 'red', message: `Translation failed for row ${i + 1}.` });
+          translated.push(rows[i]); // Fallback to original
+        }
+      }
+      
+      // Update the document rows
+      const updatedRows = { ...docRows };
+      updatedRows[docId] = translated;
+      setDocRows(updatedRows);
+      showNotification({ color: 'green', message: 'Document content translated successfully!' });
+    } catch (err: any) {
+      showNotification({ color: 'red', message: 'Translation failed.' });
     }
-    setAiLoading(false);
+    setTranslating(false);
   }
 
   return (
-    <Box style={{ flex: 1, minWidth: 0, marginLeft: 32, maxWidth: 800, marginRight: 'auto' }}>
-      <Paper p="md" radius={12} withBorder style={{ marginBottom: 24, display: 'flex', alignItems: 'center', gap: 16, background: styles.cardBackground, border: styles.cardBorder }}>
-        <Group gap={8} style={{ flex: 1, alignItems: 'center' }}>
-          <TextInput
-            placeholder="Search documents..."
-            value={docSearch}
-            onChange={e => { setDocSearch(e.currentTarget.value); setDocPage(1); }}
-            size="sm"
-            style={{ minWidth: 180 }}
-          />
-          {paginatedTabs.map(tab => (
-            <Box key={tab.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              {renamingDocId === tab.id ? (
-                <TextInput
-                  value={renameDocValue}
-                  onChange={e => setRenameDocValue(e.currentTarget.value)}
-                  onBlur={async () => {
-                    if (renameDocValue.trim() && renameDocValue !== tab.title) {
-                      await handleRenameDoc(tab.id, renameDocValue.trim());
-                    }
-                    setRenamingDocId(null);
-                  }}
-                  onKeyDown={async e => {
-                    if (e.key === 'Enter') {
-                      if (renameDocValue.trim() && renameDocValue !== tab.title) {
-                        await handleRenameDoc(tab.id, renameDocValue.trim());
-                      }
-                      setRenamingDocId(null);
-                    } else if (e.key === 'Escape') {
-                      setRenamingDocId(null);
-                    }
-                  }}
-                  size="sm"
-                  autoFocus
-                  style={{ minWidth: 100, marginRight: 4 }}
-                />
-              ) : (
-                <Button
-                  variant={activeDocTab === tab.id ? 'filled' : 'light'}
-                  color={activeDocTab === tab.id ? styles.accentColor : 'gray'}
-                  size="sm"
-                  onClick={() => {
-                    setActiveDocTab(tab.id);
-                    setAddingRowFor(null);
-                  }}
-                  style={{ borderRadius: 8, fontWeight: 600, paddingRight: 8, paddingLeft: 8, minWidth: 0 }}
-                >
-                  {tab.title}
-                </Button>
-              )}
-              <ActionIcon size={22} variant="subtle" color="blue" onClick={() => { setRenamingDocId(tab.id); setRenameDocValue(tab.title); setEditingRow(null); setEditRowValue(''); }} title="Rename document">
-                <IconEdit size={14} />
-              </ActionIcon>
-              <ActionIcon
-                size={22}
-                variant="subtle"
-                color="red"
-                onClick={() => handleDeleteDoc(tab.id)}
-                title="Delete document"
-                disabled={docTabs.length === 1}
-              >
-                <IconTrash size={14} />
-              </ActionIcon>
-            </Box>
-          ))}
-          <Button
-            size="sm"
-            variant="outline"
-            color={styles.accentColor}
-            onClick={async () => {
-              await handleAddDocument();
-              setTimeout(() => {
-                const newTab = docTabs[docTabs.length - 1];
-                if (newTab) {
-                  setActiveDocTab(newTab.id);
-                  setAddingRowFor(newTab.id);
-                  setNewRowValue("");
+    <Box style={{ flex: 1, padding: 24, overflowY: 'auto' }}>
+      {/* Banner for translated view */}
+      {translatedRows && (
+        <Paper p="xs" mb="md" radius="md" withBorder style={{ background: '#e3f6fd', border: '1px solid #90caf9', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <IconWorld size={18} color="#1976d2" />
+          <Text fw={600} style={{ flex: 1 }}>
+            Viewing translation to {languageOptions.find(l => l.value === translationLang)?.label || translationLang}
+          </Text>
+          <Button size="xs" leftSection={<IconArrowBack size={14} />} onClick={() => { setTranslatedRows(null); setTranslationLang(null); }}>
+            Revert to Original
+          </Button>
+        </Paper>
+      )}
+      {/* Document Title and Language Selector */}
+      <Group mb="md" align="center" justify="space-between">
+        <Text fw={700} size="lg" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {docTabs.find(tab => tab.id === activeDocTab)?.title || ''}
+        </Text>
+        <Popover
+          opened={showLangSelect === activeDocTab}
+          onClose={() => setShowLangSelect(null)}
+          position="bottom"
+          withArrow
+          shadow="md"
+        >
+          <Popover.Target>
+            <ActionIcon
+              variant="light"
+              color="blue"
+              onClick={() => setShowLangSelect(activeDocTab)}
+              title="Translate document"
+              loading={translating}
+              disabled={translating}
+            >
+              <IconWorld size={20} />
+            </ActionIcon>
+          </Popover.Target>
+          <Popover.Dropdown>
+            <Select
+              data={languageOptions}
+              value={translationLang}
+              onChange={lang => {
+                if (lang) {
+                  handleTranslateDocument(activeDocTab, lang);
+                  setShowLangSelect(null);
                 }
-              }, 100);
-            }}
-            style={{ borderRadius: 8, fontWeight: 600 }}
-          >
-            + New Document
-          </Button>
-          {docSearch === '' && totalPages > 1 && (
-            <Group gap={4} align="center" style={{ marginLeft: 16 }}>
-              <Button size="xs" variant="light" onClick={() => setDocPage(p => Math.max(1, p - 1))} disabled={docPage === 1}>Prev</Button>
-              <Text size="xs" style={{ minWidth: 40, textAlign: 'center' }}>{docPage} / {totalPages}</Text>
-              <Button size="xs" variant="light" onClick={() => setDocPage(p => Math.min(totalPages, p + 1))} disabled={docPage === totalPages}>Next</Button>
-            </Group>
-          )}
-        </Group>
-      </Paper>
-      {/* AI for each row controls */}
-      <Paper p="md" radius={12} withBorder style={{ marginBottom: 16, background: styles.cardBackground, border: styles.cardBorder }}>
-        <Group align="flex-end" gap={8}>
-          <TextInput
-            label="AI Prompt (use ____ for row value)"
-            value={aiPrompt}
-            onChange={e => setAiPrompt(e.currentTarget.value)}
-            style={{ flex: 1, minWidth: 220 }}
-            disabled={aiLoading}
-          />
-          <Button onClick={runAiForRows} loading={aiLoading} disabled={aiLoading || (docRows[activeDocTab]||[]).length === 0}>
-            Run AI for Each Row
-          </Button>
-          {aiLoading && <Loader size="sm" />}
-        </Group>
-      </Paper>
-      <Stack mt="md">
-        {(docRows[activeDocTab] || [])
-          .filter(row => typeof row === "string")
+              }}
+              placeholder="Select language"
+              searchable
+              nothingFound="No options"
+              disabled={translating}
+              withinPortal
+            />
+            {translating && <Loader size="xs" mt="sm" />}
+          </Popover.Dropdown>
+        </Popover>
+      </Group>
+      <Stack mt="md" style={{ flex: 1 }}>
+        {(translatedRows || (docRows[activeDocTab] || [])
+          .filter(row => typeof row === "string" && row.toLowerCase().includes(docSearch.toLowerCase())))
           .map((row, idx) => {
             const isEditing = editingRow && editingRow.docId === activeDocTab && editingRow.idx === idx;
             const isAI = aiProcessing && aiProcessing.docId === activeDocTab && aiProcessing.idx === idx;
@@ -310,7 +313,7 @@ const ProjectDocumentsTab = ({
                   </Menu.Dropdown>
                 </Menu>
                 {/* AI result for this row */}
-                {aiResults[row] && (
+                {false && (
                   <Paper p="xs" mt={4} radius="sm" withBorder style={{ background: styles.tabBackground, border: styles.cardBorder }}>
                     <ReactMarkdown
                       components={{
@@ -318,7 +321,7 @@ const ProjectDocumentsTab = ({
                         li: ({node, ...props}) => <li style={{ marginLeft: 16 }} {...props} />,
                       }}
                     >
-                      {aiResults[row]}
+                      {""}
                     </ReactMarkdown>
                   </Paper>
                 )}
