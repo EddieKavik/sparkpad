@@ -3,11 +3,12 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
 import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack, Modal, ActionIcon, rem, Menu, Avatar, Paper, MultiSelect, Textarea, Badge, Divider, Select, Accordion, Popover } from "@mantine/core";
 import { showNotification } from "@mantine/notifications";
-import { IconSettings, IconDots, IconTrash, IconArrowLeft, IconSend, IconFile, IconMoodSmile, IconRobot, IconEdit, IconSparkles, IconChevronDown, IconChevronUp, IconDownload, IconUpload, IconWorld, IconSearch } from "@tabler/icons-react";
+import { IconSettings, IconDots, IconTrash, IconArrowLeft, IconSend, IconFile, IconMoodSmile, IconRobot, IconEdit, IconSparkles, IconChevronDown, IconChevronUp, IconDownload, IconUpload, IconWorld, IconSearch, IconCalendarEvent, IconCurrencyDollar, IconUsersGroup, IconPlus, IconMicrophone, IconMicrophoneOff } from "@tabler/icons-react";
 import { getGeminiClient } from "@/utils/gemini";
 import { useTheme } from '@/contexts/ThemeContext';
 import { useDisclosure } from '@mantine/hooks';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import FloatingAssistant from '@/components/FloatingAssistant';
 import { Calendar as BigCalendar, dateFnsLocalizer } from 'react-big-calendar';
@@ -29,6 +30,8 @@ import OnboardingAssistant from '../../../components/OnboardingAssistant';
 import ProjectDocumentsTab from '../../../components/ProjectDocumentsTab';
 import { PieChart, PieChartProps, BarChart, BarChartProps } from '@mantine/charts';
 import { randomColor } from '@/utils/randomColor'; // If you have a color util, otherwise define a palette inline
+import DirectivesHubPage from '../../directives/page';
+import TargetGroupsPage from '../../directives/target-groups/page';
 
 // Add module declarations for missing types
 // @ts-ignore
@@ -195,6 +198,73 @@ async function fetchProject(projectId: string | string[] | undefined, setProject
     }
 }
 
+// Helper to get display name from email or username
+function getDisplayName(email: string) {
+    // Try to get user object from localStorage if available
+    try {
+        const usersRaw = localStorage.getItem('users');
+        if (usersRaw) {
+            const users = JSON.parse(usersRaw);
+            if (users && typeof users === 'object' && users[email] && users[email].name) {
+                return users[email].name;
+            }
+        }
+    } catch {}
+    // Fallback: use part before @
+    if (email.includes('@')) return email.split('@')[0];
+    return email;
+}
+
+// IndexedDB utility for audio blobs
+function openAudioDB() {
+    return new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open('SparkPadAudio', 1);
+        request.onupgradeneeded = (event) => {
+            const db = request.result;
+            if (!db.objectStoreNames.contains('audio')) {
+                db.createObjectStore('audio');
+            }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+}
+async function saveAudioBlob(key: string, blob: Blob) {
+    const db = await openAudioDB();
+    return new Promise<void>((resolve, reject) => {
+        const tx = db.transaction('audio', 'readwrite');
+        tx.objectStore('audio').put(blob, key);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+    });
+}
+async function getAudioBlob(key: string): Promise<Blob | null> {
+    const db = await openAudioDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction('audio', 'readonly');
+        const req = tx.objectStore('audio').get(key);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+// Replace saveAudioBlob and getAudioBlob for Civil Memory audio storage
+async function uploadAudioToCivilMemory(key: string, blob: Blob) {
+    const res = await fetch(`http://localhost:3333/audio?mode=disk&key=${encodeURIComponent(key)}`, {
+        method: 'POST',
+        body: blob,
+    });
+    if (!res.ok) throw new Error('Failed to upload audio');
+    return key;
+}
+async function fetchAudioFromCivilMemory(key: string): Promise<Blob | null> {
+    const res = await fetch(`http://localhost:3333/audio?mode=disk&key=${encodeURIComponent(key)}`);
+    if (!res.ok) return null;
+    const arrayBuffer = await res.arrayBuffer();
+    // Force the correct MIME type for browser playback
+    return new Blob([arrayBuffer], { type: 'audio/webm' });
+}
+
 export default function ProjectViewPage() {
     const params = useParams();
     const router = useRouter();
@@ -207,7 +277,7 @@ export default function ProjectViewPage() {
     const [renameValue, setRenameValue] = useState("");
     const [renaming, setRenaming] = useState(false);
     // Document tabs state
-    const [docTabs, setDocTabs] = useState<DocTab[]>([{ id: "default", title: "Documents" }]);
+    const [docTabs, setDocTabs] = useState<DocTab[]>([]);
     const [activeTab, setActiveTab] = useState("documents");
     const [activeDocTab, setActiveDocTab] = useState(docTabs[0]?.id || "default");
     // Document rows state
@@ -231,7 +301,7 @@ export default function ProjectViewPage() {
     const chatEndRef = useRef<HTMLDivElement>(null);
     const { theme } = useTheme();
     // Force the use of the executive theme
-    const styles = themeStyles['executive'];
+    const styles = themeStyles['executive'] || {};
     const [researchItems, setResearchItems] = useState<any[]>([]);
     const [researchLoading, setResearchLoading] = useState(false);
     const [newResearch, setNewResearch] = useState<{ title: string; type: string; content: string; tags?: string[] }>({ title: '', type: 'web', content: '', tags: [] });
@@ -278,7 +348,8 @@ export default function ProjectViewPage() {
     // Add state for document search and pagination
     const [docSearch, setDocSearch] = useState("");
     const [docPage, setDocPage] = useState(1);
-    const DOCS_PER_PAGE = 5;
+    const [tagFilter, setTagFilter] = useState<string[]>([]);
+    const DOCS_PER_PAGE = 5; // Define how many documents to show per page
 
     const locales = { 'en-US': enUS };
     const localizer = dateFnsLocalizer({
@@ -324,8 +395,7 @@ export default function ProjectViewPage() {
       { value: 'ha', label: 'Hausa' },
       { value: 'yo', label: 'Yoruba' },
     ];
-    const [tagFilter, setTagFilter] = useState<string[]>([]);
-    const allTags = Array.from(new Set(docTabs.flatMap(tab => tab.tags || [])));
+    const [allResearchTags, setAllResearchTags] = useState<{ value: string; label: string }[]>([]);
     const filteredTabs = docTabs.filter(tab =>
       tab.title.toLowerCase().includes(docSearch.toLowerCase()) &&
       (tagFilter.length === 0 || (tab.tags || []).some(tag => tagFilter.includes(tag)))
@@ -340,6 +410,36 @@ export default function ProjectViewPage() {
       // TODO: Implement AI logic for each row
       setTimeout(() => setAiPromptProcessing(false), 1000);
     };
+
+    // Add a ref for the file input
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+    const [addingResearch, setAddingResearch] = useState(false);
+
+    // Add state for editing an expense
+    const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+    const [editExpenseData, setEditExpenseData] = useState<Partial<Expense>>({});
+
+    // Add state for chat context (group or private)
+    const [chatContext, setChatContext] = useState<'group' | string>('group'); // 'group' or member email
+
+    // Add state for unread counts
+    const [unreadCounts, setUnreadCounts] = useState<{ [email: string]: number }>({});
+
+    // 1. Add state for editing and replying
+    const [editingMsgId, setEditingMsgId] = useState<number | null>(null);
+    const [editMsgValue, setEditMsgValue] = useState("");
+    const [replyToMsg, setReplyToMsg] = useState<any>(null);
+
+    // Add state for voice recording
+    const [recording, setRecording] = useState(false);
+    const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+    // Add state for recording timer
+    const [recordingTime, setRecordingTime] = useState(0);
+    const MAX_RECORDING_TIME = 60; // seconds
+    let recordingInterval: NodeJS.Timeout | null = null;
+
+    const [audioURLs, setAudioURLs] = useState<{ [key: string]: string }>({});
 
     useEffect(() => {
         const user = localStorage.getItem("user");
@@ -667,7 +767,7 @@ export default function ProjectViewPage() {
         try {
             // Use Gemini to transform the text
             const gemini = getGeminiClient();
-            const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const model = gemini.getGenerativeModel({ model: "gemini-2.0-flash" });
             const result = await model.generateContent(value);
             const aiText = result.response.text().trim();
             console.log("Gemini raw response:", result.response);
@@ -698,17 +798,29 @@ export default function ProjectViewPage() {
             try {
                 const userEmail = localStorage.getItem("user:username");
                 if (!userEmail) return;
-                const res = await fetch(`http://localhost:3333/chat?mode=disk&key=${encodeURIComponent(pid)}`);
+                let chatKey = '';
+                if (chatContext === 'group') {
+                    chatKey = pid;
+                } else {
+                    // Private chat: key is private:<sortedEmail1>:<sortedEmail2>:<projectId>
+                    const emails = [userEmail, chatContext].sort();
+                    chatKey = `private:${emails[0]}:${emails[1]}:${pid}`;
+                }
+                const res = await fetch(`http://localhost:3333/chat?mode=disk&key=${encodeURIComponent(chatKey)}`);
                 if (res.ok) {
                     const data = await res.json();
                     setChatMessages(Array.isArray(data) ? data : []);
+                } else {
+                    setChatMessages([]);
                 }
-            } catch { }
+            } catch {
+                setChatMessages([]);
+            }
         };
         fetchChat();
         const interval = setInterval(fetchChat, 5000); // Poll every 5s
         return () => clearInterval(interval);
-    }, [projectId]);
+    }, [projectId, chatContext]);
 
     // Scroll to bottom on new message
     useEffect(() => {
@@ -725,6 +837,13 @@ export default function ProjectViewPage() {
             const userEmail = localStorage.getItem("user:username");
             const user = localStorage.getItem("user");
             const senderName = user ? JSON.parse(user).name : userEmail;
+            let chatKey = '';
+            if (chatContext === 'group') {
+                chatKey = pid;
+            } else {
+                const emails = [userEmail, chatContext].sort();
+                chatKey = `private:${emails[0]}:${emails[1]}:${pid}`;
+            }
             const newMsg = {
                 id: Date.now(),
                 sender: userEmail,
@@ -733,18 +852,20 @@ export default function ProjectViewPage() {
                 content,
                 type,
                 fileUrl,
+                replyTo: replyToMsg ? { id: replyToMsg.id, content: replyToMsg.content } : undefined,
                 reactions: []
             };
             const updated = [...chatMessages, newMsg];
             setChatMessages(updated);
-            await fetch(`http://localhost:3333/chat?mode=disk&key=${encodeURIComponent(pid)}`, {
+            await fetch(`http://localhost:3333/chat?mode=disk&key=${encodeURIComponent(chatKey)}`,
+                {
                 method: "POST",
                 body: JSON.stringify(updated),
             });
             setChatInput("");
 
-            // Notify all project members except the sender
-            if (project && Array.isArray(project.members)) {
+            // Only notify all project members in group chat
+            if (chatContext === 'group' && project && Array.isArray(project.members)) {
                 const notificationPromises = project.members
                     .filter((memberEmail: string) => memberEmail !== userEmail)
                     .map(async (memberEmail: string) => {
@@ -794,7 +915,7 @@ export default function ProjectViewPage() {
                 const aiPrompt = content.replace(/^\/ai\s*/i, "").trim();
                 try {
                     const gemini = getGeminiClient();
-                    const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+                    const model = gemini.getGenerativeModel({ model: "gemini-2.0-flash" });
                     const result = await model.generateContent(aiPrompt);
                     const aiText = result.response.text().trim();
                     const aiMsg = {
@@ -808,7 +929,7 @@ export default function ProjectViewPage() {
                     };
                     const updatedWithAI = [...chatMessages, aiMsg];
                     setChatMessages(updatedWithAI);
-                    await fetch(`http://localhost:3333/chat?mode=disk&key=${encodeURIComponent(pid)}`, {
+                    await fetch(`http://localhost:3333/chat?mode=disk&key=${encodeURIComponent(chatKey)}`, {
                         method: "POST",
                         body: JSON.stringify(updatedWithAI),
                     });
@@ -823,6 +944,7 @@ export default function ProjectViewPage() {
         } finally {
             setSending(false);
         }
+        setReplyToMsg(null);
     };
 
     // File upload handler (stub, implement as needed)
@@ -868,7 +990,7 @@ export default function ProjectViewPage() {
 
     useEffect(() => {
         fetchResearchItems();
-        // eslint-disable-next-line
+    // eslint-disable-next-line
     }, [projectId]);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, setFile: (f: File | null) => void) => {
@@ -879,19 +1001,24 @@ export default function ProjectViewPage() {
     const handleAddResearch = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newResearch.title.trim() || !newResearch.content.trim()) return;
+
         let fileUrl = undefined;
         if (newResearchFile) {
             fileUrl = await fileToDataUrl(newResearchFile);
         }
+
         const res = await fetch(`/api/projects/${projectId}/research`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json'
+            },
             body: JSON.stringify({
                 ...newResearch,
                 fileUrl,
                 createdBy: userName || 'anonymous',
             }),
         });
+
         if (res.ok) {
             setNewResearch({ title: '', type: 'web', content: '', tags: [] });
             setNewResearchFile(null);
@@ -901,16 +1028,21 @@ export default function ProjectViewPage() {
 
     const handleEditResearch = (item: any) => setEditResearch(item);
     const handleCancelEditResearch = () => setEditResearch(null);
+
     const handleSaveEditResearch = async () => {
         if (!editResearch) return;
         setEditResearchLoading(true);
+
         let fileUrl = editResearch.fileUrl;
         if (editResearchFile) {
             fileUrl = await fileToDataUrl(editResearchFile);
         }
+
         const res = await fetch(`/api/projects/${projectId}/research?id=${editResearch.id}`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json'
+            },
             body: JSON.stringify({ ...editResearch, fileUrl }),
         });
         setEditResearchLoading(false);
@@ -921,9 +1053,12 @@ export default function ProjectViewPage() {
             showNotification({ title: 'Updated', message: 'Research item updated.', color: 'green' });
         }
     };
+
     const handleDeleteResearch = async (id: string) => {
         if (!window.confirm('Delete this research item?')) return;
-        const res = await fetch(`/api/projects/${projectId}/research?id=${id}`, { method: 'DELETE' });
+        const res = await fetch(`/api/projects/${projectId}/research?id=${id}`, {
+            method: 'DELETE'
+        });
         if (res.ok) {
             fetchResearchItems();
             showNotification({ title: 'Deleted', message: 'Research item deleted.', color: 'red' });
@@ -934,15 +1069,18 @@ export default function ProjectViewPage() {
         setSummarizingId(item.id);
         try {
             const gemini = getGeminiClient();
-            const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const model = gemini.getGenerativeModel({ model: "gemini-2.0-flash" });
             const prompt = `Summarize the following research for a project team in 2-3 sentences.\n\nTitle: ${item.title}\nType: ${item.type}\nContent: ${item.content}`;
             const result = await model.generateContent(prompt);
             const summary = result.response.text().trim();
             if (!summary) throw new Error("No summary generated");
+
             // Save summary to item (send full item)
             const res = await fetch(`/api/projects/${projectId}/research?id=${item.id}`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json'
+                },
                 body: JSON.stringify({ ...item, summary }),
             });
             if (res.ok) {
@@ -958,8 +1096,6 @@ export default function ProjectViewPage() {
         }
     };
 
-    // Helper to get all unique tags from researchItems
-    const allResearchTags = Array.from(new Set(researchItems.flatMap((item: any) => item.tags || [])));
 
     function fileToDataUrl(file: File): Promise<string> {
         return new Promise((resolve, reject) => {
@@ -973,12 +1109,23 @@ export default function ProjectViewPage() {
     const handleAddComment = async (item: any) => {
         const comment = (commentInputs[item.id] || '').trim();
         if (!comment) return;
+
         setCommentLoading(l => ({ ...l, [item.id]: true }));
-        const newComment = { id: Date.now().toString(), author: userName || 'anonymous', content: comment, createdAt: new Date().toISOString(), };
+
+        const newComment = {
+            id: Date.now().toString(),
+            author: userName || 'anonymous',
+            content: comment,
+            createdAt: new Date().toISOString(),
+        };
+
         const updatedComments = [...(item.annotations || []), newComment];
+
         const res = await fetch(`/api/projects/${projectId}/research?id=${item.id}`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json'
+            },
             body: JSON.stringify({ ...item, annotations: updatedComments }),
         });
         setCommentLoading(l => ({ ...l, [item.id]: false }));
@@ -992,7 +1139,9 @@ export default function ProjectViewPage() {
         const updatedComments = (item.annotations || []).filter((c: any) => c.id !== commentId);
         const res = await fetch(`/api/projects/${projectId}/research?id=${item.id}`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json'
+            },
             body: JSON.stringify({ ...item, annotations: updatedComments }),
         });
         if (res.ok) fetchResearchItems();
@@ -1009,11 +1158,11 @@ export default function ProjectViewPage() {
         setSuggestingTags(true);
         try {
             const gemini = getGeminiClient();
-            const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const model = gemini.getGenerativeModel({ model: "gemini-2.0-flash" });
             const prompt = `Suggest 3-5 concise, relevant tags (as a comma-separated list) for the following research item.\nTitle: ${newResearch.title}\nType: ${newResearch.type}\nContent: ${newResearch.content}`;
             const result = await model.generateContent(prompt);
             const tags = result.response.text().split(/,|\n/).map(t => t.trim()).filter(Boolean);
-            setNewResearch(r => ({ ...r, tags: Array.from(new Set([...(r.tags || []), ...tags])) }));
+            setNewResearch((r: any) => ({ ...r, tags: Array.from(new Set([...(r.tags || []), ...tags])) }));
         } catch (err: any) {
             showNotification({ title: 'AI Error', message: err.message || 'Failed to suggest tags.', color: 'red' });
         } finally {
@@ -1025,7 +1174,7 @@ export default function ProjectViewPage() {
         setEditSuggestingTags(true);
         try {
             const gemini = getGeminiClient();
-            const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const model = gemini.getGenerativeModel({ model: "gemini-2.0-flash" });
             const prompt = `Suggest 3-5 concise, relevant tags (as a comma-separated list) for the following research item.\nTitle: ${editResearch.title}\nType: ${editResearch.type}\nContent: ${editResearch.content}`;
             const result = await model.generateContent(prompt);
             const tags = result.response.text().split(/,|\n/).map(t => t.trim()).filter(Boolean);
@@ -1037,166 +1186,140 @@ export default function ProjectViewPage() {
         }
     };
 
-    // Fetch Q&A pairs from backend
-    useEffect(() => {
-        if (!projectId) return;
-        const fetchQA = async () => {
-            try {
-                const res = await fetch(`/api/projects/${projectId}/research/qa`);
-                if (res.ok) {
-                    const data = await res.json();
-                    setQaHistory(Array.isArray(data) ? data : []);
-                }
-            } catch { }
-        };
-        fetchQA();
-    }, [projectId]);
-
-    // Handler for AI Q&A (with history and follow-up)
-    const handleAskResearchAI = async () => {
-        if (!qaQuestion.trim()) return;
+    // Q&A Functions
+    const handleAskQuestion = async (isFollowupQuestion: boolean = false) => {
+        if (!qaQuestion.trim()) {
+            setQaError("Please enter a question.");
+            return;
+        }
         setQaLoading(true);
         setQaError("");
-        setQaAnswer("");
+
         try {
             const gemini = getGeminiClient();
-            const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const model = gemini.getGenerativeModel({ model: "gemini-2.0-flash" });
 
-            // Compose context from all research items
-            const context = researchItems.map((item: any) => `Title: ${item.title}\nType: ${item.type}\nContent: ${item.content}\nTags: ${(item.tags || []).join(", ")}\n`).join("\n---\n");
+            // Combine all document rows into a single context string
+            const contextRows = Object.values(docRows).flat();
+            const context = contextRows.length > 0 ? `Context documents:\n${contextRows.join('\n')}\n\n` : "";
 
-            // Compose Q&A history for context
-            const historyText = qaHistory.map((pair, i) => `Q${i + 1}: ${pair.question}\nA${i + 1}: ${pair.answer}`).join("\n");
-
-            // Improved prompt
-            let prompt = `You are an expert research assistant. Given the following project research items, answer the user's question concisely and helpfully.\n\nResearch Items:\n${context}`;
-            if (historyText) {
-                prompt += `\n\nPrevious Q&A:\n${historyText}`;
+            // Prepare chat history for follow-up questions
+            let historyPrompt = "";
+            if (isFollowupQuestion && qaHistory.length > 0) {
+                historyPrompt = qaHistory.map(entry => `User: ${entry.question}\nAI: ${entry.answer}`).join('\n') + '\n';
             }
-            if (isFollowup && qaHistory.length > 0) {
-                prompt += `\n\nThe next question is a follow-up to the previous answer.`;
-            }
-            prompt += `\n\nQuestion: ${qaQuestion}`;
 
+            const prompt = `${context}${historyPrompt}Based on the provided context (if any), answer the following question: ${qaQuestion}`;
             const result = await model.generateContent(prompt);
             const answer = result.response.text().trim();
-            setQaAnswer(answer);
 
-            // Save to backend
-            const user = localStorage.getItem("user");
-            const userName = user ? JSON.parse(user).name : "anonymous";
-            const res = await fetch(`/api/projects/${projectId}/research/qa`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", user: userName },
-                body: JSON.stringify({ question: qaQuestion, answer, createdBy: userName }),
-            });
-
-            if (res.status === 401 || res.status === 403) {
-                showNotification({ title: "Unauthorized", message: "You are not allowed to add Q&A.", color: "red" });
-                setQaLoading(false);
-                return;
+            if (answer) {
+                setQaAnswer(answer);
+                const newQAPair = {
+                    id: Date.now().toString(),
+                    question: qaQuestion,
+                    answer: answer,
+                    createdBy: userName || 'anonymous',
+                    createdAt: new Date().toISOString()
+                };
+                setQaHistory(prev => [...prev, newQAPair]);
+                setQaQuestion(""); // Clear question after answering
+                setIsFollowup(true); // Enable follow-up questions
+            } else {
+                setQaError("Could not generate an answer. Please try rephrasing your question or provide more context.");
             }
-
-            if (res.ok) {
-                const newPair = await res.json();
-                setQaHistory(h => [...h, newPair]);
-            }
-            setIsFollowup(false);
         } catch (err: any) {
-            setQaError(err.message || "AI failed to answer.");
+            console.error("Q&A AI Error:", err);
+            setQaError(`Failed to get an answer from AI: ${err.message || 'Unknown error'}`);
         } finally {
             setQaLoading(false);
         }
     };
 
-    // Handler to start a follow-up
-    const handleFollowup = () => {
-        if (qaHistory.length === 0) return;
-        setQaQuestion("");
-        setIsFollowup(true);
+    const handleEditQAPair = (pair: any) => {
+        setEditQAPair(pair);
+        setQaQuestion(pair.question);
+        setQaAnswer(pair.answer);
     };
 
-    // Handler to delete a Q&A pair
-    const handleDeleteQAPair = async (id: string) => {
-        if (!window.confirm("Delete this Q&A pair?")) return;
-        const user = localStorage.getItem("user");
-        const userName = user ? JSON.parse(user).name : "anonymous";
-        const res = await fetch(`/api/projects/${projectId}/research/qa?id=${id}`, { method: "DELETE", headers: { user: userName } });
-        if (res.ok) {
-            setQaHistory(h => h.filter(pair => pair.id !== id));
-        }
-    };
-
-    const handleStartEditQAPair = (pair: any) => setEditQAPair(pair);
-    const handleCancelEditQAPair = () => setEditQAPair(null);
     const handleSaveEditQAPair = async () => {
-        if (!editQAPair) return;
+        if (!editQAPair || !qaQuestion.trim() || !qaAnswer.trim()) {
+            showNotification({ title: 'Error', message: 'Question and Answer cannot be empty.', color: 'red' });
+            return;
+        }
+
         setEditQALoading(true);
         try {
-        const user = localStorage.getItem("user");
-        const userName = user ? JSON.parse(user).name : "anonymous";
-        const res = await fetch(`/api/projects/${projectId}/research/qa?id=${editQAPair.id}`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json", user: userName },
-                body: JSON.stringify(editQAPair),
-            });
-        if (res.ok) {
-                setQaHistory(h => h.map(pair => pair.id === editQAPair.id ? editQAPair : pair));
+            const updatedHistory = qaHistory.map(pair =>
+                pair.id === editQAPair.id
+                    ? { ...pair, question: qaQuestion.trim(), answer: qaAnswer.trim(), updatedAt: new Date().toISOString() }
+                    : pair
+            );
+            setQaHistory(updatedHistory);
+            showNotification({ title: 'Success', message: 'Q&A pair updated!', color: 'green' });
             setEditQAPair(null);
-                showNotification({ title: "Updated", message: "Q&A pair updated.", color: "green" });
-            } else {
-                showNotification({ title: "Error", message: "Failed to update Q&A pair.", color: "red" });
-            }
-        } catch (err: any) {
-            showNotification({ title: "Error", message: err.message || "Failed to update Q&A pair.", color: "red" });
+            setQaQuestion("");
+            setQaAnswer("");
+        } catch (error) {
+            showNotification({ title: 'Error', message: 'Failed to save Q&A pair.', color: 'red' });
         } finally {
             setEditQALoading(false);
         }
     };
 
-    const filteredQaHistory = qaHistory.filter(
-        (pair) =>
-            pair.question.toLowerCase().includes(qaSearch.toLowerCase()) ||
-            pair.answer.toLowerCase().includes(qaSearch.toLowerCase())
-    );
-
-    // Save tasks to Civil Memory
-    const saveTasks = async (updatedTasks: Task[]) => {
-        if (!projectId || Array.isArray(projectId)) return;
-            const userEmail = localStorage.getItem("user:username");
-        if (!userEmail) return;
-        try {
-            await fetch(`http://localhost:3333/tasks?mode=disk&key=${encodeURIComponent(userEmail)}:${encodeURIComponent(projectId)}`, {
-                    method: "POST",
-                body: JSON.stringify(updatedTasks),
-            });
-        } catch {
-            showNotification({ title: "Error", message: "Failed to save tasks.", color: "red" });
+    const handleDeleteQAPair = (id: string) => {
+        if (window.confirm('Are you sure you want to delete this Q&A pair?')) {
+            setQaHistory(qaHistory.filter(pair => pair.id !== id));
+            showNotification({ title: 'Deleted', message: 'Q&A pair deleted.', color: 'red' });
         }
     };
 
-    // Load tasks from Civil Memory on mount
-    useEffect(() => {
-        const fetchTasks = async () => {
-            if (!projectId || Array.isArray(projectId)) return;
-            try {
-                const userEmail = localStorage.getItem("user:username");
-                if (!userEmail) return;
-                const res = await fetch(`http://localhost:3333/tasks?mode=disk&key=${encodeURIComponent(userEmail)}:${encodeURIComponent(projectId)}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    setTasks(Array.isArray(data) ? data : []);
-                }
-            } catch { }
-        };
-        fetchTasks();
-    }, [projectId]);
+    const handleCancelEditQAPair = () => {
+        setEditQAPair(null);
+        setQaQuestion("");
+        setQaAnswer("");
+    };
+
+    const filteredQaHistory = qaHistory.filter(pair =>
+        pair.question.toLowerCase().includes(qaSearch.toLowerCase()) ||
+        pair.answer.toLowerCase().includes(qaSearch.toLowerCase())
+    );
+
+    // Tasks handlers
+    const saveTasks = async (updatedTasks: Task[]) => {
+        if (!projectId || Array.isArray(projectId)) return;
+        const userEmail = localStorage.getItem("user:username");
+        if (!userEmail) {
+            router.replace("/login");
+            return;
+        }
+        try {
+            const res = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`);
+            if (!res.ok) throw new Error("Failed to fetch projects");
+            let projects = await res.json();
+            const idx = projects.findIndex((p: any) => String(p.id).trim() === String(projectId).trim());
+            if (idx === -1) throw new Error("Project not found");
+            const updatedProject = { ...projects[idx], tasks: updatedTasks };
+            projects[idx] = updatedProject;
+            await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`, {
+                method: "POST",
+                body: JSON.stringify(projects),
+            });
+            setTasks(updatedTasks);
+            setProject(updatedProject); // Update project context
+        } catch (err: any) {
+            showNotification({ title: "Error", message: err.message || "Failed to save tasks", color: "red" });
+        }
+    };
 
     const handleAddTask = async () => {
-        if (!newTask.title) return;
+        if (!newTask.title) {
+            showNotification({ title: 'Error', message: 'Task title is required.', color: 'red' });
+            return;
+        }
         setAddingTask(true);
         const now = new Date().toISOString();
-        const taskToAdd: Task = {
+        const fullNewTask: Task = {
             id: Date.now().toString(),
             title: newTask.title,
             description: newTask.description || '',
@@ -1207,12 +1330,10 @@ export default function ProjectViewPage() {
             createdAt: now,
             updatedAt: now,
         };
-        const updatedTasks = [...tasks, taskToAdd];
-        setTasks(updatedTasks);
-        await saveTasks(updatedTasks);
+        await saveTasks([...tasks, fullNewTask]);
         setNewTask({ title: '', description: '', assignee: '', status: 'todo', priority: 'medium', dueDate: '' });
         setAddingTask(false);
-        showNotification({ title: 'Task Added', message: `Task "${taskToAdd.title}" has been added.`, color: 'green' });
+        showNotification({ title: 'Task Added', message: `Task "${fullNewTask.title}" added.`, color: 'green' });
     };
 
     const handleEditTask = (task: Task) => {
@@ -1221,183 +1342,146 @@ export default function ProjectViewPage() {
     };
 
     const handleSaveTask = async () => {
-        if (!editingTaskId || !editTask.title) return;
-        const now = new Date().toISOString();
-        const updatedTasks = tasks.map(t =>
-            t.id === editingTaskId ? { ...t, ...editTask, updatedAt: now } : t
-        ) as Task[];
-        setTasks(updatedTasks);
+        if (!editTask.id || !editTask.title) {
+            showNotification({ title: 'Error', message: 'Task title is required.', color: 'red' });
+            return;
+        }
+        const updatedTasks = tasks.map(task =>
+            task.id === editTask.id ? { ...task, ...editTask, updatedAt: new Date().toISOString() } : task
+        );
         await saveTasks(updatedTasks);
         setEditingTaskId(null);
         setEditTask({});
-        showNotification({ title: 'Task Updated', message: `Task "${editTask.title}" has been updated.`, color: 'green' });
+        showNotification({ title: 'Task Updated', message: `Task "${editTask.title}" updated.`, color: 'green' });
     };
 
     const handleDeleteTask = async (id: string) => {
-        if (!window.confirm("Are you sure you want to delete this task?")) return;
-        const updatedTasks = tasks.filter(t => t.id !== id);
-        setTasks(updatedTasks);
-        await saveTasks(updatedTasks);
-        showNotification({ title: 'Task Deleted', message: 'Task has been deleted.', color: 'red' });
+        if (window.confirm('Are you sure you want to delete this task?')) {
+            const updatedTasks = tasks.filter(task => task.id !== id);
+            await saveTasks(updatedTasks);
+            showNotification({ title: 'Task Deleted', message: 'Task removed.', color: 'red' });
+        }
     };
 
-    const onDragEnd = (result: DropResult) => {
-        const { source, destination, draggableId } = result;
+    const handleDragEnd = async (result: DropResult) => {
+        const { destination, source, draggableId } = result;
+        if (!destination) return;
 
-        if (!destination) {
-            return;
-        }
-
-        if (source.droppableId === destination.droppableId && source.index === destination.index) {
-            return;
+        if (destination.droppableId === source.droppableId && destination.index === source.index) {
+            return; // No change in position
         }
 
         const updatedTasks = Array.from(tasks);
-        const movedTaskIndex = updatedTasks.findIndex(task => task.id === draggableId);
-        if (movedTaskIndex === -1) return;
+        const [movedTask] = updatedTasks.splice(source.index, 1);
+        updatedTasks.splice(destination.index, 0, movedTask);
 
-        const [movedTask] = updatedTasks.splice(movedTaskIndex, 1);
-
-        if (source.droppableId === destination.droppableId) {
-            updatedTasks.splice(destination.index, 0, movedTask);
-        } else {
-            // Moving between columns (statuses)
-            movedTask.status = destination.droppableId as Task['status'];
-            updatedTasks.splice(destination.index, 0, movedTask);
+        // Update status if moved to a different column in Kanban view
+        if (taskView === 'board' && destination.droppableId !== source.droppableId) {
+            const newStatus = destination.droppableId as Task['status'];
+            movedTask.status = newStatus;
+            movedTask.updatedAt = new Date().toISOString();
         }
 
-        setTasks(updatedTasks);
-        saveTasks(updatedTasks);
+        await saveTasks(updatedTasks);
     };
 
-    const statuses: Task['status'][] = ['todo', 'in-progress', 'blocked', 'done'];
-    const priorities: Task['priority'][] = ['low', 'medium', 'high', 'critical'];
-
-    const getStatusColor = (status: Task['status']) => {
-        switch (status) {
-            case 'todo': return 'gray';
-            case 'in-progress': return 'blue';
-            case 'blocked': return 'red';
-            case 'done': return 'green';
-            default: return 'gray';
-        }
-    };
-
-    const getPriorityColor = (priority: Task['priority']) => {
-        switch (priority) {
-            case 'low': return 'lime';
-            case 'medium': return 'orange';
-            case 'high': return 'red';
-            case 'critical': return 'purple';
-            default: return 'gray';
-        }
-    };
-
-    // File handling
-    const saveFiles = async (updatedFiles: any[]) => {
-        if (!projectId || Array.isArray(projectId)) return;
-        const userEmail = localStorage.getItem("user:username");
-        if (!userEmail) return;
+    // Files tab handlers
+    const handleFileDownload = (file: any) => {
         try {
-            await fetch(`http://localhost:3333/files?mode=disk&key=${encodeURIComponent(userEmail)}:${encodeURIComponent(projectId)}`, {
-                method: "POST",
-                body: JSON.stringify(updatedFiles),
-            });
-        } catch {
-            showNotification({ title: "Error", message: "Failed to save files.", color: "red" });
+            const byteCharacters = atob(file.dataUrl.split(',')[1]);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: file.mimeType });
+            saveAs(blob, file.name);
+            showNotification({ title: 'Download Successful', message: `Downloaded ${file.name}`, color: 'green' });
+        } catch (error) {
+            console.error("Error downloading file:", error);
+            showNotification({ title: 'Download Failed', message: `Could not download ${file.name}.`, color: 'red' });
         }
-    };
-
-    useEffect(() => {
-        const fetchFiles = async () => {
-            if (!projectId || Array.isArray(projectId)) return;
-            try {
-                const userEmail = localStorage.getItem("user:username");
-                if (!userEmail) return;
-                const res = await fetch(`http://localhost:3333/files?mode=disk&key=${encodeURIComponent(userEmail)}:${encodeURIComponent(projectId)}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    setFiles(Array.isArray(data) ? data : []);
-                }
-            } catch { }
-        };
-        fetchFiles();
-    }, [projectId]);
-
-    const handleFileDrop = async (event: React.DragEvent<HTMLDivElement>) => {
-        event.preventDefault();
-        setUploading(true);
-        setUploadError(null);
-
-        const droppedFiles = Array.from(event.dataTransfer.files);
-        if (droppedFiles.length === 0) {
-            setUploading(false);
-            return;
-        }
-
-        const newFiles = await Promise.all(droppedFiles.map(async (file) => {
-            const dataUrl = await fileToDataUrl(file);
-            return {
-                    id: Date.now().toString(),
-                    name: file.name,
-                type: file.type,
-                    size: file.size,
-                dataUrl: dataUrl,
-                uploadedAt: new Date().toISOString(),
-            };
-        }));
-
-        const updatedFiles = [...files, ...newFiles];
-        setFiles(updatedFiles);
-        await saveFiles(updatedFiles);
-
-        setUploading(false);
-                    showNotification({
-            title: 'Files Uploaded',
-            message: `${newFiles.length} file(s) uploaded successfully.`,
-            color: 'green',
-        });
     };
 
     const handleFileDelete = async (fileId: string) => {
-        if (!window.confirm("Are you sure you want to delete this file?")) return;
-        const updatedFiles = files.filter(f => f.id !== fileId);
-        setFiles(updatedFiles);
-        await saveFiles(updatedFiles);
-        showNotification({ title: 'File Deleted', message: 'File has been deleted.', color: 'red' });
-    };
+        if (window.confirm('Are you sure you want to delete this file?')) {
+            try {
+                const updatedFiles = files.filter(f => f.id !== fileId);
+                const userEmail = localStorage.getItem("user:username");
+                if (!userEmail || !projectId || Array.isArray(projectId)) throw new Error("Authentication or project ID missing.");
 
-    const handleFileDownload = (file: any) => {
-        try {
-            saveAs(file.dataUrl, file.name);
-            showNotification({ title: 'Download Started', message: `Downloading ${file.name}`, color: 'green' });
-        } catch (error) {
-            showNotification({ title: 'Download Failed', message: `Could not download ${file.name}`, color: 'red' });
-            console.error('Download error:', error);
+                const res = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`);
+                if (!res.ok) throw new Error("Failed to fetch projects");
+                let projects = await res.json();
+                const idx = projects.findIndex((p: any) => String(p.id).trim() === String(projectId).trim());
+                if (idx === -1) throw new Error("Project not found.");
+
+                projects[idx] = { ...projects[idx], files: updatedFiles };
+
+                await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`, {
+                    method: "POST",
+                    body: JSON.stringify(projects),
+                });
+                setFiles(updatedFiles);
+                showNotification({ title: 'File Deleted', message: 'File removed successfully.', color: 'red' });
+            } catch (error: any) {
+                console.error("Error deleting file:", error);
+                setUploadError(error.message || "Failed to delete file.");
+                showNotification({ title: 'Deletion Failed', message: error.message || 'Failed to delete file.', color: 'red' });
+            }
         }
     };
 
-    // Calendar events
-    const calendarEvents = tasks
-        .filter(task => task.dueDate)
-        .map(task => ({
-            id: task.id,
-            title: task.title,
-            start: new Date(task.dueDate),
-            end: new Date(task.dueDate), // For full-day events, start and end are the same
-            allDay: true,
-            resource: task,
-        }));
+    const handleFileUploadChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
 
-    const handleSelectEvent = (event: any) => {
-        const task = event.resource as Task;
-        setCalendarTask({ ...task });
-        setCalendarSelectedDate(new Date(task.dueDate));
-        setCalendarModalMode('edit');
-        setCalendarModalOpen(true);
+        setUploading(true);
+        setUploadError(null);
+
+        try {
+            const dataUrl = await fileToDataUrl(file);
+            const newFile = {
+                id: Date.now().toString(),
+                name: file.name,
+                mimeType: file.type,
+                size: file.size,
+                dataUrl: dataUrl, // Store as base64 data URL
+                uploadedAt: new Date().toISOString(),
+                uploadedBy: userName || 'anonymous',
+            };
+
+            const updatedFiles = [...files, newFile];
+            const userEmail = localStorage.getItem("user:username");
+            if (!userEmail || !projectId || Array.isArray(projectId)) throw new Error("Authentication or project ID missing.");
+
+            const res = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`);
+            if (!res.ok) throw new Error("Failed to fetch projects");
+            let projects = await res.json();
+            const idx = projects.findIndex((p: any) => String(p.id).trim() === String(projectId).trim());
+            if (idx === -1) throw new Error("Project not found.");
+
+            projects[idx] = { ...projects[idx], files: updatedFiles };
+
+            await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`, {
+                method: "POST",
+                body: JSON.stringify(projects),
+            });
+            setFiles(updatedFiles);
+            showNotification({ title: 'Upload Successful', message: `${file.name} uploaded.`, color: 'green' });
+        } catch (error: any) {
+            console.error("Error uploading file:", error);
+            setUploadError(error.message || "Failed to upload file.");
+            showNotification({ title: 'Upload Failed', message: error.message || 'Failed to upload file.', color: 'red' });
+        } finally {
+            setUploading(false);
+            e.target.value = ''; // Clear file input
+        }
     };
 
-    const handleSelectSlot = ({ start }: { start: Date }) => {
+    // Calendar Event handlers
+    const handleSelectSlot = ({ start, end }: { start: Date; end: Date }) => {
+        setCalendarModalMode('add');
         setCalendarSelectedDate(start);
         setCalendarTask({
             title: '',
@@ -1405,1607 +1489,1684 @@ export default function ProjectViewPage() {
             assignee: '',
             status: 'todo',
             priority: 'medium',
-            dueDate: start.toISOString().split('T')[0], // Format for date input
+            dueDate: start.toISOString().split('T')[0], // Format YYYY-MM-DD
         });
-        setCalendarModalMode('add');
         setCalendarModalOpen(true);
     };
 
-    const handleCalendarModalSave = async () => {
-        if (!calendarTask.title || !calendarSelectedDate) {
-            showNotification({ title: 'Error', message: 'Task title and due date are required.', color: 'red' });
+    const handleSelectEvent = (event: any) => {
+        setCalendarModalMode('edit');
+        setCalendarTask(tasks.find(t => t.id === event.id) || {});
+        setCalendarModalOpen(true);
+    };
+
+    const handleCalendarTaskSubmit = async () => {
+        if (!calendarTask.title) {
+            showNotification({ title: 'Error', message: 'Task title is required.', color: 'red' });
             return;
         }
 
         const now = new Date().toISOString();
         if (calendarModalMode === 'add') {
-            const newTaskToAdd: Task = {
+            const newTaskItem: Task = {
                 id: Date.now().toString(),
                 title: calendarTask.title,
                 description: calendarTask.description || '',
                 assignee: calendarTask.assignee || '',
                 status: calendarTask.status || 'todo',
                 priority: calendarTask.priority || 'medium',
-                dueDate: calendarSelectedDate.toISOString(),
+                dueDate: calendarTask.dueDate || '',
                 createdAt: now,
                 updatedAt: now,
             };
-            const updatedTasks = [...tasks, newTaskToAdd];
-            setTasks(updatedTasks);
-            await saveTasks(updatedTasks);
-            showNotification({ title: 'Task Added', message: `Task "${newTaskToAdd.title}" added to calendar.`, color: 'green' });
-        } else if (calendarModalMode === 'edit' && calendarTask.id) {
+            await saveTasks([...tasks, newTaskItem]);
+            showNotification({ title: 'Task Added', message: `Calendar task "${newTaskItem.title}" added.`, color: 'green' });
+        } else {
+            // Edit mode
+            if (!calendarTask.id) return;
             const updatedTasks = tasks.map(t =>
-                t.id === calendarTask.id ? { ...t, ...calendarTask, dueDate: calendarSelectedDate.toISOString(), updatedAt: now } : t
-            ) as Task[];
-            setTasks(updatedTasks);
+                t.id === calendarTask.id ? { ...t, ...calendarTask, updatedAt: now } : t
+            );
             await saveTasks(updatedTasks);
-            showNotification({ title: 'Task Updated', message: `Task "${calendarTask.title}" updated.`, color: 'green' });
+            showNotification({ title: 'Task Updated', message: `Calendar task "${calendarTask.title}" updated.`, color: 'green' });
         }
         setCalendarModalOpen(false);
         setCalendarTask({});
-        setCalendarSelectedDate(null);
     };
 
-    const handleCalendarModalDelete = async () => {
+    const handleDeleteCalendarTask = async () => {
         if (!calendarTask.id) return;
-        if (!window.confirm("Are you sure you want to delete this task from the calendar?")) return;
-        const updatedTasks = tasks.filter(t => t.id !== calendarTask.id);
-        setTasks(updatedTasks);
-        await saveTasks(updatedTasks);
-        showNotification({ title: 'Task Deleted', message: 'Task removed from calendar.', color: 'red' });
-        setCalendarModalOpen(false);
-        setCalendarTask({});
-        setCalendarSelectedDate(null);
+        if (window.confirm('Are you sure you want to delete this calendar task?')) {
+            const updatedTasks = tasks.filter(t => t.id !== calendarTask.id);
+            await saveTasks(updatedTasks);
+            showNotification({ title: 'Task Deleted', message: 'Calendar task removed.', color: 'red' });
+            setCalendarModalOpen(false);
+            setCalendarTask({});
+        }
     };
 
-    const projectContext = {
-        name: project?.name,
-        members: project?.members,
-        docTabs: docTabs,
-        docRows: docRows,
-        researchItems: researchItems,
-        tasks: tasks,
-        files: files,
-        chatMessages: chatMessages,
-        qaHistory: qaHistory,
-        currentTab: activeTab,
-        activeDocTab: activeDocTab,
+    const calendarEvents = tasks
+        .filter(t => t.dueDate)
+        .map(t => ({
+            id: t.id,
+            title: t.title,
+            start: new Date(t.dueDate),
+            end: new Date(t.dueDate), // For full-day events
+            allDay: true,
+            resource: t, // Keep a reference to the original task object
+        }));
+
+    // Finance Tab handlers
+    const saveFinance = async (updatedFinance: { budget: number, currency: string, expenses: Expense[] }) => {
+        if (!projectId || Array.isArray(projectId)) return;
+        const userEmail = localStorage.getItem("user:username");
+        if (!userEmail) {
+            router.replace("/login");
+            return;
+        }
+        try {
+            const res = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`);
+            if (!res.ok) throw new Error("Failed to fetch projects");
+            let projects = await res.json();
+            const idx = projects.findIndex((p: any) => String(p.id).trim() === String(projectId).trim());
+            if (idx === -1) throw new Error("Project not found");
+            // Update project with new budget/currency/expenses
+            const updatedProject = { ...projects[idx], ...updatedFinance };
+            projects[idx] = updatedProject;
+            await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`, {
+                method: "POST",
+                body: JSON.stringify(projects),
+            });
+            setFinanceBudget(updatedFinance.budget);
+            setFinanceCurrency(updatedFinance.currency);
+            setFinanceExpenses(updatedFinance.expenses);
+            setProject(updatedProject); // Update project context
+        } catch (err: any) {
+            showNotification({ title: "Error", message: err.message || "Failed to save finance data", color: "red" });
+        }
     };
 
-    const aiContext = `Project: ${project?.name}\nMembers: ${(project?.members || []).join(', ')}\nTasks: ${tasks.length} total\nFiles: ${files.length} uploaded`;
+    const handleAddExpense = async () => {
+        if (!newExpense.description || !newExpense.amount || !newExpense.date || !newExpense.category) {
+            showNotification({ title: 'Error', message: 'All expense fields are required.', color: 'red' });
+            return;
+        }
+        const fullNewExpense: Expense = {
+            id: Date.now().toString(),
+            description: newExpense.description,
+            amount: parseFloat(newExpense.amount.toString()),
+            date: newExpense.date,
+            category: newExpense.category,
+            linkedTaskId: newExpense.linkedTaskId,
+            receiptUrl: newExpense.receiptUrl,
+        };
+        const updatedExpenses = [...financeExpenses, fullNewExpense];
+        await saveFinance({ budget: financeBudget, currency: financeCurrency, expenses: updatedExpenses });
+        setNewExpense({ amount: 0, date: '', description: '', category: '' });
+        setAddExpenseModalOpen(false);
+        showNotification({ title: 'Expense Added', message: `Expense "${fullNewExpense.description}" added.`, color: 'green' });
+    };
 
-    // Handler for AI finance Q&A
-    async function handleAskFinanceAI() {
-      if (!financeAiQuestion.trim()) return;
-      setFinanceAiLoading(true);
-      setFinanceAiError('');
-      setFinanceAiAnswer('');
+    const handleDeleteExpense = async (id: string) => {
+        if (window.confirm('Are you sure you want to delete this expense?')) {
+            const updatedExpenses = financeExpenses.filter(exp => exp.id !== id);
+            await saveFinance({ budget: financeBudget, currency: financeCurrency, expenses: updatedExpenses });
+            showNotification({ title: 'Expense Deleted', message: 'Expense removed.', color: 'red' });
+        }
+    };
+
+    const handleAskFinanceAi = async () => {
+        if (!financeAiQuestion.trim()) {
+            showNotification({ title: 'Error', message: 'Please enter a question for AI.', color: 'red' });
+            return;
+        }
+        setFinanceAiLoading(true);
+        setFinanceAiError('');
+        try {
+            const gemini = getGeminiClient();
+            const model = gemini.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+            const financeContext = `Current Budget: ${financeBudget} ${financeCurrency}\nExpenses:\n${financeExpenses.map(e => `- ${e.description}: ${e.amount} ${financeCurrency} (${e.category} on ${e.date})`).join('\n')}\n`;
+
+            const prompt = `Based on the following finance data, answer the question:\n\n${financeContext}\nQuestion: ${financeAiQuestion}`;
+            const result = await model.generateContent(prompt);
+            const answer = result.response.text().trim();
+            setFinanceAiAnswer(answer);
+        } catch (err: any) {
+            setFinanceAiError(`Failed to get AI response: ${err.message || 'Unknown error'}`);
+        } finally {
+            setFinanceAiLoading(false);
+        }
+    };
+
+    const handleSuggestCategory = async () => {
+        if (!newExpense.description || !newExpense.amount) {
+            showNotification({ title: 'Error', message: 'Please provide description and amount to suggest category.', color: 'red' });
+            return;
+        }
+        setCategorySuggesting(true);
+        setCategorySuggestError('');
+        try {
+            const gemini = getGeminiClient();
+            const model = gemini.getGenerativeModel({ model: "gemini-2.0-flash" });
+            const prompt = `Suggest a single, concise category for the expense: "${newExpense.description}" with amount ${newExpense.amount}. Example categories: "Travel", "Software", "Marketing", "Utilities", "Salaries". Respond with only the category name.`;
+            const result = await model.generateContent(prompt);
+            const category = result.response.text().trim();
+            setNewExpense(prev => ({ ...prev, category }));
+            showNotification({ title: 'Category Suggested', message: `Suggested category: ${category}`, color: 'green' });
+        } catch (err: any) {
+            setCategorySuggestError(`Failed to suggest category: ${err.message || 'Unknown error'}`);
+        } finally {
+            setCategorySuggesting(false);
+        }
+    };
+
+    const expenseCategories = Array.from(new Set(financeExpenses.map(e => e.category)));
+    const totalExpenses = financeExpenses.reduce((sum, exp) => sum + exp.amount, 0);
+    const remainingBudget = financeBudget - totalExpenses;
+
+    // Chart data for expenses by category
+    const categoryData: PieChartProps['data'] = expenseCategories.map(cat => ({
+        name: cat,
+        value: financeExpenses.filter(e => e.category === cat).reduce((sum, e) => sum + e.amount, 0),
+        color: randomColor(), // Use a random color or a predefined palette
+    }));
+
+    // Chart data for expenses over time (bar chart by month/year)
+    const monthlyExpenses = financeExpenses.reduce((acc, exp) => {
+        const monthYear = new Date(exp.date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+        acc[monthYear] = (acc[monthYear] || 0) + exp.amount;
+        return acc;
+    }, {} as { [key: string]: number });
+
+    const monthlyChartData: BarChartProps['data'] = Object.entries(monthlyExpenses).map(([monthYear, amount]) => ({
+        monthYear,
+        expenses: amount,
+    }));
+
+    const handleTranslateContent = async (docId: string, rowIdx: number, originalText: string, targetLang: string) => {
+      setTranslating(true);
       try {
-        const gemini = getGeminiClient();
-        const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
-        // Compose context from budget and expenses
-        const context = `Project Budget: ${financeCurrency} ${financeBudget}\nExpenses:\n` +
-          financeExpenses.map(e => `- ${e.description} (${e.category}): ${financeCurrency} ${e.amount} on ${e.date}`).join("\n");
-        const prompt = `${context}\n\nQuestion: ${financeAiQuestion}`;
-        const result = await model.generateContent(prompt);
-        const answer = result.response.text().trim();
-        setFinanceAiAnswer(answer);
+          const gemini = getGeminiClient();
+          const model = gemini.getGenerativeModel({ model: "gemini-2.0-flash" });
+          const prompt = `Translate the following English text to ${languageOptions.find(lang => lang.value === targetLang)?.label || targetLang}:\n\n${originalText}`;
+          const result = await model.generateContent(prompt);
+          const translatedText = result.response.text().trim();
+
+          const updatedRows = {
+              ...docRows,
+              [docId]: (docRows[docId] || []).map((row, i) => (i === rowIdx ? translatedText : row)),
+          };
+          setDocRows(updatedRows);
+          showNotification({ title: 'Translation Successful', message: 'Document content translated.', color: 'green' });
       } catch (err: any) {
-        setFinanceAiError(err.message || 'AI failed to answer.');
+          showNotification({ title: 'Translation Failed', message: err.message || 'Failed to translate content.', color: 'red' });
       } finally {
-        setFinanceAiLoading(false);
+          setTranslating(false);
       }
+    };
+
+    // Sync finance state with project data
+    useEffect(() => {
+      if (project) {
+        setFinanceBudget(project.budget || 0);
+        setFinanceCurrency(project.currency || 'USD');
+        setFinanceExpenses(project.expenses || []);
+      }
+    }, [project]);
+
+    // Handler to open edit modal
+    const handleEditExpense = (expense: Expense) => {
+      setEditingExpense(expense);
+      setEditExpenseData({ ...expense });
+    };
+
+    // Handler to save edited expense
+    const handleSaveEditExpense = async () => {
+      if (!editingExpense) return;
+      const updatedExpenses = financeExpenses.map(exp =>
+        exp.id === editingExpense.id ? { ...exp, ...editExpenseData } : exp
+      );
+      await saveFinance({ budget: financeBudget, currency: financeCurrency, expenses: updatedExpenses });
+      setEditingExpense(null);
+      setEditExpenseData({});
+      showNotification({ title: 'Expense Updated', message: 'Expense updated successfully.', color: 'green' });
+    };
+
+    // Handler to close edit modal
+    const handleCancelEditExpense = () => {
+      setEditingExpense(null);
+      setEditExpenseData({});
+    };
+
+    // Update unread counts when chat messages are fetched
+    useEffect(() => {
+        const userEmail = localStorage.getItem("user:username");
+        const pid = Array.isArray(projectId) ? projectId[0] : projectId;
+        if (!userEmail || !pid || !project?.members) return;
+        // For each member, check unread count in localStorage
+        const counts: { [email: string]: number } = {};
+        project.members.forEach((member: string) => {
+            if (member === userEmail) return;
+            const key = `unread:${userEmail}:${member}:${pid}`;
+            const val = parseInt(localStorage.getItem(key) || '0', 10);
+            if (val > 0) counts[member] = val;
+        });
+        setUnreadCounts(counts);
+    }, [projectId, project, chatMessages, chatContext]);
+
+    // When switching to a private chat, reset unread count for that member
+    useEffect(() => {
+        const userEmail = localStorage.getItem("user:username");
+        const pid = Array.isArray(projectId) ? projectId[0] : projectId;
+        if (!userEmail || !pid) return;
+        if (chatContext !== 'group' && typeof chatContext === 'string') {
+            const key = `unread:${userEmail}:${chatContext}:${pid}`;
+            localStorage.setItem(key, '0');
+            setUnreadCounts((prev) => ({ ...prev, [chatContext]: 0 }));
+        }
+    }, [chatContext, projectId]);
+
+    // When a new private message is received and the chat is not active, increment unread count
+    useEffect(() => {
+        const userEmail = localStorage.getItem("user:username");
+        const pid = Array.isArray(projectId) ? projectId[0] : projectId;
+        if (!userEmail || !pid || !project?.members) return;
+        if (chatContext === 'group') return;
+        // Only for private chats
+        chatMessages.forEach((msg) => {
+            if (msg.sender !== userEmail && chatContext !== msg.sender) {
+                const key = `unread:${userEmail}:${msg.sender}:${pid}`;
+                const current = parseInt(localStorage.getItem(key) || '0', 10);
+                localStorage.setItem(key, String(current + 1));
+                setUnreadCounts((prev) => ({ ...prev, [msg.sender]: current + 1 }));
+            }
+        });
+    }, [chatMessages, chatContext, projectId]);
+
+    // 5. Add handlers for edit and delete
+    const handleSaveEditMsg = async (msgId: number) => {
+        const pid = Array.isArray(projectId) ? projectId[0] : projectId;
+        if (!pid) return;
+        let chatKey = '';
+        const userEmail = localStorage.getItem("user:username");
+        if (chatContext === 'group') {
+            chatKey = pid;
+        } else {
+            const emails = [userEmail, chatContext].sort();
+            chatKey = `private:${emails[0]}:${emails[1]}:${pid}`;
+        }
+        const updated = chatMessages.map(msg =>
+            msg.id === msgId ? { ...msg, content: editMsgValue, edited: true } : msg
+        );
+        setChatMessages(updated);
+        setEditingMsgId(null);
+        setEditMsgValue("");
+        await fetch(`http://localhost:3333/chat?mode=disk&key=${encodeURIComponent(chatKey)}`,
+            { method: "POST", body: JSON.stringify(updated) });
+    };
+    const handleDeleteMsg = async (msgId: number) => {
+        const pid = Array.isArray(projectId) ? projectId[0] : projectId;
+        if (!pid) return;
+        let chatKey = '';
+        const userEmail = localStorage.getItem("user:username");
+        if (chatContext === 'group') {
+            chatKey = pid;
+        } else {
+            const emails = [userEmail, chatContext].sort();
+            chatKey = `private:${emails[0]}:${emails[1]}:${pid}`;
+        }
+        const updated = chatMessages.filter(msg => msg.id !== msgId);
+        setChatMessages(updated);
+        await fetch(`http://localhost:3333/chat?mode=disk&key=${encodeURIComponent(chatKey)}`,
+            { method: "POST", body: JSON.stringify(updated) });
+    };
+
+    // Handler to start/stop recording
+    const handleVoiceNote = async () => {
+        if (!recording) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const mimeType = getSupportedAudioType();
+                const recorder = mimeType ? new window.MediaRecorder(stream, { mimeType }) : new window.MediaRecorder(stream);
+                setMediaRecorder(recorder);
+                let localChunks: Blob[] = [];
+                recorder.ondataavailable = (e: BlobEvent) => {
+                    localChunks.push(e.data);
+                };
+                recorder.onstop = async () => {
+                    clearInterval(recordingInterval!);
+                    setRecordingTime(0);
+                    const audioBlob = new Blob(localChunks, { type: mimeType || 'audio/webm' });
+                    const userEmail = localStorage.getItem("user:username") || 'unknown';
+                    const pid = Array.isArray(projectId) ? projectId[0] : projectId;
+                    const audioKey = `audio:${Date.now()}:${userEmail}:${pid}`;
+                    await uploadAudioToCivilMemory(audioKey, audioBlob);
+                    sendMessage("[Voice Note]", "audio", audioKey);
+                };
+                recorder.start();
+                setRecording(true);
+                setRecordingTime(0);
+                recordingInterval = setInterval(() => {
+                    setRecordingTime(prev => {
+                        if (prev + 1 >= MAX_RECORDING_TIME) {
+                            recorder.stop();
+                            setRecording(false);
+                            setMediaRecorder(null);
+                            clearInterval(recordingInterval!);
+                            return 0;
+                        }
+                        return prev + 1;
+                    });
+                }, 1000);
+            } catch (err) {
+                showNotification({ title: 'Error', message: 'Could not access microphone.', color: 'red' });
+            }
+        } else {
+            if (mediaRecorder) {
+                mediaRecorder.stop();
+                setRecording(false);
+                setMediaRecorder(null);
+                clearInterval(recordingInterval!);
+                setRecordingTime(0);
+            }
+        }
+    };
+
+    // Helper to get supported audio MIME type
+    function getSupportedAudioType() {
+        if (window.MediaRecorder && MediaRecorder.isTypeSupported) {
+            if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) return 'audio/webm';
+            if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) return 'audio/ogg';
+        }
+        return '';
     }
 
-    // Handler for AI category suggestion
-    async function handleSuggestCategory() {
-      if (!newExpense.description) return;
-      setCategorySuggesting(true);
-      setCategorySuggestError('');
-      try {
-        const gemini = getGeminiClient();
-        const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const prompt = `Suggest a concise expense category for: "${newExpense.description}". Only return the category name, e.g. Travel, Software, Supplies, Meals, etc.`;
-        const result = await model.generateContent(prompt);
-        const suggestion = result.response.text().trim().split(/\n|\r/)[0];
-        setNewExpense(exp => ({ ...exp, category: suggestion }));
-      } catch (err: any) {
-        setCategorySuggestError(err.message || 'AI failed to suggest category.');
-      } finally {
-        setCategorySuggesting(false);
-      }
-    }
-
-    // --- Add handler for AI transition calculation ---
-    async function handleCalculateTransition() {
-      if (!transitionSource || !transitionTarget) return;
-      setTransitionLoading(true);
-      setTransitionResult(null);
-      try {
-        const sourceTitle = docTabs.find(t => t.id === transitionSource)?.title || 'Source';
-        const targetTitle = docTabs.find(t => t.id === transitionTarget)?.title || 'Target';
-        const sourceRows = (docRows[transitionSource] || []).join('\n');
-        const targetRows = (docRows[transitionTarget] || []).join('\n');
-        const prompt = `Given the following two documents in a project management system, analyze the transition from the first (source) to the second (target).\n\nSource document: ${sourceTitle}\nRows:\n${sourceRows}\n\nTarget document: ${targetTitle}\nRows:\n${targetRows}\n\nPlease provide a detailed report on what is required to transition from the source to the target. For example, if the source lists available ingredients and the target lists recipe steps, check if all required ingredients are available, and report any missing or insufficient items. Suggest what actions are needed to complete the transition.`;
-        const gemini = getGeminiClient();
-        const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const result = await model.generateContent(prompt);
-        const aiText = result.response.text().trim();
-        setTransitionResult(aiText);
-      } catch (err: any) {
-        setTransitionResult('AI analysis failed.');
-        showNotification({ color: 'red', message: 'AI analysis failed.' });
-      }
-      setTransitionLoading(false);
-    }
-    // ... existing code ...
-
-    if (loading || !project) {
+    if (loading) {
         return (
-            <Center style={{ height: "100vh" }}>
+            <Center style={{ height: '100vh' }}>
                 <Loader />
             </Center>
         );
     }
 
-    const filteredDocRows = (docRows[activeDocTab] || []).filter(row =>
-        typeof row === "string" && row.toLowerCase().includes(docSearch.toLowerCase())
-    );
-    const totalDocPages = Math.ceil(filteredDocRows.length / DOCS_PER_PAGE);
-    const paginatedDocRows = filteredDocRows.slice((docPage - 1) * DOCS_PER_PAGE, docPage * DOCS_PER_PAGE);
+    if (!project) {
+        return (
+            <Center style={{ height: '100vh' }}>
+                <Stack align="center">
+                    <Title order={3}>Project not found</Title>
+                    <Button onClick={() => router.replace("/projects")}>Go to Projects</Button>
+                </Stack>
+            </Center>
+        );
+    }
 
-    // Inside the Finance tab, above the budget/expense form ...
-    const pieColors = [
-      'blue', 'cyan', 'teal', 'green', 'yellow', 'orange', 'red', 'grape', 'violet', 'indigo', 'pink', 'lime', 'gray',
-    ];
-    const pieData = Object.entries(
-      financeExpenses.reduce((acc, e) => {
-        acc[e.category || 'Uncategorized'] = (acc[e.category || 'Uncategorized'] || 0) + (e.amount || 0);
-        return acc;
-      }, {} as Record<string, number>)
-    ).map(([category, value], i) => ({ name: category, value, color: pieColors[i % pieColors.length] }));
-
-    // Handler for translating a document's title and rows
-    const handleTranslateDocument = async (docId: string, lang: string) => {
-      try {
-        const userEmail = localStorage.getItem("user:username");
-        if (!userEmail) return;
-
-        // Get the document tab and rows
-        const docTab = docTabs.find(tab => tab.id === docId);
-        if (!docTab) return;
-
-        const rows = docRows[docId] || [];
-        if (rows.length === 0) {
-          showNotification({ title: "Translation", message: "No content to translate", color: "blue" });
-          return;
-        }
-
-        setTranslating(true);
-
-        // First translate the document title
-        const gemini = getGeminiClient();
-        const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-        try {
-          const titlePrompt = `Translate the following text to ${languageOptions.find(l => l.value === lang)?.label || lang}. Only return the translated text.\n\nText: ${docTab.title}`;
-          const titleResult = await model.generateContent(titlePrompt);
-          const translatedTitle = titleResult.response.text().trim();
-
-          // Update the document title
-          await fetch(`http://localhost:3333/doctabs?mode=disk&key=${encodeURIComponent(userEmail)}:${encodeURIComponent(projectId)}`, {
-            method: "POST",
-            body: JSON.stringify(docTabs.map(tab =>
-              tab.id === docId ? { ...tab, title: translatedTitle } : tab
-            ))
-          });
-
-          // Update local state
-          setDocTabs(docTabs.map(tab =>
-            tab.id === docId ? { ...tab, title: translatedTitle } : tab
-          ));
-
-          showNotification({ title: "Translation", message: "Document title translated", color: "green" });
-        } catch (err) {
-          showNotification({ title: "Error", message: "Failed to translate title", color: "red" });
-        }
-
-        // Then translate all rows
-        try {
-          const translatedRows = [];
-          for (let i = 0; i < rows.length; i++) {
-            const row = rows[i];
-            if (typeof row !== 'string') {
-              translatedRows.push(row);
-              continue;
-            }
-
-            const prompt = `Translate the following text to ${languageOptions.find(l => l.value === lang)?.label || lang}. Only return the translated text.\n\nText: ${row}`;
-            const result = await model.generateContent(prompt);
-            const translatedRow = result.response.text().trim();
-            translatedRows.push(translatedRow);
-          }
-
-          // Update the rows in storage
-          const updatedRows = { ...docRows, [docId]: translatedRows };
-          await fetch(`http://localhost:3333/docs?mode=disk&key=${encodeURIComponent(userEmail)}`, {
-            method: "POST",
-            body: JSON.stringify(updatedRows)
-          });
-
-          // Update local state
-          setDocRows(updatedRows);
-
-          showNotification({ title: "Translation", message: "Document content translated", color: "green" });
-        } catch (err) {
-          showNotification({ title: "Error", message: "Failed to translate content", color: "red" });
-        }
-      } catch (err) {
-        showNotification({ title: "Error", message: "Translation failed", color: "red" });
-      } finally {
-        setTranslating(false);
-      }
-    };
+    const currentDocRows = docRows[activeDocTab] || [];
+    const startIndex = (docPage - 1) * DOCS_PER_PAGE;
+    const endIndex = startIndex + DOCS_PER_PAGE;
+    const paginatedDocRows = currentDocRows.slice(startIndex, endIndex);
+    const totalDocPages = Math.ceil(currentDocRows.length / DOCS_PER_PAGE);
 
     return (
         <>
-            <Modal opened={settingsOpened} onClose={() => setSettingsOpened(false)} title="Project Settings" overlayProps={{ backgroundOpacity: 0.55, blur: styles.overlay.filter || 3 }}>
-                <Stack>
-                    <Title order={4}>Rename Project</Title>
-                    <TextInput
-                        placeholder="New project name"
-                        value={renameValue}
-                        onChange={(event) => setRenameValue(event.currentTarget.value)}
-                        rightSection={renaming ? <Loader size="xs" /> : null}
-                    />
-                    <Button onClick={handleRename} loading={renaming}>Rename</Button>
-
-                    <Divider my="sm" />
-
-                    <Title order={4}>Members</Title>
-                    {project.members && project.members.map((email: string) => (
-                        <Group key={email} justify="space-between">
-                            <Text>{email}</Text>
-                            {email !== localStorage.getItem("user:username") && ( // Don't allow owner to remove self
-                                <ActionIcon color="red" onClick={() => handleRemoveMember(email)}>
-                                    <IconTrash size={16} />
-                                </ActionIcon>
-                            )}
-                                                    </Group>
-                    ))}
-                    <TextInput
-                        placeholder="Add member by email"
-                        value={newMemberEmail}
-                        onChange={(event) => setNewMemberEmail(event.currentTarget.value)}
-                        rightSection={adding ? <Loader size="xs" /> : null}
-                    />
-                    <Button onClick={handleAddMember} loading={adding}>Add Member</Button>
-                                                </Stack>
-            </Modal>
-
-            {/* Calendar Event Modal */}
-            <Modal opened={calendarModalOpen} onClose={() => setCalendarModalOpen(false)} title={calendarModalMode === 'add' ? 'Add Calendar Task' : 'Edit Calendar Task'}>
-                <Stack>
-                    <TextInput
-                        label="Task Title"
-                        placeholder="Enter task title"
-                        value={calendarTask.title || ''}
-                        onChange={(event) => setCalendarTask({ ...calendarTask, title: event.currentTarget.value })}
-                        required
-                    />
-                    <Textarea
-                        label="Description"
-                        placeholder="Enter task description"
-                        value={calendarTask.description || ''}
-                        onChange={(event) => setCalendarTask({ ...calendarTask, description: event.currentTarget.value })}
-                    />
-                    <TextInput
-                        label="Assignee"
-                        placeholder="Enter assignee email or name"
-                        value={calendarTask.assignee || ''}
-                        onChange={(event) => setCalendarTask({ ...calendarTask, assignee: event.currentTarget.value })}
-                    />
-                    <Select
-                        label="Status"
-                        placeholder="Select status"
-                        value={calendarTask.status || 'todo'}
-                        onChange={(value) => setCalendarTask({ ...calendarTask, status: value as Task['status'] })}
-                        data={statuses.map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }))}
-                    />
-                    <Select
-                        label="Priority"
-                        placeholder="Select priority"
-                        value={calendarTask.priority || 'medium'}
-                        onChange={(value) => setCalendarTask({ ...calendarTask, priority: value as Task['priority'] })}
-                        data={priorities.map(p => ({ value: p, label: p.charAt(0).toUpperCase() + p.slice(1) }))}
-                    />
-                    <TextInput
-                        label="Due Date"
-                        type="date"
-                        value={calendarSelectedDate ? calendarSelectedDate.toISOString().split('T')[0] : ''}
-                        onChange={(event) => setCalendarSelectedDate(new Date(event.currentTarget.value))}
-                        required
-                    />
-                    <Group justify="flex-end">
-                        {calendarModalMode === 'edit' && (
-                            <Button variant="outline" color="red" onClick={handleCalendarModalDelete}>Delete</Button>
-                        )}
-                        <Button onClick={handleCalendarModalSave}>Save</Button>
-                                                            </Group>
-                </Stack>
-            </Modal>
-
-            {/* Edit Q&A Modal */}
-            <Modal opened={!!editQAPair} onClose={handleCancelEditQAPair} title="Edit Q&A Pair" overlayProps={{ backgroundOpacity: 0.55, blur: styles.overlay.filter || 3 }}>
-                {editQAPair && (
-                    <Stack>
-                        <Textarea
-                            label="Question"
-                            value={editQAPair.question}
-                            onChange={(event) => setEditQAPair({ ...editQAPair, question: event.currentTarget.value })}
-                            minRows={2}
-                            autosize
-                        />
-                        <Textarea
-                            label="Answer"
-                            value={editQAPair.answer}
-                            onChange={(event) => setEditQAPair({ ...editQAPair, answer: event.currentTarget.value })}
-                            minRows={4}
-                            autosize
-                        />
-                        <Group justify="flex-end">
-                            <Button variant="default" onClick={handleCancelEditQAPair}>Cancel</Button>
-                            <Button onClick={handleSaveEditQAPair} loading={editQALoading}>Save Changes</Button>
-                        </Group>
-                    </Stack>
-                )}
-            </Modal>
-
-            {/* Main Layout */}
-            <Box style={{ width: '100vw', minHeight: '100vh', backgroundColor: styles.background, color: styles.textColor, display: 'flex', flexDirection: 'column' }}>
-                <Group justify="space-between" align="center" p="md" style={{ borderBottom: `1px solid ${styles.cardBorder}` }}>
-                    <Group>
-                        <ActionIcon variant="light" onClick={() => router.push("/projects")} title="Back to Projects">
-                            <IconArrowLeft size={22} />
-                        </ActionIcon>
-                        <Title order={3} style={{ color: styles.textColor }}>{project.name}</Title>
-                    </Group>
-                    <Menu shadow="md" width={200}>
-                        <Menu.Target>
-                            <ActionIcon variant="light" color="gray" size="lg">
-                                <IconDots size={22} />
+            <Box style={{ backgroundColor: styles.background, minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+                <Container fluid py="md" style={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+                    <Group justify="space-between" align="center" mb="md" mt="sm">
+                        <Group>
+                            <ActionIcon variant="transparent" onClick={() => router.back()} title="Back to projects">
+                                <IconArrowLeft size={24} />
                             </ActionIcon>
-                        </Menu.Target>
-                        <Menu.Dropdown>
-                            <Menu.Item onClick={() => setSettingsOpened(true)}>
-                                <IconSettings size={14} style={{ marginRight: rem(9) }} /> Project Settings
-                            </Menu.Item>
-                            <Menu.Item color="red" onClick={handleLogout}>
-                                Logout
-                            </Menu.Item>
-                        </Menu.Dropdown>
-                    </Menu>
-                </Group>
-                <Tabs
-                  value={activeTab}
-                  onChange={(value) => value && setActiveTab(value)}
-                  style={{ flexGrow: 1, display: "flex", flexDirection: "column", width: '100%' }}
-                    styles={{
-                    tab: (theme: any, params: { active: boolean }) => ({
-                      borderColor: params.active ? theme.colors.blue[6] : 'transparent',
-                      color: params.active ? theme.colors.blue[6] : theme.colors.gray[7],
-                      fontWeight: params.active ? 700 : 500,
-                      background: params.active ? theme.colors.blue[0] : 'transparent',
-                      transition: 'background 0.2s, color 0.2s',
-                      '&:hover': {
-                        background: theme.colors.blue[1],
-                        color: theme.colors.blue[7],
-                        borderColor: theme.colors.blue[6],
-                      },
-                    }),
-                        panel: { flexGrow: 1, display: "flex", flexDirection: "column", padding: 'lg', backgroundColor: styles.tabPanelBackground, borderRadius: rem(8), maxWidth: 1200, margin: '0 auto' },
-                    }}
-                >
-                    <Tabs.List grow>
-                        <Tabs.Tab value="documents">Documents</Tabs.Tab>
-                        <Tabs.Tab value="research">Research</Tabs.Tab>
-                        <Tabs.Tab value="files">Files</Tabs.Tab>
-                        <Tabs.Tab value="tasks">Tasks</Tabs.Tab>
-                        <Tabs.Tab value="calendar">Calendar</Tabs.Tab>
-                        <Tabs.Tab value="chat">SparkComms</Tabs.Tab>
-                        <Tabs.Tab value="finance">Project Budget</Tabs.Tab>
-                        <Tabs.Tab value="ai">SparkAI</Tabs.Tab>
-                    </Tabs.List>
-
-                    <Tabs.Panel value="chat">
-                        <Box style={{ flexGrow: 1, overflowY: 'auto', paddingRight: 'xs', marginBottom: 'md' }}>
-                            {chatMessages.map((msg, index) => (
-                                <Group key={msg.id} gap="xs" wrap="nowrap" align="flex-start" style={{ marginBottom: 'sm', justifyContent: msg.sender === localStorage.getItem("user:username") ? 'flex-end' : 'flex-start' }}>
-                                    {msg.sender !== localStorage.getItem("user:username") && msg.sender !== "ai" && (
-                                        <Avatar color="blue" radius="xl">{getInitials(msg.senderName || msg.sender)}</Avatar>
-                                    )}
-                                    {msg.sender === "ai" && null}
-                                    <Paper
-                                        shadow="xs"
-                                        radius="md"
-                                        p="sm"
-                                        style={{
-                                            backgroundColor: msg.sender === localStorage.getItem("user:username") ? styles.accentColor : styles.cardBackground,
-                                            color: msg.sender === localStorage.getItem("user:username") ? '#fff' : styles.textColor,
-                                            maxWidth: '70%',
-                                            wordBreak: 'break-word',
-                                            position: 'relative',
-                                        }}
+                            <Title order={1} style={{ color: styles.textColor, fontSize: isMobile ? '1.5rem' : '2.2rem' }}>
+                                {project.name}
+                            </Title>
+                            <Badge color="blue" size="lg" radius="sm">{project.status}</Badge>
+                        </Group>
+                        <Group>
+                            <Button
+                                leftSection={<IconSettings size={18} />}
+                                variant="light"
+                                onClick={() => setSettingsOpened(true)}
+                                visibleFrom="sm"
+                            >
+                                Project Settings
+                            </Button>
+                            <ActionIcon
+                                variant="light"
+                                color="gray"
+                                size={36}
+                                onClick={() => setSettingsOpened(true)}
+                                title="Project Settings"
+                                hiddenFrom="sm"
+                            >
+                                <IconSettings size={22} />
+                            </ActionIcon>
+                            <Menu shadow="md" width={200}>
+                                <Menu.Target>
+                                    <ActionIcon variant="light" color="gray" size={36} title="More actions">
+                                        <IconDots size={22} />
+                                    </ActionIcon>
+                                </Menu.Target>
+                                <Menu.Dropdown>
+                                    <Menu.Item
+                                        leftSection={<IconTrash size={18} />}
+                                        color="red"
+                                        onClick={handleLogout}
                                     >
-                                        <Text size="xs" style={{ fontWeight: 'bold', color: msg.sender === localStorage.getItem("user:username") ? 'rgba(255,255,255,0.8)' : styles.secondaryTextColor }}>
-                                            {msg.senderName || msg.sender}
-                                        </Text>
-                                        {msg.type === "text" ? (
-                                            <ReactMarkdown>{msg.content}</ReactMarkdown>
-                                        ) : (
-                                            msg.type === "ai" ? (
-                                                <ReactMarkdown>{msg.content}</ReactMarkdown>
-                                            ) : (
-                                                msg.type === "image" && msg.fileUrl && <img src={msg.fileUrl} alt="uploaded" style={{ maxWidth: '100%', borderRadius: '4px' }} />
-                                            )
-                                        )}
-                                        <Text size="xs" style={{ color: msg.sender === localStorage.getItem("user:username") ? 'rgba(255,255,255,0.6)' : styles.secondaryTextColor, marginTop: 'xs', textAlign: 'right' }}>
-                                            {new Date(msg.timestamp).toLocaleTimeString()}
-                                        </Text>
-                                        <Group gap={4} style={{ position: 'absolute', bottom: 5, right: 5 }}>
-                                            {(msg.reactions || []).map((reaction: string, rIdx: number) => (
-                                                <Badge key={rIdx} size="sm" radius="sm" variant="filled">
-                                                    {reaction}
-                                                </Badge>
-                                            ))}
-                                            <Menu shadow="md" width={100}>
-                                                <Menu.Target>
-                                                    <ActionIcon size="xs" variant="transparent" color={msg.sender === localStorage.getItem("user:username") ? 'white' : 'gray'}>
-                                                        <IconMoodSmile size={14} />
-                                                    </ActionIcon>
-                                                </Menu.Target>
-                                                <Menu.Dropdown>
-                                                    {['👍', '❤️', '😂', '🔥'].map(emoji => (
-                                                        <Menu.Item key={emoji} onClick={() => addReaction(msg.id, emoji)}>
-                                                            {emoji}
-                                                        </Menu.Item>
-                                                    ))}
-                                                </Menu.Dropdown>
-                                            </Menu>
-                                        </Group>
-                                                        </Paper>
-                                </Group>
-                            ))}
-                            {aiThinking && (
-                                <Group gap="xs" wrap="nowrap" align="flex-start" style={{ marginBottom: 'sm' }}>
-                                    <Paper shadow="xs" radius="md" p="sm" style={{ backgroundColor: styles.cardBackground, color: styles.textColor, maxWidth: '70%', wordBreak: 'break-word' }}>
-                                        <Text size="xs" style={{ fontWeight: 'bold', color: styles.secondaryTextColor }}>AI Assistant</Text>
-                                        <Loader size="xs" />
-                                    </Paper>
-                                </Group>
-                            )}
-                            <div ref={chatEndRef} />
-                        </Box>
+                                        Log Out
+                                    </Menu.Item>
+                                </Menu.Dropdown>
+                            </Menu>
+                        </Group>
+                    </Group>
 
-                        <Group wrap="nowrap" style={{ borderTop: `1px solid ${styles.cardBorder}`, paddingTop: 'md' }}>
-                            <TextInput
-                                style={{ flexGrow: 1 }}
-                                placeholder="Type a message, or /ai for AI help..."
-                                value={chatInput}
-                                onChange={(event) => setChatInput(event.currentTarget.value)}
-                                onKeyPress={(event) => {
-                                    if (event.key === 'Enter' && !event.shiftKey) {
-                                        event.preventDefault();
-                                        sendMessage(chatInput);
+                    <Tabs value={activeTab} onChange={(value) => setActiveTab(value || 'documents')} mt="md" keepMounted={false}>
+                        <Tabs.List
+                          grow
+                          style={{
+                            backgroundColor: styles.tabListBackground,
+                            borderRadius: rem(8),
+                            padding: isMobile ? rem(2) : rem(4),
+                            flexDirection: isMobile ? 'column' : 'row',
+                            gap: isMobile ? rem(2) : rem(0),
+                            overflowX: isMobile ? 'auto' : 'unset',
+                            minWidth: isMobile ? 0 : undefined,
+                            width: isMobile ? '100%' : undefined,
+                          }}
+                        >
+                          <Tabs.Tab value="documents" leftSection={<IconFile size={isMobile ? 18 : 20} />} style={{ fontSize: isMobile ? 14 : 16, minHeight: isMobile ? 40 : undefined }}>
+                            Documents
+                          </Tabs.Tab>
+                          <Tabs.Tab value="directives_hub" leftSection={<IconWorld size={isMobile ? 18 : 20} />} style={{ fontSize: isMobile ? 14 : 16, minHeight: isMobile ? 40 : undefined }}>
+                            Directives Hub
+                          </Tabs.Tab>
+                          <Tabs.Tab value="target_groups" leftSection={<IconUsersGroup size={isMobile ? 18 : 20} />} style={{ fontSize: isMobile ? 14 : 16, minHeight: isMobile ? 40 : undefined }}>
+                            Target Groups
+                          </Tabs.Tab>
+                          <Tabs.Tab value="research" leftSection={<IconSearch size={isMobile ? 18 : 20} />} style={{ fontSize: isMobile ? 14 : 16, minHeight: isMobile ? 40 : undefined }}>
+                            Research
+                          </Tabs.Tab>
+                          <Tabs.Tab value="chat" leftSection={<IconSend size={isMobile ? 18 : 20} />} style={{ fontSize: isMobile ? 14 : 16, minHeight: isMobile ? 40 : undefined }}>
+                            Communications
+                          </Tabs.Tab>
+                          <Tabs.Tab value="tasks" leftSection={<IconSparkles size={isMobile ? 18 : 20} />} style={{ fontSize: isMobile ? 14 : 16, minHeight: isMobile ? 40 : undefined }}>
+                            Tasks
+                          </Tabs.Tab>
+                          <Tabs.Tab value="finance" leftSection={<IconCurrencyDollar size={isMobile ? 18 : 20} />} style={{ fontSize: isMobile ? 14 : 16, minHeight: isMobile ? 40 : undefined }}>
+                            Finance
+                          </Tabs.Tab>
+                          <Tabs.Tab value="calendar" leftSection={<IconCalendarEvent size={isMobile ? 18 : 20} />} style={{ fontSize: isMobile ? 14 : 16, minHeight: isMobile ? 40 : undefined }}>
+                            Calendar
+                          </Tabs.Tab>
+                          <Tabs.Tab value="files" leftSection={<IconUpload size={isMobile ? 18 : 20} />} style={{ fontSize: isMobile ? 14 : 16, minHeight: isMobile ? 40 : undefined }}>
+                            Files
+                          </Tabs.Tab>
+                          <Tabs.Tab value="ai_assistants" leftSection={<IconRobot size={isMobile ? 18 : 20} />} style={{ fontSize: isMobile ? 14 : 16, minHeight: isMobile ? 40 : undefined }}>
+                            AI Assistants
+                          </Tabs.Tab>
+                        </Tabs.List>
+
+                        <Tabs.Panel value="documents" style={{ backgroundColor: styles.tabPanelBackground, padding: rem(20), borderRadius: rem(8), marginTop: rem(20), border: styles.cardBorder, boxShadow: styles.cardShadow }}>
+                            <ProjectDocumentsTab
+                                projectId={projectId as string}
+                                docTabs={filteredTabs}
+                                setDocTabs={setDocTabs}
+                                activeDocTab={activeDocTab}
+                                setActiveDocTab={setActiveDocTab}
+                                docRows={docRows || {}}
+                                setDocRows={setDocRows}
+                                addingRowFor={addingRowFor}
+                                setAddingRowFor={setAddingRowFor}
+                                newRowValue={newRowValue}
+                                setNewRowValue={setNewRowValue}
+                                savingRow={savingRow}
+                                setSavingRow={setSavingRow}
+                                editingRow={editingRow}
+                                setEditingRow={setEditingRow}
+                                editRowValue={editRowValue}
+                                setEditRowValue={setEditRowValue}
+                                savingEdit={savingEdit}
+                                setSavingEdit={setSavingEdit}
+                                aiProcessing={aiProcessing}
+                                setAiProcessing={setAiProcessing}
+                                addRowInputRef={addRowInputRef}
+                                handleAddDocument={handleAddDocument}
+                                handleRenameDoc={handleRenameDoc}
+                                handleDeleteDoc={handleDeleteDoc}
+                                handleAddRow={handleAddRow}
+                                handleSaveRow={handleSaveRow}
+                                handleCancelRow={handleCancelRow}
+                                handleDeleteRow={handleDeleteRow}
+                                handleStartEditRow={handleStartEditRow}
+                                handleSaveEditRow={handleSaveEditRow}
+                                handleCancelEditRow={handleCancelEditRow}
+                                handleAiTransformRow={handleAiTransformRow}
+                                docSearch={docSearch}
+                                setDocSearch={setDocSearch}
+                                docPage={docPage}
+                                setDocPage={setDocPage}
+                                DOCS_PER_PAGE={DOCS_PER_PAGE}
+                                styles={styles || {}}
+                                showNotification={showNotification}
+                                tagFilter={tagFilter}
+                                setTagFilter={setTagFilter}
+                            />
+                            {/* Document Transition AI Section */}
+                            <Divider my="xl" />
+                            <Title order={4} style={{ color: styles.textColor }} mb="md">Document Transition AI</Title>
+                            <Text size="sm" color="dimmed" mb="md">
+                                Use AI to help transition content from one document to another. Select a source document and a target document.
+                            </Text>
+                            <Group grow mb="md">
+                                <Select
+                                    label="Source Document"
+                                    placeholder="Select source"
+                                    data={docTabs.map(tab => ({ value: tab.id, label: tab.title }))}
+                                    value={transitionSource}
+                                    onChange={(value) => setTransitionSource(value)}
+                                />
+                                <Select
+                                    label="Target Document"
+                                    placeholder="Select target"
+                                    data={docTabs.map(tab => ({ value: tab.id, label: tab.title }))}
+                                    value={transitionTarget}
+                                    onChange={(value) => setTransitionTarget(value)}
+                                />
+                            </Group>
+                            <Button
+                                onClick={async () => {
+                                    if (!transitionSource || !transitionTarget) {
+                                        showNotification({ title: 'Error', message: 'Please select both source and target documents.', color: 'red' });
+                                        return;
+                                    }
+                                    setTransitionLoading(true);
+                                    try {
+                                        const sourceContent = (docRows[transitionSource] || []).join('\n');
+                                        const targetContent = (docRows[transitionTarget] || []).join('\n');
+
+                                        const gemini = getGeminiClient();
+                                        const model = gemini.getGenerativeModel({ model: "gemini-2.0-flash" });
+                                        const prompt = `Facilitate the transition of key information from the source document to the target document.\nSource Document Content:\n${sourceContent}\n\nTarget Document Content:\n${targetContent}\n\nIdentify what information is missing or needs to be adapted from the source to enrich or complete the target. Provide specific suggestions or direct content to add/modify in the target document.`;
+                                        const result = await model.generateContent(prompt);
+                                        const aiResult = result.response.text().trim();
+                                        setTransitionResult(aiResult);
+                                    } catch (err: any) {
+                                        showNotification({ title: 'AI Error', message: err.message || 'Failed to generate transition guidance.', color: 'red' });
+                                    } finally {
+                                        setTransitionLoading(false);
                                     }
                                 }}
-                                rightSection={sending ? <Loader size="xs" /> : null}
-                            />
-                            <ActionIcon variant="filled" size="lg" aria-label="Send message" onClick={() => sendMessage(chatInput)} loading={sending}>
-                                <IconSend size={20} />
-                            </ActionIcon>
-                            <input
-                                type="file"
-                                id="file-upload"
-                                style={{ display: 'none' }}
-                                onChange={handleFileUpload}
-                            />
-                            <label htmlFor="file-upload">
-                                <ActionIcon component="span" variant="filled" size="lg" aria-label="Attach file" loading={uploading}>
-                                    <IconFile size={20} />
-                                </ActionIcon>
-                            </label>
-                            <AskAI />
-                                                            </Group>
-                    </Tabs.Panel>
+                                loading={transitionLoading}
+                                leftSection={<IconSparkles size={18} />}
+                            >
+                                Generate Transition Guidance
+                            </Button>
+                            {transitionResult && (
+                                <Paper p="md" shadow="sm" withBorder mt="md" style={{ backgroundColor: styles.cardBackground }}>
+                                    <Text fw={500} mb="xs">AI Transition Guidance:</Text>
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{transitionResult}</ReactMarkdown>
+                                </Paper>
+                            )}
+                        </Tabs.Panel>
 
-                    <Tabs.Panel value="documents">
-                        <Box style={{ flexGrow: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', maxWidth: 900, margin: '0 auto', padding: '2rem', boxSizing: 'border-box' }}>
-                            {/* Sidebar with search, filter, and document list */}
-                            <Box style={{ width: isMobile ? '100%' : rem(320), minWidth: isMobile ? '100%' : 320, maxWidth: 400, background: styles.cardBackground, borderRight: isMobile ? 'none' : styles.cardBorder, borderBottom: isMobile ? styles.cardBorder : 'none', padding: 16, display: 'flex', flexDirection: 'column', gap: 12, height: '100%' }}>
-                              {/* Search bar with icon */}
-                              <TextInput
-                                placeholder="Search documents..."
-                                value={docSearch}
-                                onChange={e => setDocSearch(e.currentTarget.value)}
-                                size="sm"
-                                leftSection={<IconSearch size={16} />}
-                                style={{ width: '100%', marginBottom: 8 }}
-                              />
-                              {/* Tag filter below search bar */}
-                              <MultiSelect
-                                data={allTags.map(tag => ({ value: tag, label: tag }))}
-                                value={tagFilter}
-                                onChange={setTagFilter}
-                                placeholder="Filter by tag"
-                                clearable
-                                searchable
-                                size="sm"
-                                style={{ width: '100%', marginBottom: 12 }}
-                              />
-                              {/* Document list */}
-                              <Stack style={{ flexGrow: 1, overflowY: 'auto', minHeight: 0 }}>
-                                {filteredTabs
-                                  .slice((docPage - 1) * DOCS_PER_PAGE, docPage * DOCS_PER_PAGE)
-                                  .map(tab => (
-                                  <Box key={tab.id} style={{ position: 'relative' }}>
-                                    <Group wrap="nowrap" justify="space-between" align="center"
-                                            style={{
-                                                backgroundColor: activeDocTab === tab.id ? styles.accentColor + '15' : 'transparent',
-                                                borderRadius: rem(4),
-                                                padding: rem(8),
-                                                cursor: 'pointer',
-                                        border: activeDocTab === tab.id ? `1px solid ${styles.accentColor}` : 'none',
-                                        transition: 'background 0.2s',
-                                            }}
-                                            onClick={() => {
-                                                if (activeDocTab === tab.id && renamingDocId !== tab.id) {
-                                                    setRenamingDocId(tab.id);
-                                                    setRenameDocValue(tab.title);
-                                                } else {
-                                                    setActiveDocTab(tab.id);
-                                          setRenamingDocId(null);
-                                                }
-                                            }}
-                                        >
-                                            {renamingDocId === tab.id ? (
-                                                <TextInput
-                                                    value={renameDocValue}
-                                                    onChange={(e) => setRenameDocValue(e.currentTarget.value)}
-                                                    onBlur={() => {
-                                                        handleRenameDoc(tab.id, renameDocValue.trim() || tab.title);
-                                                        setRenamingDocId(null);
-                                                    }}
-                                                    onKeyPress={(e) => {
-                                                        if (e.key === 'Enter') {
-                                                            handleRenameDoc(tab.id, renameDocValue.trim() || tab.title);
-                                                            setRenamingDocId(null);
-                                                        }
-                                                    }}
-                                                    size="xs"
-                                                    style={{ flexGrow: 1 }}
-                                                    autoFocus
-                                                />
-                                            ) : (
-                                        <Text style={{ flexGrow: 1, color: styles.textColor, fontWeight: activeDocTab === tab.id ? 'bold' : 'normal', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                    {tab.title}
-                                                </Text>
-                                            )}
-                                      <Group gap={4}>
-                                        {/* Globe icon for translation */}
-                                        <Popover
-                                          opened={showLangSelect === tab.id}
-                                          onChange={(opened: boolean | undefined) => setShowLangSelect(opened ? tab.id : null)}
-                                          position="bottom-start"
-                                          withinPortal
-                                          shadow="md"
-                                        >
-                                          <Popover.Target>
-                                            <ActionIcon
-                                              variant="light"
-                                              color="blue"
-                                              size="sm"
-                                              onClick={e => {
-                                                e.stopPropagation();
-                                                setShowLangSelect(showLangSelect === tab.id ? null : tab.id);
-                                              }}
-                                              title="Translate document"
-                                            >
-                                              <IconWorld size={16} />
-                                            </ActionIcon>
-                                          </Popover.Target>
-                                          <Popover.Dropdown>
-                                            <Select
-                                              data={languageOptions}
-                                              value={translationLang}
-                                              onChange={async value => {
-                                                if (value) {
-                                                  setTranslationLang(value);
-                                                  await handleTranslateDocument(tab.id, value);
-                                                  setShowLangSelect(null);
-                                                }
-                                              }}
-                                              placeholder="Select language"
-                                              searchable
-                                              clearable
-                                              size="xs"
-                                              disabled={translating}
-                                            />
-                                          </Popover.Dropdown>
-                                        </Popover>
-                                        {/* Delete icon */}
-                                        {tab.id !== "default" && (
-                                          <ActionIcon variant="light" color="red" size="sm" onClick={e => { e.stopPropagation(); handleDeleteDoc(tab.id); }}>
-                                                    <IconTrash size={14} />
-                                                </ActionIcon>
-                                            )}
-                                        </Group>
+                        <Tabs.Panel value="tasks" style={{ backgroundColor: styles.tabPanelBackground, padding: rem(20), borderRadius: rem(8), marginTop: rem(20), border: styles.cardBorder, boxShadow: styles.cardShadow }}>
+                            <Group justify="space-between" mb="md">
+                                <Title order={3} style={{ color: styles.textColor }}>Tasks</Title>
+                                <Group>
+                                    <Select
+                                        value={taskView}
+                                        onChange={(value) => setTaskView(value as 'list' | 'board')}
+                                        data={[{ value: 'list', label: 'List View' }, { value: 'board', label: 'Kanban Board' }]}
+                                        placeholder="Select view"
+                                    />
+                                    <Button onClick={() => setAddingTask(true)}>Add Task</Button>
+                                </Group>
+                            </Group>
+
+                            <Modal opened={addingTask} onClose={() => setAddingTask(false)} title="Add New Task">
+                                <Stack>
+                                    <TextInput
+                                        label="Title"
+                                        placeholder="Task title"
+                                        value={newTask.title}
+                                        onChange={(event) => setNewTask({ ...newTask, title: event.currentTarget.value })}
+                                        required
+                                    />
+                                    <Textarea
+                                        label="Description"
+                                        placeholder="Task description"
+                                        value={newTask.description}
+                                        onChange={(event) => setNewTask({ ...newTask, description: event.currentTarget.value })}
+                                    />
+                                    <TextInput
+                                        label="Assignee"
+                                        placeholder="Assignee email or name"
+                                        value={newTask.assignee}
+                                        onChange={(event) => setNewTask({ ...newTask, assignee: event.currentTarget.value })}
+                                    />
+                                    <Select
+                                        label="Status"
+                                        value={newTask.status}
+                                        onChange={(value) => setNewTask({ ...newTask, status: value as Task['status'] })}
+                                        data={['todo', 'in-progress', 'blocked', 'done']}
+                                    />
+                                    <Select
+                                        label="Priority"
+                                        value={newTask.priority}
+                                        onChange={(value) => setNewTask({ ...newTask, priority: value as Task['priority'] })}
+                                        data={['low', 'medium', 'high', 'critical']}
+                                    />
+                                    <TextInput
+                                        label="Due Date"
+                                        type="date"
+                                        value={newTask.dueDate}
+                                        onChange={(event) => setNewTask({ ...newTask, dueDate: event.currentTarget.value })}
+                                    />
+                                    <Button onClick={handleAddTask}>Create Task</Button>
+                                </Stack>
+                            </Modal>
+
+                            <Modal opened={!!editingTaskId} onClose={() => setEditingTaskId(null)} title="Edit Task">
+                                <Stack>
+                                    <TextInput
+                                        label="Title"
+                                        placeholder="Task title"
+                                        value={editTask.title}
+                                        onChange={(event) => setEditTask({ ...editTask, title: event.currentTarget.value })}
+                                        required
+                                    />
+                                    <Textarea
+                                        label="Description"
+                                        placeholder="Task description"
+                                        value={editTask.description}
+                                        onChange={(event) => setEditTask({ ...editTask, description: event.currentTarget.value })}
+                                    />
+                                    <TextInput
+                                        label="Assignee"
+                                        placeholder="Assignee email or name"
+                                        value={editTask.assignee}
+                                        onChange={(event) => setEditTask({ ...editTask, assignee: event.currentTarget.value })}
+                                    />
+                                    <Select
+                                        label="Status"
+                                        value={editTask.status}
+                                        onChange={(value) => setEditTask({ ...editTask, status: value as Task['status'] })}
+                                        data={['todo', 'in-progress', 'blocked', 'done']}
+                                    />
+                                    <Select
+                                        label="Priority"
+                                        value={editTask.priority}
+                                        onChange={(value) => setEditTask({ ...editTask, priority: value as Task['priority'] })}
+                                        data={['low', 'medium', 'high', 'critical']}
+                                    />
+                                    <TextInput
+                                        label="Due Date"
+                                        type="date"
+                                        value={editTask.dueDate}
+                                        onChange={(event) => setEditTask({ ...editTask, dueDate: event.currentTarget.value })}
+                                    />
+                                    <Button onClick={handleSaveTask}>Save Changes</Button>
+                                </Stack>
+                            </Modal>
+
+                            {taskView === 'list' ? (
+                                <Stack>
+                                    {tasks.length === 0 ? (
+                                        <Text color="dimmed">No tasks yet. Add one to get started!</Text>
+                                    ) : (
+                                        tasks.map((task) => (
+                                            <Paper key={task.id} p="md" shadow="sm" withBorder style={{ borderColor: styles.cardBorder }}>
+                                                <Group justify="space-between" align="center">
+                                                    <Stack gap={4}>
+                                                        <Text fw={600} style={{ color: styles.textColor }}>{task.title}</Text>
+                                                        {task.description && <Text size="sm" color="dimmed">{task.description}</Text>}
+                                                        <Group gap="xs">
+                                                            {task.assignee && <Badge variant="light" color="cyan">{task.assignee}</Badge>}
+                                                            <Badge variant="light" color={task.status === 'done' ? 'green' : 'blue'}>{task.status}</Badge>
+                                                            <Badge variant="light" color={task.priority === 'high' ? 'red' : task.priority === 'critical' ? 'red' : 'orange'}>{task.priority}</Badge>
+                                                            {task.dueDate && <Badge variant="light" color="grape">Due: {task.dueDate}</Badge>}
+                                                        </Group>
+                                                    </Stack>
+                                                    <Group>
+                                                        <ActionIcon variant="light" onClick={() => handleEditTask(task)} title="Edit Task">
+                                                            <IconEdit size={18} />
+                                                        </ActionIcon>
+                                                        <ActionIcon variant="light" color="red" onClick={() => handleDeleteTask(task.id)} title="Delete Task">
+                                                            <IconTrash size={18} />
+                                                        </ActionIcon>
+                                                    </Group>
+                                                </Group>
+                                            </Paper>
+                                        ))
+                                    )}
+                                </Stack>
+                            ) : (
+                                <DragDropContext onDragEnd={handleDragEnd}>
+                                    <Group align="flex-start" wrap="nowrap" style={{ overflowX: 'auto', paddingBottom: rem(10) }}>
+                                        {['todo', 'in-progress', 'blocked', 'done'].map((status) => (
+                                            <Droppable droppableId={status} key={status}>
+                                                {(provided) => (
+                                                    <Stack
+                                                        ref={provided.innerRef}
+                                                        {...provided.droppableProps}
+                                                        style={{
+                                                            minWidth: rem(280),
+                                                            flexShrink: 0,
+                                                            backgroundColor: styles.cardBackground,
+                                                            borderRadius: rem(8),
+                                                            padding: rem(15),
+                                                            border: styles.cardBorder,
+                                                            boxShadow: styles.cardShadow,
+                                                            minHeight: rem(200),
+                                                        }}
+                                                    >
+                                                        <Title order={5} style={{ textTransform: 'uppercase', color: 'dimmed', marginBottom: 'sm' }}>{status.replace('-', ' ')}</Title>
+                                                        {tasks
+                                                            .filter(task => task.status === status)
+                                                            .map((task, index) => (
+                                                                <Draggable key={task.id} draggableId={task.id} index={index}>
+                                                                    {(provided, snapshot) => (
+                                                                        <Paper
+                                                                            ref={provided.innerRef}
+                                                                            {...provided.draggableProps}
+                                                                            {...provided.dragHandleProps}
+                                                                            p="md"
+                                                                            shadow="sm"
+                                                                            withBorder
+                                                                            style={{
+                                                                                borderColor: styles.cardBorder,
+                                                                                backgroundColor: snapshot.isDragging ? styles.cardBackground : styles.cardBackground,
+                                                                                ...provided.draggableProps.style,
+                                                                            }}
+                                                                        >
+                                                                            <Stack gap={4}>
+                                                                                <Text fw={600} style={{ color: styles.textColor }}>{task.title}</Text>
+                                                                                {task.description && <Text size="sm" color="dimmed">{task.description}</Text>}
+                                                                                <Group gap="xs">
+                                                                                    {task.assignee && <Badge variant="light" color="cyan">{task.assignee}</Badge>}
+                                                                                    <Badge variant="light" color={task.priority === 'high' ? 'red' : task.priority === 'critical' ? 'red' : 'orange'}>{task.priority}</Badge>
+                                                                                    {task.dueDate && <Badge variant="light" color="grape">Due: {task.dueDate}</Badge>}
+                                                                                </Group>
+                                                                                <Group mt="xs" justify="flex-end">
+                                                                                    <ActionIcon variant="light" onClick={() => handleEditTask(task)} title="Edit Task">
+                                                                                        <IconEdit size={16} />
+                                                                                    </ActionIcon>
+                                                                                    <ActionIcon variant="light" color="red" onClick={() => handleDeleteTask(task.id)} title="Delete Task">
+                                                                                        <IconTrash size={16} />
+                                                                                    </ActionIcon>
+                                                                                </Group>
+                                                                            </Stack>
+                                                                        </Paper>
+                                                                    )}
+                                                                </Draggable>
+                                                            ))}
+                                                        {provided.placeholder}
+                                                        {tasks.filter(task => task.status === status).length === 0 && (
+                                                            <Text color="dimmed" size="sm" ta="center" mt="md">Drag tasks here or add a new one.</Text>
+                                                        )}
+                                                    </Stack>
+                                                )}
+                                            </Droppable>
+                                        ))}
                                     </Group>
-                                  </Box>
-                                ))}
-                              </Stack>
-                              {/* Add Document button at the bottom */}
-                              <Button size="xs" mt={8} onClick={handleAddDocument} fullWidth>Add Document</Button>
-                              
-                              {/* Add pagination controls */}
-                              {docTabs.length > DOCS_PER_PAGE && (
-                                <Group justify="center" mt={12}>
-                                  <ActionIcon 
-                                    size="sm" 
-                                    variant="light" 
-                                    disabled={docPage === 1}
-                                    onClick={() => setDocPage(p => Math.max(1, p - 1))}
+                                </DragDropContext>
+                            )}
+                        </Tabs.Panel>
+
+                        <Tabs.Panel value="chat" style={{
+                          backgroundColor: styles.tabPanelBackground,
+                          padding: isMobile ? rem(8) : rem(20),
+                          borderRadius: rem(8),
+                          marginTop: rem(20),
+                          border: styles.cardBorder,
+                          boxShadow: styles.cardShadow,
+                          display: 'flex',
+                          flexDirection: isMobile ? 'column' : 'row',
+                          height: '100%',
+                          minHeight: rem(400),
+                        }}>
+                          {/* Sidebar for members */}
+                          <Box style={{
+                            minWidth: isMobile ? '100%' : 180,
+                            maxWidth: isMobile ? '100%' : 220,
+                            marginRight: isMobile ? 0 : 24,
+                            marginBottom: isMobile ? 16 : 0,
+                            width: isMobile ? '100%' : undefined,
+                          }}>
+                            <Text fw={600} mb="xs" size={isMobile ? 'md' : 'lg'}>Collaborators</Text>
+                            <Text size="xs" color="dimmed" mb="xs">(Project chat is shared by default. Click a member for private chat.)</Text>
+                            <Stack gap={8}>
+                              <Group
+                                key="group-chat"
+                                gap={8}
+                                align="center"
+                                style={{
+                                  background: chatContext === 'group' ? '#e3f2fd' : 'transparent',
+                                  borderRadius: 8,
+                                  padding: '4px 8px',
+                                  cursor: 'pointer',
+                                }}
+                                onClick={() => setChatContext('group')}
+                              >
+                                <Avatar size={28} radius="xl" color="gray">
+                                  <IconUsersGroup size={18} />
+                                </Avatar>
+                                <Text size="sm" fw={chatContext === 'group' ? 700 : 400}>Boardroom</Text>
+                              </Group>
+                              {project.members && project.members.filter((member: string) => member !== localStorage.getItem("user:username")).map((member: string) => {
+                                let online = false;
+                                try {
+                                  const lastActive = localStorage.getItem(`user:lastActive:${member}`);
+                                  if (lastActive && Date.now() - parseInt(lastActive, 10) < 5 * 60 * 1000) online = true;
+                                } catch { }
+                                return (
+                                  <Group
+                                    key={member}
+                                    gap={8}
+                                    align="center"
+                                    style={{
+                                      background: chatContext === member ? '#e3f2fd' : 'transparent',
+                                      borderRadius: 8,
+                                      padding: '4px 8px',
+                                      cursor: 'pointer',
+                                    }}
+                                    onClick={() => setChatContext(member)}
                                   >
-                                    &lt;
-                                  </ActionIcon>
-                                  <Text size="sm">
-                                    {docPage} / {Math.ceil(docTabs.length / DOCS_PER_PAGE)}
-                                  </Text>
-                                  <ActionIcon 
-                                    size="sm" 
-                                    variant="light" 
-                                    disabled={docPage >= Math.ceil(docTabs.length / DOCS_PER_PAGE)}
-                                    onClick={() => setDocPage(p => Math.min(Math.ceil(docTabs.length / DOCS_PER_PAGE), p + 1))}
-                                  >
-                                    &gt;
-                                  </ActionIcon>
+                                    <Avatar size={28} radius="xl" color="blue">
+                                      {getInitials(member)}
+                                    </Avatar>
+                                    <Box style={{ width: 8, height: 8, borderRadius: 4, background: '#4caf50', marginRight: 4 }} />
+                                    <Text size="sm" fw={chatContext === member ? 700 : 400}>{getDisplayName(member)}</Text>
+                                    {unreadCounts[member] > 0 && (
+                                      <Badge color="red" size="sm" ml={4}>{unreadCounts[member]}</Badge>
+                                    )}
+                                  </Group>
+                                );
+                              })}
+                            </Stack>
+                          </Box>
+                          {/* Chat area */}
+                          <Box style={{
+                            flex: 1,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            width: isMobile ? '100%' : undefined,
+                            minWidth: 0,
+                          }}>
+                            <Box style={{
+                              flexGrow: 1,
+                              overflowY: 'auto',
+                              marginBottom: rem(15),
+                              width: '100%',
+                              maxHeight: isMobile ? rem(220) : rem(320),
+                              minHeight: rem(120),
+                              transition: 'max-height 0.2s',
+                            }}>
+                              {chatMessages.length === 0 ? (
+                                <Center style={{ flexGrow: 1 }}>
+                                  <Text color="dimmed">Start a conversation!</Text>
+                                </Center>
+                              ) : (
+                                chatMessages.map((msg, index) => (
+                                  <Group key={msg.id} gap="xs" wrap="nowrap" align="flex-end" style={{ justifyContent: msg.sender === userName || msg.sender === localStorage.getItem("user:username") ? 'flex-end' : 'flex-start', marginBottom: 4, position: 'relative' }}>
+                                    {/* Show three-dots menu to the left of own message bubble */}
+                                    {(msg.sender === userName || msg.sender === localStorage.getItem("user:username")) && (
+                                      <Menu shadow="md" width={120} position="right-start">
+                                        <Menu.Target>
+                                          <ActionIcon variant="subtle" color="gray" size={22} style={{ marginRight: 2 }}>
+                                            <IconDots size={18} />
+                                          </ActionIcon>
+                                        </Menu.Target>
+                                        <Menu.Dropdown>
+                                          <Menu.Item leftSection={<IconEdit size={16} />} onClick={() => { setEditingMsgId(msg.id); setEditMsgValue(msg.content); }}>Edit</Menu.Item>
+                                          <Menu.Item leftSection={<IconTrash size={16} />} color="red" onClick={() => handleDeleteMsg(msg.id)}>Delete</Menu.Item>
+                                        </Menu.Dropdown>
+                                      </Menu>
+                                    )}
+                                    {/* Avatar for others' messages */}
+                                    {(msg.sender !== userName && msg.sender !== localStorage.getItem("user:username")) && (
+                                      <Avatar size={24} radius="xl" color="blue" style={{ marginRight: 4 }}>
+                                        {msg.sender === "ai" ? <IconRobot size={16} /> : getInitials(msg.senderName || msg.sender)}
+                                      </Avatar>
+                                    )}
+                                    <Box style={{
+                                      backgroundColor: msg.sender === userName || msg.sender === localStorage.getItem("user:username") ? '#1877f2' : '#f0f2f5',
+                                      color: msg.sender === userName || msg.sender === localStorage.getItem("user:username") ? 'white' : '#050505',
+                                      borderRadius: 18,
+                                      boxShadow: '0 1px 2px rgba(0,0,0,0.07)',
+                                      padding: '6px 14px 10px 14px',
+                                      maxWidth: '70%',
+                                      minWidth: 60,
+                                      position: 'relative',
+                                      fontSize: 15,
+                                      lineHeight: 1.4,
+                                      wordBreak: 'break-word',
+                                    }}>
+                                      <Text size="xs" color={msg.sender === userName || msg.sender === localStorage.getItem("user:username") ? 'rgba(255,255,255,0.7)' : 'dimmed'} style={{ marginBottom: 2, fontWeight: 500 }}>
+                                        {msg.senderName || msg.sender} • {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                      </Text>
+                                      {/* If editing this message */}
+                                      {editingMsgId === msg.id ? (
+                                        <Group>
+                                          <TextInput
+                                            value={editMsgValue}
+                                            onChange={e => setEditMsgValue(e.currentTarget.value)}
+                                            onKeyDown={e => { if (e.key === 'Enter') handleSaveEditMsg(msg.id); }}
+                                            autoFocus
+                                          />
+                                          <ActionIcon onClick={() => handleSaveEditMsg(msg.id)}><IconSend size={16} /></ActionIcon>
+                                          <ActionIcon color="red" onClick={() => { setEditingMsgId(null); setEditMsgValue(""); }}><IconTrash size={16} /></ActionIcon>
+                                        </Group>
+                                      ) : (
+                                        <>
+                                          {/* If this message is a reply, show reference */}
+                                          {msg.replyTo && (
+                                            <Text size="xs" color="dimmed" style={{ marginBottom: 2, fontStyle: 'italic' }}>
+                                              Replying to: {msg.replyTo.content?.slice(0, 40)}
+                                            </Text>
+                                          )}
+                                          {/* Message content */}
+                                          {msg.type === 'audio' && msg.fileUrl ? (
+                                            <AudioPlayer audioKey={msg.fileUrl} audioURLs={audioURLs} setAudioURLs={setAudioURLs} />
+                                          ) : (
+                                            (msg.sender === 'ai' || msg.senderName === 'AI Assistant') ? (
+                                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                                            ) : (
+                                              <Text style={{ fontSize: 15, marginBottom: 2 }}>{msg.content}</Text>
+                                            )
+                                          )}
+                                        </>
+                                      )}
+                                      {msg.fileUrl && msg.type !== 'audio' && msg.content !== '[Voice Note]' && (
+                                        <Box>
+                                          <Text size="sm" style={{ fontStyle: 'italic' }}>File: {msg.content}</Text>
+                                        </Box>
+                                      )}
+                                      {/* Reactions as Messenger-style pill badges at bottom right */}
+                                      {msg.reactions && msg.reactions.length > 0 && (
+                                        <Group gap={2} style={{ position: 'absolute', bottom: 2, right: 8, marginTop: 2 }}>
+                                          {Array.from(new Set(msg.reactions)).map(emoji => (
+                                            <Box key={emoji as string} style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 2px rgba(0,0,0,0.08)', padding: '0 6px', fontSize: 13, display: 'flex', alignItems: 'center', border: '1px solid #e4e6eb' }}>
+                                              {emoji as string} {msg.reactions.filter((r: string) => r === emoji).length > 1 ? msg.reactions.filter((r: string) => r === emoji).length : ''}
+                                            </Box>
+                                          ))}
+                                        </Group>
+                                      )}
+                                    </Box>
+                                    {/* Avatar for own messages */}
+                                    {(msg.sender === userName || msg.sender === localStorage.getItem("user:username")) && (
+                                      <Avatar size={24} radius="xl" color="teal" style={{ marginLeft: 4 }}>
+                                        {getInitials(msg.senderName || msg.sender)}
+                                      </Avatar>
+                                    )}
+                                  </Group>
+                                ))
+                              )}
+                              {aiThinking && (
+                                <Group gap="xs" wrap="nowrap" align="flex-start" justify="flex-start">
+                                  <Avatar size={32} radius="xl" color="blue">
+                                    <IconRobot size={20} />
+                                  </Avatar>
+                                  <Paper shadow="xs" p="sm" radius="md" miw={rem(120)} maw="70%" style={{ backgroundColor: styles.cardBackground }}>
+                                    <Text size="xs" color="dimmed" mb={4}>AI Assistant • Thinking...</Text>
+                                    <Loader size="xs" type="dots" />
+                                  </Paper>
                                 </Group>
                               )}
+                              <div ref={chatEndRef} />
                             </Box>
-                            {/* Main document content area, ensure rows are visible and scrollable */}
-                            <Box style={{ flexGrow: 1, paddingLeft: isMobile ? '0' : 'md', paddingTop: isMobile ? 'md' : '0', minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-                              {/* SparkTransition dropdown */}
-                              <Accordion variant="contained" mb="md">
-                                <Accordion.Item value="sparktransition">
-                                  <Accordion.Control>SparkTransition</Accordion.Control>
-                                  <Accordion.Panel>
-                                {/* --- Transition Feature UI --- */}
-                                <Paper p="md" mb="md" withBorder shadow="sm" style={{ background: styles.tabBackground }}>
-                                    <Group align="flex-end" gap="md">
-                                        <Select
-                                            label="Source Document"
-                                            data={docTabs.map(tab => ({ value: tab.id, label: tab.title }))}
-                                            value={transitionSource}
-                                            onChange={setTransitionSource}
-                                            placeholder="Select source document"
-                                            style={{ minWidth: 180 }}
-                                        />
-                                        <Select
-                                            label="Target Document"
-                                            data={docTabs.map(tab => ({ value: tab.id, label: tab.title }))}
-                                            value={transitionTarget}
-                                            onChange={setTransitionTarget}
-                                            placeholder="Select target document"
-                                            style={{ minWidth: 180 }}
-                                        />
-                                        <Button
-                                            leftSection={<IconRobot size={16} />}
-                                            onClick={handleCalculateTransition}
-                                            loading={transitionLoading}
-                                            disabled={!transitionSource || !transitionTarget || transitionSource === transitionTarget}
-                                        >
-                                            Calculate Transition
-                                        </Button>
-                                    </Group>
-                                    {transitionLoading && (
-                                        <Group mt="md"><Loader size="sm" /><Text>AI is analyzing the transition...</Text></Group>
-                                    )}
-                                    {transitionResult && (
-                                        <Paper mt="md" p="md" withBorder shadow="xs" style={{ background: styles.cardBackground }}>
-                                            <Text fw={700} mb="xs">AI Transition Report</Text>
-                                            <ReactMarkdown>{transitionResult}</ReactMarkdown>
-                                        </Paper>
-                                    )}
-                                </Paper>
-                                  </Accordion.Panel>
-                                </Accordion.Item>
-                              </Accordion>
-                              {/* AI Prompt dropdown */}
-                              <Accordion variant="contained" mb="md">
-                                <Accordion.Item value="aiprompt">
-                                  <Accordion.Control>AI Prompt</Accordion.Control>
-                                  <Accordion.Panel>
-                                    {/* AI Prompt for each row UI here */}
-                                    <Paper p="md" withBorder shadow="sm" style={{ marginBottom: 16 }}>
-                                      <Text fw={500} mb="xs">AI Prompt (use ____ for row value)</Text>
-                                      <Group align="flex-end" gap="sm">
-                                        <TextInput
-                                          placeholder="What are some foods that can be made with ____?"
-                                          value={aiPrompt}
-                                          onChange={e => setAiPrompt(e.currentTarget.value)}
-                                          style={{ flexGrow: 1 }}
-                                        />
-                                        <Button onClick={runAiForEachRow} loading={aiPromptProcessing}>Run AI for Each Row</Button>
-                                      </Group>
-                                    </Paper>
-                                  </Accordion.Panel>
-                                </Accordion.Item>
-                              </Accordion>
-                              {/* ...rest of main content... */}
-                                <Box style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: styles.cardBackground, border: `1px solid ${styles.cardBorder}`, borderRadius: rem(8), boxShadow: styles.cardShadow, overflow: 'hidden' }}>
-                                <ProjectDocumentsTab
-                                  projectId={typeof projectId === 'string' ? projectId : Array.isArray(projectId) ? projectId[0] : undefined}
-                                  docTabs={filteredTabs}
-                                  setDocTabs={setDocTabs}
-                                  activeDocTab={activeDocTab}
-                                  setActiveDocTab={setActiveDocTab}
-                                  docRows={docRows}
-                                  setDocRows={setDocRows}
-                                  addingRowFor={addingRowFor}
-                                  setAddingRowFor={setAddingRowFor}
-                                  newRowValue={newRowValue}
-                                  setNewRowValue={setNewRowValue}
-                                  savingRow={savingRow}
-                                  setSavingRow={setSavingRow}
-                                  editingRow={editingRow}
-                                  setEditingRow={setEditingRow}
-                                  editRowValue={editRowValue}
-                                  setEditRowValue={setEditRowValue}
-                                  savingEdit={savingEdit}
-                                  setSavingEdit={setSavingEdit}
-                                  aiProcessing={aiProcessing}
-                                  setAiProcessing={setAiProcessing}
-                                  addRowInputRef={addRowInputRef}
-                                  handleAddDocument={handleAddDocument}
-                                  handleRenameDoc={handleRenameDoc}
-                                  handleDeleteDoc={handleDeleteDoc}
-                                  handleAddRow={handleAddRow}
-                                  handleSaveRow={handleSaveRow}
-                                  handleCancelRow={handleCancelRow}
-                                  handleDeleteRow={handleDeleteRow}
-                                  handleStartEditRow={handleStartEditRow}
-                                  handleSaveEditRow={handleSaveEditRow}
-                                  handleCancelEditRow={handleCancelEditRow}
-                                  handleAiTransformRow={handleAiTransformRow}
-                                  docSearch={docSearch}
-                                  setDocSearch={setDocSearch}
-                                  docPage={docPage}
-                                  setDocPage={setDocPage}
-                                  DOCS_PER_PAGE={DOCS_PER_PAGE}
-                                  styles={styles}
-                                  showNotification={showNotification}
-                                  translating={translating}
-                                  setTranslating={setTranslating}
-                                />
-                                </Box>
-                            </Box>
-                        </Box>
-                    </Tabs.Panel>
+                            {/* Chat input area refactored for better alignment */}
+                            <Group align="flex-end" wrap="nowrap" mt="xs" style={{ width: '100%', flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+                              <TextInput
+                                placeholder="Type a message or /ai for AI assistant..."
+                                style={{ flexGrow: 1, width: isMobile ? '100%' : undefined }}
+                                value={chatInput}
+                                onChange={(event) => setChatInput(event.currentTarget.value)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter' && !event.shiftKey) {
+                                    event.preventDefault();
+                                    sendMessage(chatInput);
+                                  }
+                                }}
+                                size={isMobile ? 'md' : 'sm'}
+                              />
+                              <ActionIcon variant="light" onClick={() => fileInputRef.current?.click()} title="Attach file" size={isMobile ? 44 : 36}>
+                                <IconFile size={isMobile ? 28 : 20} />
+                              </ActionIcon>
+                              {/* Voice note button */}
+                              <ActionIcon
+                                variant={recording ? "filled" : "light"}
+                                color={recording ? "red" : "blue"}
+                                onClick={handleVoiceNote}
+                                title={recording ? "Stop Recording" : "Record Voice Note"}
+                                size={isMobile ? 44 : 36}
+                                style={{ marginLeft: 4 }}
+                              >
+                                {recording ? <IconMicrophoneOff size={isMobile ? 28 : 20} /> : <IconMicrophone size={isMobile ? 28 : 20} />}
+                              </ActionIcon>
+                              <Group>
+                                <ActionIcon variant="filled" color="blue" onClick={() => sendMessage(chatInput, "text")} title="Send message" size={isMobile ? 44 : 36}>
+                                  {sending ? <Loader size="xs" /> : <IconSend size={isMobile ? 28 : 20} />}
+                                </ActionIcon>
+                              </Group>
+                            </Group>
+                            {/* Progress bar and timer for voice note recording */}
+                            {recording && (
+                              <Box style={{ width: '100%', marginTop: 4, marginBottom: 8 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <div style={{ flex: 1, background: '#eee', borderRadius: 4, height: 8, overflow: 'hidden' }}>
+                                    <div style={{ width: `${(recordingTime / MAX_RECORDING_TIME) * 100}%`, height: 8, background: '#4caf50', borderRadius: 4, transition: 'width 0.2s' }} />
+                                  </div>
+                                  <Text size="xs" style={{ minWidth: 40, textAlign: 'right' }}>{recordingTime}s</Text>
+                                </div>
+                              </Box>
+                            )}
+                          </Box>
+                          {/* Above chat input, show reply reference if replying */}
+                          {replyToMsg && (
+                            <Group gap={4} align="center" mb={4}>
+                              <Text size="xs" color="dimmed">Replying to: {replyToMsg.content?.slice(0, 40)}</Text>
+                              <ActionIcon size={18} variant="subtle" color="red" onClick={() => setReplyToMsg(null)}><IconTrash size={14} /></ActionIcon>
+                            </Group>
+                          )}
+                        </Tabs.Panel>
 
-                    <Tabs.Panel value="research">
-                        <Box style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', maxWidth: 900, margin: '0 auto', padding: '2rem', boxSizing: 'border-box' }}>
-                            <Box style={{
-                                backgroundColor: styles.cardBackground,
-                                border: `1px solid ${styles.cardBorder}`,
-                                borderRadius: rem(8),
-                                boxShadow: styles.cardShadow,
-                                padding: 'md',
-                                marginBottom: 'md'
-                            }}>
-                                <Title order={5} mb="sm" style={{ color: styles.textColor }}>Add New Research Item</Title>
-                                <form onSubmit={handleAddResearch}>
-                                    <Stack>
-                                        <TextInput
-                                            placeholder="Title"
-                                            value={newResearch.title}
-                                            onChange={(e) => setNewResearch({ ...newResearch, title: e.currentTarget.value })}
-                                            required
-                                        />
-                                        <Select
-                                            placeholder="Type"
-                                            value={newResearch.type}
-                                            onChange={(value) => setNewResearch({ ...newResearch, type: value || 'web' })}
-                                            data={[
-                                                { value: 'web', label: 'Web Article' },
-                                                { value: 'paper', label: 'Academic Paper' },
-                                                { value: 'report', label: 'Internal Report' },
-                                                { value: 'meeting', label: 'Meeting Notes' },
-                                                { value: 'other', label: 'Other' },
-                                            ]}
-                                            required
-                                        />
-                                        <Textarea
-                                            placeholder="Content / URL / Summary"
-                                            value={newResearch.content}
-                                            onChange={(e) => setNewResearch({ ...newResearch, content: e.currentTarget.value })}
-                                            autosize
-                                            minRows={3}
-                                            required
-                                        />
-                                        <MultiSelect
-                                            data={allResearchTags}
-                                            placeholder="Add tags"
-                                            searchable
-                                            value={newResearch.tags}
-                                            onChange={(value) => setNewResearch({ ...newResearch, tags: value })}
-                                        />
-                                        <Button
-                                            onClick={handleSuggestTags}
-                                            leftSection={<IconSparkles size={16} />}
-                                            loading={suggestingTags}
-                                            variant="light"
-                                        >
-                                            Suggest Tags with AI
-                                        </Button>
-                                                <Group>
-                                            <input
-                                                type="file"
-                                                id="new-research-file-upload"
-                                                style={{ display: 'none' }}
-                                                onChange={(e) => handleFileChange(e, setNewResearchFile)}
-                                            />
-                                            <label htmlFor="new-research-file-upload">
-                                                <Button component="span" leftSection={<IconUpload size={16} />} variant="light">
-                                                    {newResearchFile ? newResearchFile.name : 'Upload File (Optional)'}
-                                                </Button>
-                                            </label>
-                                            <Button type="submit">Add Research</Button>
-                                        </Group>
-                                    </Stack>
-                                </form>
-                            </Box>
-
-                            <Box style={{
-                                backgroundColor: styles.cardBackground,
-                                border: `1px solid ${styles.cardBorder}`,
-                                borderRadius: rem(8),
-                                boxShadow: styles.cardShadow,
-                                padding: 'md',
-                                flexGrow: 1,
-                                overflowY: 'auto'
-                            }}>
-                                <Group justify="space-between" mb="md">
-                                    <Title order={5} style={{ color: styles.textColor }}>Existing Research Items</Title>
+                        <Tabs.Panel value="research" style={{ backgroundColor: styles.tabPanelBackground, padding: rem(20), borderRadius: rem(8), marginTop: rem(20), border: styles.cardBorder, boxShadow: styles.cardShadow }}>
+                            <Title order={3} style={{ color: styles.textColor }} mb="md">Research Hub</Title>
+                            <Group justify="space-between" mb="lg">
+                                <Text style={{ color: styles.secondaryTextColor, maxWidth: '70%' }}>
+                                    Collect, organize, and analyze your research materials. Add web links, upload files, or create notes.
+                                </Text>
+                                <Group>
                                     <Select
-                                        placeholder="Sort by"
                                         value={sortBy}
                                         onChange={(value) => setSortBy(value as 'date' | 'title' | 'type')}
                                         data={[
-                                            { value: 'date', label: 'Date' },
-                                            { value: 'title', label: 'Title' },
-                                            { value: 'type', label: 'Type' },
+                                            { value: 'date', label: 'Sort by Date' },
+                                            { value: 'title', label: 'Sort by Title' },
+                                            { value: 'type', label: 'Sort by Type' },
                                         ]}
+                                        placeholder="Sort by"
+                                        size="xs"
                                     />
+                                    <Button onClick={() => setAddingResearch(!addingResearch)} size="xs">
+                                        {addingResearch ? 'Cancel' : 'Add Research'}
+                                        </Button>
                                 </Group>
-                                <Stack>
-                                    {sortedResearchItems.length === 0 && <Text>No research items added yet.</Text>}
-                                    {sortedResearchItems.map((item: any) => (
-                                        <Paper key={item.id} p="md" shadow="sm" style={{ border: `1px solid ${styles.cardBorder}`, backgroundColor: styles.tabBackground }}>
-                                            {editResearch && editResearch.id === item.id ? (
-                                                <Stack>
-                                                    <TextInput
-                                                        label="Title"
-                                                        value={editResearch.title}
-                                                        onChange={(e) => setEditResearch({ ...editResearch, title: e.currentTarget.value })}
-                                                    />
-                                                    <Select
-                                                        label="Type"
-                                                        value={editResearch.type}
-                                                        onChange={(value) => setEditResearch({ ...editResearch, type: value || 'web' })}
-                                                        data={[
-                                                            { value: 'web', label: 'Web Article' },
-                                                            { value: 'paper', label: 'Academic Paper' },
-                                                            { value: 'report', label: 'Internal Report' },
-                                                            { value: 'meeting', label: 'Meeting Notes' },
-                                                            { value: 'other', label: 'Other' },
-                                                        ]}
-                                                    />
-                                                    <Textarea
-                                                        label="Content / URL / Summary"
-                                                        value={editResearch.content}
-                                                        onChange={(e) => setEditResearch({ ...editResearch, content: e.currentTarget.value })}
-                                                        autosize
-                                                        minRows={3}
-                                                    />
-                                                    <MultiSelect
-                                                        data={allResearchTags}
-                                                        placeholder="Add tags"
-                                                        searchable
-                                                        value={editResearch.tags}
-                                                        onChange={(value) => setEditResearch({ ...editResearch, tags: value })}
-                                                    />
-                                                    <Button
-                                                        onClick={handleEditSuggestTags}
-                                                        leftSection={<IconSparkles size={16} />}
-                                                        loading={editSuggestingTags}
-                                                        variant="light"
-                                                    >
-                                                        Suggest Tags with AI
-                                                    </Button>
-                                                    {editResearch.fileUrl && (
-                                                        <Text size="sm" c="dimmed">Current file: {editResearch.fileUrl.substring(0, 50)}...</Text>
-                                                    )}
-                                                    <input
-                                                        type="file"
-                                                        id={`edit-research-file-upload-${item.id}`}
-                                                        style={{ display: 'none' }}
-                                                        onChange={(e) => handleFileChange(e, setEditResearchFile)}
-                                                    />
-                                                    <label htmlFor={`edit-research-file-upload-${item.id}`}>
-                                                        <Button component="span" leftSection={<IconUpload size={16} />} variant="light">
-                                                            {editResearchFile ? editResearchFile.name : 'Change File (Optional)'}
-                                                        </Button>
-                                                    </label>
-                                                    <Group justify="flex-end">
-                                                        <Button variant="default" onClick={handleCancelEditResearch}>Cancel</Button>
-                                                        <Button onClick={handleSaveEditResearch} loading={editResearchLoading}>Save</Button>
-                                                    </Group>
-                                                </Stack>
+                            </Group>
+
+                            {addingResearch && (
+                                <Paper withBorder p="md" mb="lg" radius="md" style={{ borderColor: styles.cardBorder }}>
+                                    <form onSubmit={handleAddResearch}>
+                                        <Stack>
+                                            <TextInput
+                                                label="Title"
+                                                placeholder="Research title"
+                                                value={newResearch.title}
+                                                onChange={(e) => setNewResearch((r: any) => ({ ...r, title: e.target.value }))}
+                                                required
+                                            />
+                                            <Select
+                                                label="Type"
+                                                value={newResearch.type}
+                                                onChange={(value) => setNewResearch((r: any) => ({ ...r, type: value || 'web' }))}
+                                                data={[
+                                                    { value: 'web', label: 'Web Link' },
+                                                    { value: 'file', label: 'File' },
+                                                    { value: 'note', label: 'Note' },
+                                                ]}
+                                                required
+                                            />
+                                            {newResearch.type === 'file' ? (
+                                                <TextInput type="file" onChange={(e) => handleFileChange(e, setNewResearchFile)} />
                                             ) : (
-                                                <Stack>
-                                                    <Group justify="space-between">
-                                                        <Title order={6} style={{ color: styles.textColor }}>{item.title}</Title>
-                                                        <Group gap={4}>
-                                                            <Badge variant="filled" color="gray">{item.type}</Badge>
-                                                            {item.tags && item.tags.map((tag: string) => (
-                                                                <Badge key={tag} variant="outline" color={styles.badgeColor}>{tag}</Badge>
-                                                            ))}
-                                                        </Group>
+                                            <Textarea
+                                                label="Content"
+                                                    placeholder={newResearch.type === 'web' ? "URL" : "Your note..."}
+                                                value={newResearch.content}
+                                                    onChange={(e) => setNewResearch((r: any) => ({ ...r, content: e.target.value }))}
+                                                    required
+                                                    autosize
+                                                    minRows={2}
+                                                />
+                                            )}
+                                            <Group>
+                                                <MultiSelect
+                                                    label="Tags"
+                                                    placeholder="Add tags..."
+                                                    data={allResearchTags}
+                                                    value={newResearch.tags}
+                                                    onChange={(values) => setNewResearch((r: any) => ({ ...r, tags: values }))}
+                                                    searchable
+                                                />
+                                                <Button variant="light" size="xs" onClick={handleSuggestTags} loading={suggestingTags}>
+                                                    Suggest Tags
+                                                </Button>
+                                            </Group>
+                                            <Button type="submit" mt="sm">Add Research</Button>
+                                        </Stack>
+                                    </form>
+                                </Paper>
+                            )}
+
+                            <Stack>
+                                {sortedResearchItems.map((item: any) => (
+                                    <Paper key={item.id} p="lg" shadow="sm" withBorder radius="md" style={{ borderColor: styles.cardBorder }}>
+                                        {editResearch && editResearch.id === item.id ? (
+                                            <Stack spacing="md">
+                                                <TextInput
+                                                    label="Title"
+                                                    value={editResearch.title}
+                                                    onChange={(e) => setEditResearch((r: any) => ({ ...r, title: e.currentTarget.value }))}
+                                                />
+                                                <Select
+                                                    label="Type"
+                                                    data={['web', 'document', 'interview', 'report']}
+                                                    value={editResearch.type}
+                                                    onChange={(value) => setEditResearch((r: any) => ({ ...r, type: value || 'web' }))}
+                                                />
+                                                <Textarea
+                                                    label="Content"
+                                                    minRows={6}
+                                                    value={editResearch.content}
+                                                    onChange={(e) => setEditResearch((r: any) => ({ ...r, content: e.currentTarget.value }))}
+                                            />
+                                            <MultiSelect
+                                                label="Tags"
+                                                data={allResearchTags}
+                                                placeholder="Select or create tags"
+                                                searchable
+                                                value={editResearch.tags}
+                                                onChange={(values) => setEditResearch((r: any) => ({ ...r, tags: values }))}
+                                            />
+                                                <Button variant="light" size="xs" onClick={handleEditSuggestTags} loading={suggestingTags}>
+                                                    Suggest Tags
+                                            </Button>
+                                            <TextInput
+                                                    label="Replace File (Optional)"
+                                                type="file"
+                                                    onChange={(e) => handleFileChange(e, setEditResearchFile)}
+                                            />
+                                                <Button onClick={handleSaveEditResearch} loading={editResearchLoading}>Save Changes</Button>
+                                        </Stack>
+                                        ) : (
+                                            <Paper key={item.id} p="lg" shadow="sm" withBorder radius="md" style={{ borderColor: styles.cardBorder }}>
+                                            <Group justify="space-between" align="flex-start">
+                                                <Stack gap={4} style={{ flexGrow: 1 }}>
+                                                    <Text fw={600} style={{ color: styles.textColor }}>{item.title}</Text>
+                                                    <Group gap="xs">
+                                                        <Badge variant="light" color="grape">{item.type}</Badge>
+                                                        {item.tags && item.tags.map((tag: string) => (
+                                                            <Badge key={tag} variant="light" color="cyan">{tag}</Badge>
+                                                        ))}
                                                     </Group>
-                                                    <Text size="sm" c="dimmed">Added by {item.createdBy} on {new Date(item.createdAt).toLocaleDateString()}</Text>
-                                                    <Text>{item.summary || item.content}</Text>
-                                                    {item.summary && (
-                                                    <Button
-                                                            variant="light"
-                                                            size="xs"
-                                                            onClick={() => setExpanded(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
-                                                            leftSection={expanded[item.id] ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
-                                                        >
-                                                            {expanded[item.id] ? 'Show Less' : 'Show More (Full Content)'}
-                                                    </Button>
-                                                    )}
-                                                    {expanded[item.id] && item.summary && (
-                                                        <Box mt="xs">
-                                                            <Text size="sm" style={{ fontWeight: 'bold' }}>Full Content:</Text>
-                                                            <Text>{item.content}</Text>
+                                                    <Text size="sm" color="dimmed">Added by {item.createdBy} on {new Date(item.createdAt).toLocaleDateString()}</Text>
+                                                    <Divider my="xs" />
+                                                    {item.summary ? (
+                                                        <Box>
+                                                            <Text size="sm" fw={500} style={{ color: styles.textColor }}>Summary:</Text>
+                                                            <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{item.summary}</Text>
+                                                            <Button
+                                                                variant="light"
+                                                                size="xs"
+                                                                mt="xs"
+                                                                onClick={() => setExpanded(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
+                                                            >
+                                                                {expanded[item.id] ? 'Show Less' : 'Read More'}
+                                                            </Button>
                                                         </Box>
-                                                    )}
-                                                    {item.fileUrl && (
+                                                    ) : (
                                                         <Button
                                                             variant="light"
                                                             size="xs"
-                                                            leftSection={<IconDownload size={14} />}
-                                                            onClick={() => saveAs(item.fileUrl, item.title + '_file')}
-                                                        >
-                                                            Download Attached File
-                                                        </Button>
-                                                    )}
-                                                    <Group gap="xs" justify="flex-end">
-                                                        <Button
-                                                            size="xs"
-                                                            variant="light"
+                                                            mt="xs"
                                                             onClick={() => handleSummarizeResearch(item)}
                                                             loading={summarizingId === item.id}
-                                                            leftSection={<IconSparkles size={14} />}
+                                                            leftSection={<IconSparkles size={16} />}
                                                         >
-                                                            {item.summary ? 'Re-summarize with AI' : 'Summarize with AI'}
+                                                            Summarize with AI
                                                         </Button>
-                                                        <ActionIcon size="sm" variant="light" color="blue" onClick={() => handleEditResearch(item)}><IconEdit size={16} /></ActionIcon>
-                                                        <ActionIcon size="sm" variant="light" color="red" onClick={() => handleDeleteResearch(item.id)}><IconTrash size={16} /></ActionIcon>
-                                                </Group>
+                                                    )}
+                                                    {expanded[item.id] && (
+                                                        <Box mt="xs">
+                                                            <Text size="sm" fw={500} style={{ color: styles.textColor }}>Full Content:</Text>
+                                                            <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{item.content}</Text>
+                                                            {item.fileUrl && (
+                                                                <Text size="sm" mt="xs">
+                                                                    <a href={item.fileUrl} target="_blank" rel="noopener noreferrer">View Attached File</a>
+                                                                </Text>
+                                                            )}
+                                                        </Box>
+                                                    )}
                                                     <Divider my="xs" />
-                                                    <Title order={6}>Comments</Title>
-                                                    <Stack gap="xs">
-                                                        {(item.annotations || []).map((comment: any) => (
-                                                            <Group key={comment.id} wrap="nowrap" align="flex-start" justify="space-between" style={{ border: `1px solid ${styles.cardBorder}`, padding: rem(8), borderRadius: rem(4), backgroundColor: styles.tabPanelBackground }}>
-                                                                <Box>
-                                                                    <Text size="sm" style={{ fontWeight: 'bold', color: styles.accentColor }}>{comment.author}</Text>
-                                                                    <Text size="sm">{comment.content}</Text>
-                                                                    <Text size="xs" c="dimmed">{new Date(comment.createdAt).toLocaleString()}</Text>
-                                                                </Box>
-                                                                <ActionIcon size="xs" variant="light" color="red" onClick={() => handleDeleteComment(item, comment.id)}><IconTrash size={12} /></ActionIcon>
-                                            </Group>
-                                                        ))}
-                                                            <TextInput
+                                                    <Stack spacing="xs">
+                                                        <Text fw={500} style={{ color: styles.textColor }}>Comments:</Text>
+                                                        {item.annotations && item.annotations.length > 0 ? (
+                                                            item.annotations.map((comment: any) => (
+                                                                <Paper key={comment.id} p="xs" withBorder radius="sm" style={{ backgroundColor: styles.cardBackground }}>
+                                                                    <Group justify="space-between" align="center">
+                                                                        <Stack gap={2}>
+                                                                            <Text size="xs" fw={500}>{comment.author}</Text>
+                                                                            <Text size="sm">{comment.content}</Text>
+                                                                            <Text size="xs" color="dimmed">{new Date(comment.createdAt).toLocaleString()}</Text>
+                                                                        </Stack>
+                                                                        <ActionIcon size="sm" variant="light" color="red" onClick={() => handleDeleteComment(item, comment.id)}>
+                                                                            <IconTrash size={14} />
+                                                                        </ActionIcon>
+                                                                    </Group>
+                                                                </Paper>
+                                                            ))
+                                                        ) : (
+                                                            <Text size="sm" color="dimmed">No comments yet.</Text>
+                                                        )}
+                                                        <TextInput
                                                             placeholder="Add a comment..."
                                                             value={commentInputs[item.id] || ''}
                                                             onChange={(e) => setCommentInputs(prev => ({ ...prev, [item.id]: e.currentTarget.value }))}
-                                                            rightSection={commentLoading[item.id] ? <Loader size="xs" /> : null}
-                                                            onKeyPress={(e) => {
-                                                                if (e.key === 'Enter') handleAddComment(item);
-                                                            }}
+                                                            rightSection={commentLoading[item.id] ? <Loader size="xs" /> : <ActionIcon onClick={() => handleAddComment(item)}><IconSend size={18} /></ActionIcon>}
                                                         />
                                                     </Stack>
                                                 </Stack>
-                                            )}
+                                                <Group wrap="nowrap">
+                                                    <ActionIcon variant="light" onClick={() => handleEditResearch(item)} title="Edit Research">
+                                                        <IconEdit size={18} />
+                                                    </ActionIcon>
+                                                    <ActionIcon variant="light" color="red" onClick={() => handleDeleteResearch(item.id)} title="Delete Research">
+                                                        <IconTrash size={18} />
+                                                    </ActionIcon>
+                                                </Group>
+                                            </Group>
+                                            </Paper>
+                                        )}
                                         </Paper>
                                     ))}
                                 </Stack>
-                            </Box>
-                        </Box>
-                    </Tabs.Panel>
+                        </Tabs.Panel>
 
-                    <Tabs.Panel value="tasks">
-                        <Box style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', maxWidth: 900, margin: '0 auto', padding: '2rem', boxSizing: 'border-box' }}>
-                            <Box style={{
-                                backgroundColor: styles.cardBackground,
-                                border: `1px solid ${styles.cardBorder}`,
-                                borderRadius: rem(8),
-                                boxShadow: styles.cardShadow,
-                                padding: '2rem',
-                                marginBottom: '2rem'
-                            }}>
-                                <Title order={5} mb="sm" style={{ color: styles.textColor }}>Add New Task</Title>
-                                <Stack>
-                                    <TextInput
-                                        placeholder="Task Title"
-                                        value={newTask.title}
-                                        onChange={(e) => setNewTask({ ...newTask, title: e.currentTarget.value })}
-                                                                required
-                                    />
-                                    <Textarea
-                                        placeholder="Description (optional)"
-                                        value={newTask.description}
-                                        onChange={(e) => setNewTask({ ...newTask, description: e.currentTarget.value })}
-                                        autosize
-                                        minRows={2}
-                                                            />
-                                                            <TextInput
-                                        placeholder="Assignee Email/Name (optional)"
-                                                                value={newTask.assignee}
-                                        onChange={(e) => setNewTask({ ...newTask, assignee: e.currentTarget.value })}
-                                    />
-                                    <Select
-                                        placeholder="Status"
-                                        value={newTask.status}
-                                        onChange={(value) => setNewTask({ ...newTask, status: value as Task['status'] })}
-                                        data={statuses.map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }))}
-                                    />
-                                    <Select
-                                        placeholder="Priority"
-                                        value={newTask.priority}
-                                        onChange={(value) => setNewTask({ ...newTask, priority: value as Task['priority'] })}
-                                        data={priorities.map(p => ({ value: p, label: p.charAt(0).toUpperCase() + p.slice(1) }))}
-                                                            />
-                                                            <TextInput
-                                        label="Due Date (optional)"
-                                                                type="date"
-                                                                value={newTask.dueDate}
-                                        onChange={(e) => setNewTask({ ...newTask, dueDate: e.currentTarget.value })}
-                                    />
-                                    <Button onClick={handleAddTask} loading={addingTask}>Add Task</Button>
-                                </Stack>
-                            </Box>
+                        <Tabs.Panel value="files" style={{ backgroundColor: styles.tabPanelBackground, padding: rem(20), borderRadius: rem(8), marginTop: rem(20), border: styles.cardBorder, boxShadow: styles.cardShadow }}>
+                            <Group justify="space-between" mb="md">
+                                <Title order={3} style={{ color: styles.textColor }}>Project Files</Title>
+                                <Button component="label" htmlFor="file-upload" leftSection={<IconUpload size={18} />} loading={uploading}>
+                                    Upload File
+                                    <input id="file-upload" type="file" style={{ display: 'none' }} onChange={handleFileUploadChange} />
+                                </Button>
+                            </Group>
 
-                            <Box style={{
-                                backgroundColor: styles.cardBackground,
-                                border: `1px solid ${styles.cardBorder}`,
-                                borderRadius: rem(8),
-                                boxShadow: styles.cardShadow,
-                                padding: '2rem',
-                                flexGrow: 1,
-                                overflowY: 'auto'
-                            }}>
-                                <Group justify="space-between" mb="md">
-                                    <Title order={5} style={{ color: styles.textColor }}>Project Tasks</Title>
-                                                            <Select
-                                        placeholder="View as"
-                                        value={taskView}
-                                        onChange={(value) => setTaskView(value as 'list' | 'board')}
-                                                                data={[
-                                            { value: 'list', label: 'List View' },
-                                            { value: 'board', label: 'Kanban Board' },
-                                        ]}
-                                    />
-                                                        </Group>
+                            {uploadError && <Text color="red" mb="md">{uploadError}</Text>}
 
-                                {taskView === 'list' && (
-                                    <Stack>
-                                        {tasks.length === 0 && <Text>No tasks added yet.</Text>}
-                                                        {tasks.map(task => (
-                                            <Paper key={task.id} p="md" shadow="sm" style={{ border: `1px solid ${styles.cardBorder}`, backgroundColor: styles.tabBackground }}>
-                                                                {editingTaskId === task.id ? (
-                                                    <Stack>
-                                                                            <TextInput
-                                                            label="Title"
-                                                                                value={editTask.title}
-                                                            onChange={(e) => setEditTask({ ...editTask, title: e.currentTarget.value })}
-                                                        />
-                                                        <Textarea
-                                                            label="Description"
-                                                            value={editTask.description}
-                                                            onChange={(e) => setEditTask({ ...editTask, description: e.currentTarget.value })}
-                                                            autosize
-                                                            minRows={2}
-                                                                            />
-                                                                            <TextInput
-                                                            label="Assignee"
-                                                                                value={editTask.assignee}
-                                                            onChange={(e) => setEditTask({ ...editTask, assignee: e.currentTarget.value })}
-                                                        />
-                                                        <Select
-                                                            label="Status"
-                                                            value={editTask.status}
-                                                            onChange={(value) => setEditTask({ ...editTask, status: value as Task['status'] })}
-                                                            data={statuses.map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }))}
-                                                                            />
-                                                                            <Select
-                                                            label="Priority"
-                                                                                value={editTask.priority}
-                                                            onChange={(value) => setEditTask({ ...editTask, priority: value as Task['priority'] })}
-                                                            data={priorities.map(p => ({ value: p, label: p.charAt(0).toUpperCase() + p.slice(1) }))}
-                                                        />
-                                                        <TextInput
-                                                            label="Due Date"
-                                                            type="date"
-                                                            value={editTask.dueDate ? editTask.dueDate.split('T')[0] : ''} // Ensure YYYY-MM-DD for date input
-                                                            onChange={(e) => setEditTask({ ...editTask, dueDate: e.currentTarget.value })}
-                                                        />
-                                                        <Group justify="flex-end">
-                                                            <Button variant="default" onClick={() => setEditingTaskId(null)}>Cancel</Button>
-                                                            <Button onClick={handleSaveTask}>Save</Button>
-                                                                        </Group>
-                                                                    </Stack>
-                                                                ) : (
-                                                    <Stack>
-                                                        <Group justify="space-between" align="center">
-                                                            <Title order={6} style={{ color: styles.textColor }}>{task.title}</Title>
-                                                                            <Group gap="xs">
-                                                                <Badge color={getStatusColor(task.status)}>{task.status}</Badge>
-                                                                <Badge color={getPriorityColor(task.priority)}>{task.priority}</Badge>
-                                                                            </Group>
-                                                                                </Group>
-                                                        {task.description && <Text size="sm">{task.description}</Text>}
-                                                        {task.assignee && <Text size="sm" c="dimmed">Assignee: {task.assignee}</Text>}
-                                                        {task.dueDate && <Text size="sm" c="dimmed">Due: {new Date(task.dueDate).toLocaleDateString()}</Text>}
-                                                        <Text size="xs" c="dimmed">Created: {new Date(task.createdAt).toLocaleString()}</Text>
-                                                        <Text size="xs" c="dimmed">Last Updated: {new Date(task.updatedAt).toLocaleString()}</Text>
-                                                        <Group gap="xs" justify="flex-end">
-                                                            <ActionIcon size="sm" variant="light" color="blue" onClick={() => handleEditTask(task)}><IconEdit size={16} /></ActionIcon>
-                                                            <ActionIcon size="sm" variant="light" color="red" onClick={() => handleDeleteTask(task.id)}><IconTrash size={16} /></ActionIcon>
-                                                                        </Group>
-                                                    </Stack>
-                                                                )}
-                                                            </Paper>
-                                                        ))}
-                                                    </Stack>
-                                )}
-
-                                {taskView === 'board' && (
-                                                <DragDropContext onDragEnd={onDragEnd}>
-                                        <Group wrap="nowrap" align="flex-start">
-                                            {statuses.map(status => (
-                                                <Droppable key={status} droppableId={status}>
-                                                    {(provided) => (
-                                                                    <Box
-                                                                        ref={provided.innerRef}
-                                                                        {...provided.droppableProps}
-                                                                        style={{
-                                                                flex: 1,
-                                                                minWidth: rem(250),
-                                                                backgroundColor: styles.tabBackground,
-                                                                borderRadius: rem(8),
-                                                                padding: 'md',
-                                                                border: `1px solid ${styles.cardBorder}`,
-                                                                            boxShadow: styles.cardShadow,
-                                                                minHeight: rem(200)
-                                                            }}
-                                                        >
-                                                            <Title order={6} mb="sm" style={{ textTransform: 'capitalize', color: styles.textColor }}>
-                                                                {status.replace('-', ' ')} ({tasks.filter(t => t.status === status).length})
-                                                            </Title>
-                                                            <Stack>
-                                                                {tasks.filter(t => t.status === status).map((task, index) => (
-                                                                    <Draggable key={task.id} draggableId={task.id} index={index}>
-                                                                                {(provided, snapshot) => (
-                                                                                    <Paper
-                                                                                        ref={provided.innerRef}
-                                                                                        {...provided.draggableProps}
-                                                                                        {...provided.dragHandleProps}
-                                                                                p="sm"
-                                                                                shadow="xs"
-                                                                                        style={{
-                                                                                            ...provided.draggableProps.style,
-                                                                                    backgroundColor: snapshot.isDragging ? styles.accentColor + '20' : styles.cardBackground,
-                                                                                    border: `1px solid ${styles.cardBorder}`,
-                                                                                        }}
-                                                                                    >
-                                                                                <Stack gap="xs">
-                                                                                    <Text size="sm" style={{ fontWeight: 'bold' }}>{task.title}</Text>
-                                                                                    {task.assignee && <Text size="xs" c="dimmed">Assignee: {task.assignee}</Text>}
-                                                                                    {task.dueDate && <Text size="xs" c="dimmed">Due: {new Date(task.dueDate).toLocaleDateString()}</Text>}
-                                                                                        <Group gap="xs">
-                                                                                        <Badge color={getPriorityColor(task.priority)} size="xs">{task.priority}</Badge>
-                                                                                        <ActionIcon size="xs" variant="light" color="blue" onClick={() => handleEditTask(task)}><IconEdit size={12} /></ActionIcon>
-                                                                                        <ActionIcon size="xs" variant="light" color="red" onClick={() => handleDeleteTask(task.id)}><IconTrash size={12} /></ActionIcon>
-                                                                                        </Group>
-                                                                                </Stack>
-                                                                                    </Paper>
-                                                                                )}
-                                                                            </Draggable>
-                                                                        ))}
-                                                                        {provided.placeholder}
-                                                            </Stack>
-                                                                    </Box>
-                                                                )}
-                                                            </Droppable>
-                                                        ))}
-                                                    </Group>
-                                                </DragDropContext>
-                                            )}
-                                        </Box>
-                                    </Box>
-                                </Tabs.Panel>
-
-                    <Tabs.Panel value="files" onDragOver={(e) => e.preventDefault()} onDrop={handleFileDrop}>
-                        <Box style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', maxWidth: 900, margin: '0 auto', padding: '2rem', boxSizing: 'border-box' }}>
-                            <Box style={{
-                                backgroundColor: styles.cardBackground,
-                                border: `1px solid ${styles.cardBorder}`,
-                                borderRadius: rem(8),
-                                boxShadow: styles.cardShadow,
-                                padding: 'md',
-                                marginBottom: 'md',
-                                minHeight: rem(100),
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                borderStyle: 'dashed',
-                                borderColor: styles.secondaryTextColor
-                            }}>
-                                {uploading ? (
-                                    <Group>
-                                        <Loader size="sm" />
-                                        <Text>Uploading files...</Text>
-                                            </Group>
-                                ) : (
-                                    <Text c="dimmed">Drag & drop files here to upload, or click to browse</Text>
-                                )}
-                                {uploadError && <Text color="red" size="sm">{uploadError}</Text>}
-                                {/* Hidden file input for Browse */}
-                                <input
-                                    type="file"
-                                    multiple
-                                    style={{ display: 'none' }}
-                                    id="file-browse-input"
-                                    onChange={handleFileDrop as any} // Cast to any to satisfy type for now
-                                />
-                                <label htmlFor="file-browse-input" style={{ marginLeft: '10px' }}>
-                                    <Button component="span" variant="light" size="xs">Browse</Button>
-                                </label>
-                            </Box>
-
-                            <Box style={{
-                                backgroundColor: styles.cardBackground,
-                                border: `1px solid ${styles.cardBorder}`,
-                                borderRadius: rem(8),
-                                boxShadow: styles.cardShadow,
-                                padding: 'md',
-                                flexGrow: 1,
-                                overflowY: 'auto'
-                            }}>
-                                <Title order={5} mb="md" style={{ color: styles.textColor }}>Uploaded Files</Title>
-                                {files.length === 0 && <Text>No files uploaded yet.</Text>}
+                            {files.length === 0 ? (
+                                <Text color="dimmed" mt="xl" ta="center">No files uploaded yet. Upload one to get started!</Text>
+                            ) : (
                                 <Stack>
                                     {files.map((file) => (
-                                        <Paper key={file.id} p="sm" shadow="xs" style={{ border: `1px solid ${styles.cardBorder}`, backgroundColor: styles.tabBackground }}>
+                                        <Paper key={file.id} p="md" shadow="sm" withBorder style={{ borderColor: styles.cardBorder }}>
                                             <Group justify="space-between" align="center">
-                                                <Group gap="xs">
-                                                    <IconFile size={18} />
-                                                    <Text>{file.name}</Text>
-                                                    <Text size="xs" c="dimmed">({(file.size / 1024).toFixed(2)} KB)</Text>
-                                                                </Group>
-                                                <Group gap="xs">
-                                                    <ActionIcon variant="light" color="blue" onClick={() => handleFileDownload(file)} title="Download File">
-                                                        <IconDownload size={16} />
+                                                <Stack gap={4}>
+                                                    <Text fw={600} style={{ color: styles.textColor }}>{file.name}</Text>
+                                                    <Text size="sm" color="dimmed">{file.mimeType} • {(file.size / 1024).toFixed(2)} KB</Text>
+                                                    <Text size="xs" color="dimmed">Uploaded by {file.uploadedBy} on {new Date(file.uploadedAt).toLocaleDateString()}</Text>
+                                                </Stack>
+                                                <Group>
+                                                    <ActionIcon variant="light" onClick={() => handleFileDownload(file)} title="Download File">
+                                                        <IconDownload size={18} />
                                                     </ActionIcon>
                                                     <ActionIcon variant="light" color="red" onClick={() => handleFileDelete(file.id)} title="Delete File">
-                                                        <IconTrash size={16} />
+                                                        <IconTrash size={18} />
                                                     </ActionIcon>
-                                                            </Group>
-                                                        </Group>
+                                                </Group>
+                                            </Group>
                                         </Paper>
                                     ))}
                                 </Stack>
-                            </Box>
-                        </Box>
-                    </Tabs.Panel>
+                            )}
+                        </Tabs.Panel>
 
-                    <Tabs.Panel value="calendar">
-                        <Box style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', maxWidth: 900, margin: '0 auto', padding: '2rem', boxSizing: 'border-box' }}>
-                            <Box style={{
-                                backgroundColor: styles.cardBackground,
-                                border: `1px solid ${styles.cardBorder}`,
-                                borderRadius: rem(8),
-                                boxShadow: styles.cardShadow,
-                                padding: 'md',
-                                flexGrow: 1,
-                                overflow: 'hidden'
-                            }}>
-                                <Group justify="space-between" mb="md">
-                                    <Title order={5} style={{ color: styles.textColor }}>Project Calendar</Title>
-                                    <Button onClick={() => handleSelectSlot({ start: new Date() })} size="sm">Add Event</Button>
-                                            </Group>
+                        <Tabs.Panel value="calendar" style={{ backgroundColor: styles.tabPanelBackground, padding: rem(20), borderRadius: rem(8), marginTop: rem(20), border: styles.cardBorder, boxShadow: styles.cardShadow }}>
+                            <Group justify="space-between" mb="md">
+                                <Title order={3} style={{ color: styles.textColor }}>Project Calendar</Title>
+                                <Button onClick={() => {
+                                    setCalendarModalMode('add');
+                                    setCalendarTask({
+                                        title: '',
+                                        description: '',
+                                        assignee: '',
+                                        status: 'todo',
+                                        priority: 'medium',
+                                        dueDate: '',
+                                    });
+                                    setCalendarModalOpen(true);
+                                }}>Add Calendar Event</Button>
+                                <Button
+                                    leftSection={<IconDownload size={18} />}
+                                    variant="light"
+                                    onClick={() => saveAs(new Blob([generateICS(tasks, project.name)], { type: "text/calendar;charset=utf-8" }), `${project.name}-tasks.ics`)}
+                                >
+                                    Export Tasks to ICS
+                                </Button>
+                            </Group>
+
+                            <Box style={{ height: rem(600) }}>
                                 <BigCalendar
                                     localizer={localizer}
                                     events={calendarEvents}
                                     startAccessor="start"
                                     endAccessor="end"
-                                    style={{ height: 'calc(100vh - 250px)' }}
-                                    onSelectEvent={handleSelectEvent}
-                                    onSelectSlot={handleSelectSlot}
                                     selectable
-                                    eventPropGetter={(event: any, start: any, end: any, isSelected: any) => ({
-                                        style: {
-                                            backgroundColor: getStatusColor(event.resource.status),
-                                            color: '#fff',
-                                            borderRadius: '5px',
-                                            border: 'none',
-                                        },
-                                    })}
+                                    onSelectSlot={handleSelectSlot}
+                                    onSelectEvent={handleSelectEvent}
+                                    style={{ height: '100%' }}
                                 />
-                                        </Box>
-                                    </Box>
-                                </Tabs.Panel>
+                            </Box>
 
-                    <Tabs.Panel value="ai">
-                        <Box style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', maxWidth: 900, margin: '0 auto', padding: '2rem', boxSizing: 'border-box' }}>
-                            <Title order={4} mb="md" style={{ color: styles.textColor }}>SparkAI</Title>
+                            {/* Calendar Event Modal */}
+                            <Modal opened={calendarModalOpen} onClose={() => setCalendarModalOpen(false)} title={calendarModalMode === 'add' ? 'Add Calendar Task' : 'Edit Calendar Task'}>
+                                <Stack>
+                                    <TextInput
+                                        label="Title"
+                                        placeholder="Event title"
+                                        value={calendarTask.title}
+                                        onChange={(event) => setCalendarTask((r: any) => ({ ...r, title: event.currentTarget.value }))}
+                                        required
+                                    />
+                                    <Textarea
+                                        label="Description"
+                                        placeholder="Event description"
+                                        value={calendarTask.description}
+                                        onChange={(event) => setCalendarTask((r: any) => ({ ...r, description: event.currentTarget.value }))}
+                                    />
+                                    <TextInput
+                                        label="Assignee"
+                                        placeholder="Assignee email or name"
+                                        value={calendarTask.assignee}
+                                        onChange={(event) => setCalendarTask((r: any) => ({ ...r, assignee: event.currentTarget.value }))}
+                                    />
+                                    <Select
+                                        label="Status"
+                                        value={calendarTask.status}
+                                        onChange={(value) => setCalendarTask((r: any) => ({ ...r, status: value as Task['status'] }))}
+                                        data={['todo', 'in-progress', 'blocked', 'done']}
+                                    />
+                                    <Select
+                                        label="Priority"
+                                        value={calendarTask.priority}
+                                        onChange={(value) => setCalendarTask((r: any) => ({ ...r, priority: value as Task['priority'] }))}
+                                        data={['low', 'medium', 'high', 'critical']}
+                                    />
+                                    <TextInput
+                                        label="Due Date"
+                                        type="date"
+                                        value={calendarTask.dueDate}
+                                        onChange={(event) => setCalendarTask((r: any) => ({ ...r, dueDate: event.currentTarget.value }))}
+                                    />
+                                    <Button onClick={handleCalendarTaskSubmit}>
+                                        {calendarModalMode === 'add' ? 'Add Task to Calendar' : 'Save Changes'}
+                                    </Button>
+                                    {calendarModalMode === 'edit' && (
+                                        <Button color="red" onClick={handleDeleteCalendarTask}>Delete Task</Button>
+                                    )}
+                                </Stack>
+                            </Modal>
+                        </Tabs.Panel>
 
-                            <Tabs defaultValue="insights" style={{ flexGrow: 1, display: "flex", flexDirection: "column" }}>
-                                <Tabs.List grow>
-                                    <Tabs.Tab value="insights">Insights</Tabs.Tab>
-                                    <Tabs.Tab value="sentiment">Sentiment Analysis</Tabs.Tab>
-                                    <Tabs.Tab value="automation">Workflow Automation</Tabs.Tab>
-                                    <Tabs.Tab value="risk">Risk Alerts</Tabs.Tab>
-                                    <Tabs.Tab value="qa">Q&A on Research</Tabs.Tab>
-                                    <Tabs.Tab value="onboarding">Onboarding Assistant</Tabs.Tab>
-                                </Tabs.List>
+                        <Tabs.Panel value="finance" style={{ backgroundColor: styles.tabPanelBackground, padding: rem(20), borderRadius: rem(8), marginTop: rem(20), border: styles.cardBorder, boxShadow: styles.cardShadow }}>
+                            <Title order={3} style={{ color: styles.textColor }} mb="md">Project Finance</Title>
 
-                                <Tabs.Panel value="insights" style={{ flexGrow: 1, padding: 'md', backgroundColor: styles.tabPanelBackground }}>
-                                    <AIInsightsPanel />
-                                </Tabs.Panel>
-                                <Tabs.Panel value="sentiment" style={{ flexGrow: 1, padding: 'md', backgroundColor: styles.tabPanelBackground }}>
-                                    <AISentimentInsights context={aiContext} />
-                                </Tabs.Panel>
-                                <Tabs.Panel value="automation" style={{ flexGrow: 1, padding: 'md', backgroundColor: styles.tabPanelBackground }}>
-                                    <AIWorkflowAutomation context={aiContext} />
-                                </Tabs.Panel>
-                                <Tabs.Panel value="risk" style={{ flexGrow: 1, padding: 'md', backgroundColor: styles.tabPanelBackground }}>
-                                    <AIRiskAlerts context={aiContext} />
-                                </Tabs.Panel>
-                                <Tabs.Panel value="qa" style={{ flexGrow: 1, padding: 'md', backgroundColor: styles.tabPanelBackground }}>
-                                    <Box style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                                        <Box style={{
-                                            backgroundColor: styles.cardBackground,
-                                            border: `1px solid ${styles.cardBorder}`,
-                                            borderRadius: rem(8),
-                                            boxShadow: styles.cardShadow,
-                                            padding: 'md',
-                                            marginBottom: 'md'
-                                        }}>
-                                            <Title order={5} mb="sm" style={{ color: styles.textColor }}>Ask SparkAI about your Research</Title>
-                                            <Stack>
-                                                <Textarea
-                                                    placeholder={isFollowup ? "Ask a follow-up question..." : "Enter your question here..."}
-                                                        value={qaQuestion}
-                                                    onChange={(e) => setQaQuestion(e.currentTarget.value)}
-                                                    autosize
-                                                    minRows={2}
-                                                />
-                                                <Group>
-                                                    <Button onClick={handleAskResearchAI} loading={qaLoading}>Ask SparkAI</Button>
-                                                    {qaHistory.length > 0 && (
-                                                        <Button variant="outline" onClick={handleFollowup} disabled={isFollowup}>Ask Follow-up</Button>
-                                                    )}
-                                                </Group>
-                                                {qaError && <Text color="red">{qaError}</Text>}
-                                                {qaAnswer && (
-                                                    <Paper p="sm" shadow="xs" style={{ backgroundColor: styles.tabBackground, border: `1px solid ${styles.cardBorder}` }}>
-                                                        <Text size="sm" style={{ fontWeight: 'bold' }}>SparkAI Answer:</Text>
-                                                        <ReactMarkdown>{qaAnswer}</ReactMarkdown>
-                                                    </Paper>
-                                                )}
-                                            </Stack>
-                                        </Box>
-
-                                        <Box style={{
-                                            backgroundColor: styles.cardBackground,
-                                            border: `1px solid ${styles.cardBorder}`,
-                                            borderRadius: rem(8),
-                                            boxShadow: styles.cardShadow,
-                                            padding: 'md',
-                                            flexGrow: 1,
-                                            overflowY: 'auto'
-                                        }}>
-                                            <Group justify="space-between" mb="md">
-                                                <Title order={5} style={{ color: styles.textColor }}>Q&A History</Title>
-                                                                    <TextInput
-                                                    placeholder="Search Q&A history"
-                                                    value={qaSearch}
-                                                    onChange={(event) => setQaSearch(event.currentTarget.value)}
-                                                    style={{ width: rem(200) }}
-                                                />
-                                                                    </Group>
-                                        <Stack>
-                                                {filteredQaHistory.length === 0 && <Text>No Q&A history yet.</Text>}
-                                                {filteredQaHistory.map((pair, index) => (
-                                                    <Paper key={pair.id} p="md" shadow="sm" style={{ border: `1px solid ${styles.cardBorder}`, backgroundColor: styles.tabBackground }}>
-                                                        <Group justify="space-between">
-                                                            <Title order={6} style={{ color: styles.textColor }}>Question {filteredQaHistory.length - index}:</Title>
-                                                                        <Group gap="xs">
-                                                                <ActionIcon size="sm" variant="light" color="blue" onClick={() => handleStartEditQAPair(pair)}><IconEdit size={16} /></ActionIcon>
-                                                                <ActionIcon size="sm" variant="light" color="red" onClick={() => handleDeleteQAPair(pair.id)}><IconTrash size={16} /></ActionIcon>
-                                                                        </Group>
-                                                                </Group>
-                                                        <Text mb="xs">{pair.question}</Text>
-                                                        <Title order={6} style={{ color: styles.textColor }}>Answer:</Title>
-                                                        <ReactMarkdown>{pair.answer}</ReactMarkdown>
-                                                        <Text size="xs" c="dimmed" mt="xs">Asked by {pair.createdBy} on {new Date(pair.createdAt).toLocaleString()}</Text>
-                                                                                </Paper>
-                                                                            ))}
-                                                                        </Stack>
-                                                                </Box>
-                                    </Box>
-                                </Tabs.Panel>
-                                <Tabs.Panel value="onboarding" style={{ flexGrow: 1, padding: 'md', backgroundColor: styles.tabPanelBackground }}>
-                                    <OnboardingAssistant />
-                                </Tabs.Panel>
-                            </Tabs>
-                                    </Box>
-                                </Tabs.Panel>
-
-                    <Tabs.Panel value="finance">
-                      <Box style={{ maxWidth: 600, margin: '0 auto', padding: '2rem', background: styles.cardBackground, border: `1px solid ${styles.cardBorder}`, borderRadius: rem(8), boxShadow: styles.cardShadow }}>
-                        <Title order={5} mb="md" style={{ color: styles.textColor }}>Project Budget & Expenses</Title>
-                        <Group mb="md">
-                          <TextInput
-                            label="Project Budget"
-                            type="number"
-                            value={financeBudget}
-                            onChange={e => setFinanceBudget(Number(e.currentTarget.value))}
-                            style={{ flex: 1 }}
-                            min={0}
-                          />
-                          <Select
-                            label="Currency"
-                            value={financeCurrency}
-                            onChange={value => setFinanceCurrency(value || 'USD')}
-                            data={[{ value: 'USD', label: 'USD' }, { value: 'EUR', label: 'EUR' }, { value: 'GBP', label: 'GBP' }, { value: 'KES', label: 'KES' }]}
-                            style={{ width: 120 }}
-                          />
-                        </Group>
-                        <Group mb="md">
-                          <Text fw={700}>Total Spent:</Text>
-                          <Text>{financeCurrency} {financeExpenses.reduce((sum, e) => sum + (e.amount || 0), 0).toFixed(2)}</Text>
-                          <Text fw={700} ml="lg">Remaining:</Text>
-                          <Text>{financeCurrency} {(financeBudget - financeExpenses.reduce((sum, e) => sum + (e.amount || 0), 0)).toFixed(2)}</Text>
-                        </Group>
-                        <Button onClick={() => setAddExpenseModalOpen(true)} mb="md">Add Expense</Button>
-                        <Stack>
-                          {financeExpenses.length === 0 ? (
-                            <Text c="dimmed">No expenses recorded yet.</Text>
-                          ) : (
-                            financeExpenses.map(exp => (
-                              <Group key={exp.id} justify="space-between" style={{ borderBottom: `1px solid ${styles.cardBorder}`, padding: '8px 0' }}>
-                                <Text>{exp.description}</Text>
-                                <Text>{exp.category}</Text>
-                                <Text>{financeCurrency} {exp.amount?.toFixed(2)}</Text>
-                                <Text>{exp.date}</Text>
-                              </Group>
-                            ))
-                          )}
-                        </Stack>
-                        <Modal opened={addExpenseModalOpen} onClose={() => setAddExpenseModalOpen(false)} title="Add Expense">
-                          <Stack>
-                            <TextInput label="Description" value={newExpense.description || ''} onChange={e => setNewExpense({ ...newExpense, description: e.currentTarget.value })} required />
-                            <TextInput label="Category" value={newExpense.category || ''} onChange={e => setNewExpense({ ...newExpense, category: e.currentTarget.value })} required />
-                            <TextInput label="Amount" type="number" value={newExpense.amount || ''} onChange={e => setNewExpense({ ...newExpense, amount: Number(e.currentTarget.value) })} required min={0} />
-                            <TextInput label="Date" type="date" value={newExpense.date || ''} onChange={e => setNewExpense({ ...newExpense, date: e.currentTarget.value })} required />
-                            <Group align="flex-end" gap="xs">
-                              <TextInput label="Category" value={newExpense.category || ''} onChange={e => setNewExpense({ ...newExpense, category: e.currentTarget.value })} required style={{ flex: 1 }} />
-                              <Button variant="light" loading={categorySuggesting} onClick={handleSuggestCategory} disabled={!newExpense.description}>
-                                Suggest Category
-                              </Button>
+                            <Group mb="md" justify="space-between">
+                                <TextInput
+                                    label="Project Budget"
+                                    type="number"
+                                    value={financeBudget}
+                                    onChange={(e) => saveFinance({ ...{ budget: financeBudget, currency: financeCurrency, expenses: financeExpenses }, budget: parseFloat(e.currentTarget.value) || 0 })}
+                                    leftSection={<Text size="sm">{financeCurrency}</Text>}
+                                    rightSection={<Select data={['BTC', 'USD', 'EUR', 'GBP', 'JPY', 'ZMW', 'MWK']} value={financeCurrency} onChange={(value) => saveFinance({ ...{ budget: financeBudget, currency: financeCurrency, expenses: financeExpenses }, currency: value || 'BTC' })} style={{ minWidth: 80, height: 36, fontWeight: 500, fontSize: 14, borderRadius: 8 }} />}
+                                    style={{ width: 180 }}
+                                />
+                                <Button onClick={() => setAddExpenseModalOpen(true)}>Add New Expense</Button>
                             </Group>
-                            {categorySuggestError && <Text color="red" size="xs">{categorySuggestError}</Text>}
-                            <Group justify="flex-end">
-                              <Button onClick={() => {
-                                if (!newExpense.description || !newExpense.category || !newExpense.amount || !newExpense.date) return;
-                                const expense: Expense = {
-                                  id: Date.now().toString(),
-                                  description: newExpense.description,
-                                  category: newExpense.category,
-                                  amount: Number(newExpense.amount),
-                                  date: newExpense.date,
-                                };
-                                setFinanceExpenses([...financeExpenses, expense]);
-                                setAddExpenseModalOpen(false);
-                                setNewExpense({ amount: 0, date: '', description: '', category: '' });
-                              }}>Add</Button>
-                            </Group>
-                          </Stack>
-                        </Modal>
-                        <Paper withBorder p="md" mb="xl" radius="md" style={{ background: styles.tabPanelBackground, border: `1px solid ${styles.cardBorder}` }}>
-                          <Title order={6} mb="md" style={{ color: styles.textColor }}>Finance Analytics</Title>
-                          <Group align="flex-start" grow>
-                            {/* Pie Chart: Expense by Category */}
-                            <Stack style={{ flex: 1 }}>
-                              <Text size="sm" fw={500} mb="xs">By Category</Text>
-                              <PieChart
-                                data={pieData}
-                                withTooltip
-                                h={180}
-                              />
-                            </Stack>
-                            {/* Bar Chart: Spending over Time */}
-                            <Stack style={{ flex: 1 }}>
-                              <Text size="sm" fw={500} mb="xs">Spending Over Time</Text>
-                              <BarChart
-                                h={180}
-                                data={Object.entries(
-                                  financeExpenses.reduce((acc, e) => {
-                                    const date = e.date || 'Unknown';
-                                    acc[date] = (acc[date] || 0) + (e.amount || 0);
-                                    return acc;
-                                  }, {} as Record<string, number>)
-                                ).map(([date, value]) => ({ date, value }))}
-                                dataKey="date"
-                                series={[{ name: 'value', color: 'blue' }]}
-                                withTooltip
-                              />
-                            </Stack>
-                            {/* Key Stats */}
-                            <Stack style={{ flex: 1 }}>
-                              <Text size="sm" fw={500} mb="xs">Key Stats</Text>
-                              <Text size="xs">Largest Expense: {financeExpenses.length ? `${financeCurrency} ${Math.max(...financeExpenses.map(e => e.amount || 0)).toFixed(2)}` : 'N/A'}</Text>
-                              <Text size="xs">Most Frequent Category: {(() => {
-                                if (!financeExpenses.length) return 'N/A';
-                                const freq = financeExpenses.reduce((acc, e) => { acc[e.category || 'Uncategorized'] = (acc[e.category || 'Uncategorized'] || 0) + 1; return acc; }, {} as Record<string, number>);
-                                return Object.entries(freq).sort((a, b) => b[1] - a[1])[0][0];
-                              })()}</Text>
-                              <Text size="xs">Average Expense: {financeExpenses.length ? `${financeCurrency} ${(financeExpenses.reduce((sum, e) => sum + (e.amount || 0), 0) / financeExpenses.length).toFixed(2)}` : 'N/A'}</Text>
-                            </Stack>
-                          </Group>
-                        </Paper>
-                        <Box mt="xl" style={{ background: styles.tabPanelBackground, borderRadius: rem(8), padding: '1.5rem', border: `1px solid ${styles.cardBorder}` }}>
-                          <Title order={6} mb="xs" style={{ color: styles.textColor }}>Ask SparkAI about your finances</Title>
-                          <Stack>
-                            <Textarea
-                              placeholder="E.g. What is my biggest expense? Are we on track with the budget?"
-                              value={financeAiQuestion}
-                              onChange={e => setFinanceAiQuestion(e.currentTarget.value)}
-                              minRows={2}
-                              autosize
-                            />
-                            <Group>
-                              <Button onClick={handleAskFinanceAI} loading={financeAiLoading}>Ask SparkAI</Button>
-                            </Group>
-                            {financeAiError && <Text color="red">{financeAiError}</Text>}
-                            {financeAiAnswer && (
-                              <Paper p="sm" shadow="xs" style={{ backgroundColor: styles.tabBackground, border: `1px solid ${styles.cardBorder}` }}>
-                                <Text size="sm" style={{ fontWeight: 'bold' }}>SparkAI Answer:</Text>
-                                <ReactMarkdown>{financeAiAnswer}</ReactMarkdown>
-                              </Paper>
+
+                            <Text size="lg" fw={600} mb="md">Total Expenses: {financeCurrency} {totalExpenses.toFixed(2)}</Text>
+                            <Text size="lg" fw={600} mb="md" color={remainingBudget < 0 ? 'red' : 'green'}>Remaining Budget: {financeCurrency} {remainingBudget.toFixed(2)}</Text>
+
+                            <Modal opened={addExpenseModalOpen} onClose={() => setAddExpenseModalOpen(false)} title="Add New Expense">
+                                <Stack>
+                                    <TextInput
+                                        label="Description"
+                                        placeholder="Expense description"
+                                        value={newExpense.description}
+                                        onChange={(e) => setNewExpense({ ...newExpense, description: e.currentTarget.value })}
+                                        required
+                                    />
+                                    <TextInput
+                                        label="Amount"
+                                        type="number"
+                                        placeholder="0.00"
+                                        value={newExpense.amount}
+                                        onChange={(e) => setNewExpense({ ...newExpense, amount: parseFloat(e.currentTarget.value) || 0 })}
+                                        required
+                                    />
+                                    <TextInput
+                                        label="Date"
+                                        type="date"
+                                        value={newExpense.date}
+                                        onChange={(e) => setNewExpense({ ...newExpense, date: e.currentTarget.value })}
+                                        required
+                                    />
+                                    <Group grow>
+                                        <TextInput
+                                            label="Category"
+                                            placeholder="e.g., Travel, Software"
+                                            value={newExpense.category}
+                                            onChange={(e) => setNewExpense({ ...newExpense, category: e.currentTarget.value })}
+                                            required
+                                        />
+                                        <Button size="xs" onClick={handleSuggestCategory} loading={categorySuggesting} leftSection={<IconSparkles size={16} />}>Suggest Category</Button>
+                                    </Group>
+                                    {categorySuggestError && <Text color="red">{categorySuggestError}</Text>}
+                                    <Select
+                                        label="Link to Task (Optional)"
+                                        data={tasks.map(t => ({ value: t.id, label: t.title }))}
+                                        value={newExpense.linkedTaskId}
+                                        onChange={(value) => setNewExpense({ ...newExpense, linkedTaskId: value || undefined })}
+                                        clearable
+                                    />
+                                    <TextInput
+                                        label="Receipt URL (Optional)"
+                                        placeholder="URL to receipt image or document"
+                                        value={newExpense.receiptUrl}
+                                        onChange={(e) => setNewExpense({ ...newExpense, receiptUrl: e.currentTarget.value })}
+                                    />
+                                    <Button onClick={handleAddExpense}>Add Expense</Button>
+                                </Stack>
+                            </Modal>
+
+                            <Divider my="md" />
+
+                            <Title order={4} mb="md">Expense Breakdown by Category</Title>
+                            <Box style={{ background: '#f8f9fa', borderRadius: 12, padding: 16, marginBottom: 16 }}>
+                            {categoryData.length > 0 ? (
+                                <Center>
+                                    <PieChart
+                                        data={categoryData}
+                                        withLabels
+                                        labelsType="value"
+                                        size={isMobile ? 200 : 280}
+                                        valueFormatter={(value: number) => `${financeCurrency} ${value.toFixed(2)}`}
+                                    />
+                                </Center>
+                            ) : (
+                                <Center>
+                                  <PieChart
+                                    data={[{ name: 'No Data', value: 1, color: '#dee2e6' }]}
+                                    withLabels
+                                    labelsType="value"
+                                    size={isMobile ? 200 : 280}
+                                    valueFormatter={() => ''}
+                                  />
+                                </Center>
+                              )}
+                              {categoryData.length === 0 && (
+                                <Text color="dimmed" ta="center" mt="sm">No expenses to categorize yet.</Text>
                             )}
-                          </Stack>
-                        </Box>
-                      </Box>
-                    </Tabs.Panel>
-                        </Tabs>
-                <Container fluid pt="md" pb="md" style={{ borderTop: `1px solid ${styles.cardBorder}`, width: '100%' }}>
-                    <Text size="sm" c="dimmed" ta="center">&copy; {new Date().getFullYear()} SparkPad. All rights reserved.</Text>
+                            </Box>
+
+                            <Divider my="md" />
+
+                            <Title order={4} mb="md">Expenses Over Time</Title>
+                            <Box style={{ background: '#f8f9fa', borderRadius: 12, padding: 16, marginBottom: 16 }}>
+                            {monthlyChartData.length > 0 ? (
+                                <Box h={isMobile ? 200 : 300}>
+                                    <BarChart
+                                        data={monthlyChartData}
+                                        dataKey="monthYear"
+                                        series={[{ name: 'expenses', color: 'blue.6' }]}
+                                        yAxisLabel={`Amount (${financeCurrency})`}
+                                        orientation="vertical"
+                                    />
+                                </Box>
+                            ) : (
+                                <Box h={isMobile ? 200 : 300} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  <BarChart
+                                    data={[{ monthYear: 'No Data', expenses: 1 }]}
+                                    dataKey="monthYear"
+                                    series={[{ name: 'expenses', color: '#dee2e6' }]}
+                                    yAxisLabel={`Amount (${financeCurrency})`}
+                                    orientation="vertical"
+                                  />
+                                </Box>
+                              )}
+                              {monthlyChartData.length === 0 && (
+                                <Text color="dimmed" ta="center" mt="sm">No historical expense data yet.</Text>
+                            )}
+                            </Box>
+
+                            <Divider my="md" />
+
+                            <Title order={4} mb="md">All Expenses</Title>
+                            {financeExpenses.length === 0 ? (
+                                <Text color="dimmed">No expenses recorded yet.</Text>
+                            ) : (
+                                <Stack>
+                                    {financeExpenses.map(exp => (
+                                        <Paper key={exp.id} p="sm" shadow="xs" withBorder style={{ borderColor: styles.cardBorder }}>
+                                            <Group justify="space-between" align="center">
+                                                <Stack gap={2}>
+                                                    <Text fw={500}>{exp.description}</Text>
+                                                    <Group gap={4}>
+                                                      <Text size="sm">{financeCurrency} {exp.amount.toFixed(2)} • {exp.date}</Text>
+                                                      <Badge variant="light">{exp.category}</Badge>
+                                                    </Group>
+                                                    {exp.linkedTaskId && <Text size="xs" color="dimmed">Linked to: {tasks.find(t => t.id === exp.linkedTaskId)?.title || 'Unknown Task'}</Text>}
+                                                    {exp.receiptUrl && <Text size="xs"><a href={exp.receiptUrl} target="_blank" rel="noopener noreferrer">View Receipt</a></Text>}
+                                                </Stack>
+                                                <ActionIcon variant="light" color="red" onClick={() => handleDeleteExpense(exp.id)}>
+                                                    <IconTrash size={18} />
+                                                </ActionIcon>
+                                                <ActionIcon variant="light" color="blue" onClick={() => handleEditExpense(exp)} title="Edit Expense">
+                                                    <IconEdit size={18} />
+                                                </ActionIcon>
+                                            </Group>
+                                        </Paper>
+                                    ))}
+                                </Stack>
+                            )}
+
+                            <Divider my="md" />
+
+                            <Title order={4} mb="md">AI Finance Assistant</Title>
+                            <Textarea
+                                placeholder="Ask a question about your project's finances (e.g., 'What are my total expenses for marketing?', 'How much budget is left?')"
+                                value={financeAiQuestion}
+                                onChange={(e) => setFinanceAiQuestion(e.currentTarget.value)}
+                                minRows={3}
+                                mb="sm"
+                            />
+                            <Button onClick={handleAskFinanceAi} loading={financeAiLoading} leftSection={<IconRobot size={18} />}>Ask AI</Button>
+                            {financeAiError && <Text color="red" mt="sm">{financeAiError}</Text>}
+                            {financeAiAnswer && (
+                                <Paper p="md" shadow="sm" withBorder mt="md" style={{ backgroundColor: styles.cardBackground }}>
+                                    <Text fw={500} mb="xs">AI Answer:</Text>
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{financeAiAnswer}</ReactMarkdown>
+                                </Paper>
+                            )}
+                        </Tabs.Panel>
+
+                        <Tabs.Panel value="ai_assistants" style={{ backgroundColor: styles.tabPanelBackground, padding: rem(20), borderRadius: rem(8), marginTop: rem(20), border: styles.cardBorder, boxShadow: styles.cardShadow }}>
+                            <Title order={3} style={{ color: styles.textColor }} mb="md">AI Assistants</Title>
+                            <Stack>
+                                <AskAI />
+                                <AIInsightsPanel />
+                                <AISentimentInsights />
+                                <AIWorkflowAutomation />
+                                <AIRiskAlerts />
+                            </Stack>
+                            <Divider my="md" />
+                            <Title order={4} style={{ color: styles.textColor }} mb="md">Document Transition AI</Title>
+                            <Text size="sm" color="dimmed" mb="md">
+                                Use AI to help transition content from one document to another. Select a source document and a target document.
+                            </Text>
+                            <Group grow mb="md">
+                                <Select
+                                    label="Source Document"
+                                    placeholder="Select source"
+                                    data={docTabs.map(tab => ({ value: tab.id, label: tab.title }))}
+                                    value={transitionSource}
+                                    onChange={(value) => setTransitionSource(value)}
+                                />
+                                <Select
+                                    label="Target Document"
+                                    placeholder="Select target"
+                                    data={docTabs.map(tab => ({ value: tab.id, label: tab.title }))}
+                                    value={transitionTarget}
+                                    onChange={(value) => setTransitionTarget(value)}
+                                />
+                            </Group>
+                            <Button
+                                onClick={async () => {
+                                    if (!transitionSource || !transitionTarget) {
+                                        showNotification({ title: 'Error', message: 'Please select both source and target documents.', color: 'red' });
+                                        return;
+                                    }
+                                    setTransitionLoading(true);
+                                    try {
+                                        const sourceContent = (docRows[transitionSource] || []).join('\n');
+                                        const targetContent = (docRows[transitionTarget] || []).join('\n');
+
+                                        const gemini = getGeminiClient();
+                                        const model = gemini.getGenerativeModel({ model: "gemini-2.0-flash" });
+                                        const prompt = `Facilitate the transition of key information from the source document to the target document.
+                                        Source Document Content:\n${sourceContent}\n\n
+                                        Target Document Content:\n${targetContent}\n\n
+                                        Identify what information is missing or needs to be adapted from the source to enrich or complete the target. Provide specific suggestions or direct content to add/modify in the target document.`;
+                                        const result = await model.generateContent(prompt);
+                                        const aiResult = result.response.text().trim();
+                                        setTransitionResult(aiResult);
+                                    } catch (err: any) {
+                                        showNotification({ title: 'AI Error', message: err.message || 'Failed to generate transition guidance.', color: 'red' });
+                                    } finally {
+                                        setTransitionLoading(false);
+                                    }
+                                }}
+                                loading={transitionLoading}
+                                leftSection={<IconSparkles size={18} />}
+                            >
+                                Generate Transition Guidance
+                            </Button>
+                            {transitionResult && (
+                                <Paper p="md" shadow="sm" withBorder mt="md" style={{ backgroundColor: styles.cardBackground }}>
+                                    <Text fw={500} mb="xs">AI Transition Guidance:</Text>
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{transitionResult}</ReactMarkdown>
+                                </Paper>
+                            )}
+                        </Tabs.Panel>
+                        <Tabs.Panel value="directives_hub" style={{ backgroundColor: styles.tabPanelBackground, padding: rem(20), borderRadius: rem(8), marginTop: rem(20), border: styles.cardBorder, boxShadow: styles.cardShadow }}>
+                            <DirectivesHubPage />
+                        </Tabs.Panel>
+                        <Tabs.Panel value="target_groups" style={{ backgroundColor: styles.tabPanelBackground, padding: rem(20), borderRadius: rem(8), marginTop: rem(20), border: styles.cardBorder, boxShadow: styles.cardShadow }}>
+                            <TargetGroupsPage />
+                        </Tabs.Panel>
+                    </Tabs>
+                </Container>
+                <Container fluid py="sm" style={{ backgroundColor: styles.cardBackground, borderTop: styles.cardBorder, boxShadow: '0 -2px 8px rgba(0,0,0,0.03)' }}>
+                    <Text size="sm" color="dimmed" ta="center">&copy; {new Date().getFullYear()} SparkPad. All rights reserved.</Text>
                 </Container>
                 <ActionIcon
                     variant="light"
@@ -3038,6 +3199,112 @@ export default function ProjectViewPage() {
                     }}
                 />
             </Box>
+            <input ref={fileInputRef} type="file" style={{ display: 'none' }} onChange={handleFileUpload} />
+            <Modal opened={!!editingExpense} onClose={handleCancelEditExpense} title="Edit Expense">
+              <Stack>
+                <TextInput
+                  label="Description"
+                  value={editExpenseData.description || ''}
+                  onChange={e => setEditExpenseData({ ...editExpenseData, description: e.currentTarget.value })}
+                  required
+                />
+                <TextInput
+                  label="Amount"
+                  type="number"
+                  value={editExpenseData.amount || ''}
+                  onChange={e => setEditExpenseData({ ...editExpenseData, amount: parseFloat(e.currentTarget.value) || 0 })}
+                  required
+                />
+                <TextInput
+                  label="Date"
+                  type="date"
+                  value={editExpenseData.date || ''}
+                  onChange={e => setEditExpenseData({ ...editExpenseData, date: e.currentTarget.value })}
+                  required
+                />
+                <TextInput
+                  label="Category"
+                  value={editExpenseData.category || ''}
+                  onChange={e => setEditExpenseData({ ...editExpenseData, category: e.currentTarget.value })}
+                  required
+                />
+                <TextInput
+                  label="Receipt URL (Optional)"
+                  value={editExpenseData.receiptUrl || ''}
+                  onChange={e => setEditExpenseData({ ...editExpenseData, receiptUrl: e.currentTarget.value })}
+                />
+                <Button onClick={handleSaveEditExpense}>Save Changes</Button>
+                <Button variant="light" color="red" onClick={handleCancelEditExpense}>Cancel</Button>
+              </Stack>
+            </Modal>
+            <Modal opened={settingsOpened} onClose={() => setSettingsOpened(false)} title="Project Settings" centered>
+              <Stack>
+                <Title order={4}>Add Member</Title>
+                <TextInput
+                  label="Username or Email"
+                  placeholder="Enter username or email"
+                  value={newMemberEmail}
+                  onChange={e => setNewMemberEmail(e.currentTarget.value)}
+                  disabled={adding}
+                />
+                <Button onClick={handleAddMember} loading={adding} disabled={!newMemberEmail.trim()}>
+                  Add Member
+                </Button>
+                <Divider my="md" />
+                <Title order={5} mb="xs">Current Members</Title>
+                <Stack gap={4}>
+                  {project?.members?.map((member: string) => (
+                    <Group key={member} justify="space-between">
+                      <Text>{member}</Text>
+                      {project.members.length > 1 && member !== localStorage.getItem("user:username") && (
+                        <ActionIcon color="red" variant="light" onClick={() => handleRemoveMember(member)} size={24}>
+                          <IconTrash size={16} />
+                        </ActionIcon>
+                      )}
+                    </Group>
+                  ))}
+                </Stack>
+              </Stack>
+            </Modal>
         </>
+    );
+}
+
+// Move AudioPlayer definition above ProjectViewPage and ensure it returns JSX
+function AudioPlayer({ audioKey, audioURLs, setAudioURLs }: { audioKey: string, audioURLs: { [key: string]: string }, setAudioURLs: React.Dispatch<React.SetStateAction<{ [key: string]: string }>> }) {
+    const [loading, setLoading] = useState(false);
+    useEffect(() => {
+        let url = audioURLs[audioKey];
+        let revoked = false;
+        async function loadAudio() {
+            if (!url) {
+                setLoading(true);
+                // If audioKey looks like a URL, use it directly
+                if (audioKey.startsWith('http')) {
+                    setAudioURLs(prev => ({ ...prev, [audioKey]: audioKey }));
+                    setLoading(false);
+                    return;
+                }
+                // Otherwise, fetch from Civil Memory
+                const blob = await fetchAudioFromCivilMemory(audioKey);
+                if (blob && !revoked) {
+                    url = URL.createObjectURL(blob);
+                    setAudioURLs(prev => ({ ...prev, [audioKey]: url }));
+                }
+                setLoading(false);
+            }
+        }
+        loadAudio();
+        return () => {
+            if (url) URL.revokeObjectURL(url);
+            revoked = true;
+        };
+    }, [audioKey]);
+    if (loading) return <Text size="xs" color="dimmed">Loading audio...</Text>;
+    if (!audioURLs[audioKey]) return <Text size="xs" color="dimmed">Audio not found.</Text>;
+    return (
+        <audio controls src={audioURLs[audioKey]} style={{ width: '100%', marginTop: 4 }}>
+            Your browser does not support the audio element.
+        </audio>
     );
 }

@@ -1,5 +1,5 @@
 {
-  "name": "SparkPad",
+  "name": "sparkpad",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -12,12 +12,13 @@
     "@google/genai": "^0.12.0",
     "@google/generative-ai": "^0.24.1",
     "@hello-pangea/dnd": "^18.0.1",
-    "@mantine/carousel": "^8.0.0",
-    "@mantine/charts": "^8.0.2",
-    "@mantine/core": "^8.0.0",
-    "@mantine/hooks": "^8.0.0",
-    "@mantine/modals": "^8.0.0",
-    "@mantine/notifications": "^8.0.0",
+    "@mantine/carousel": "^8.1.0",
+    "@mantine/charts": "^8.1.0",
+    "@mantine/core": "^8.1.0",
+    "@mantine/dates": "^8.1.0",
+    "@mantine/hooks": "^8.1.0",
+    "@mantine/modals": "^8.1.0",
+    "@mantine/notifications": "^8.1.0",
     "@tabler/icons-react": "^3.31.0",
     "date-fns": "^4.1.0",
     "embla-carousel-react": "^8.6.0",
@@ -29,7 +30,8 @@
     "react-big-calendar": "^1.18.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
-    "recharts": "^2.15.3"
+    "recharts": "^2.15.3",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

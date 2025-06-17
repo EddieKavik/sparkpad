@@ -1,7 +1,7 @@
 "use client";
 import { useRouter, usePathname } from "next/navigation";
 import { Group, Button, Text, Avatar, Menu, ActionIcon, rem, Modal, TextInput, Title, Badge, Tooltip, ThemeIcon, ScrollArea, Drawer, Stack, Divider } from "@mantine/core";
-import { IconMaximize, IconBell, IconSettings, IconUser, IconLogout, IconEdit, IconLock, IconArrowLeft, IconCheck, IconX, IconMenu } from "@tabler/icons-react";
+import { IconMaximize, IconBell, IconSettings, IconUser, IconLogout, IconEdit, IconLock, IconArrowLeft, IconCheck, IconX, IconMenu, IconInbox, IconBroadcast, IconUsersGroup, IconListDetails } from "@tabler/icons-react";
 import { getInitials } from "@/utils/helpers";
 import { useState, useEffect } from "react";
 import { showNotification } from "@mantine/notifications";
@@ -53,7 +53,7 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
         borderRadius: 0,
         margin: 0,
         zIndex: 10,
-        position: 'relative',
+        position: 'relative' as const,
         minHeight: 58,
         padding: '0 0',
         backdropFilter: isMarketingPage ? 'none' : (theme === 'futuristic' ? 'blur(14px)' : 'none'),
@@ -361,108 +361,23 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                         </ActionIcon>
                     ) : (
                         <Group gap={0} style={{ marginLeft: 16 }}>
-                            {!isLoggedIn && <>
-                                <Link href="/about" style={{
-                                    color: pathname.startsWith("/about") ? '#1769aa' : '#222',
-                                    fontWeight: 600,
-                                    fontSize: 16,
-                                    padding: '0 18px',
-                                    height: 40,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    borderBottom: pathname.startsWith("/about") ? '2px solid #1769aa' : '2px solid transparent',
-                                    background: 'none',
-                                    textDecoration: 'none',
-                                    transition: 'color 0.18s, border-bottom 0.18s',
-                                }}
-                                    onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '2px solid #1769aa'; }}
-                                    onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/about") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/about") ? '2px solid #1769aa' : '2px solid transparent'; }}
-                                >About</Link>
-                                <Link href="/products" style={{
-                                    color: pathname.startsWith("/products") ? '#1769aa' : '#222',
-                                    fontWeight: 600,
-                                    fontSize: 16,
-                                    padding: '0 18px',
-                                    height: 40,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    borderBottom: pathname.startsWith("/products") ? '2px solid #1769aa' : '2px solid transparent',
-                                    background: 'none',
-                                    textDecoration: 'none',
-                                    transition: 'color 0.18s, border-bottom 0.18s',
-                                }}
-                                    onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '2px solid #1769aa'; }}
-                                    onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/products") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/products") ? '2px solid #1769aa' : '2px solid transparent'; }}
-                                >Products</Link>
-                                <Link href="/services" style={{
-                                    color: pathname.startsWith("/services") ? '#1769aa' : '#222',
-                                    fontWeight: 600,
-                                    fontSize: 16,
-                                    padding: '0 18px',
-                                    height: 40,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    borderBottom: pathname.startsWith("/services") ? '2px solid #1769aa' : '2px solid transparent',
-                                    background: 'none',
-                                    textDecoration: 'none',
-                                    transition: 'color 0.18s, border-bottom 0.18s',
-                                }}
-                                    onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '2px solid #1769aa'; }}
-                                    onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/services") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/services") ? '2px solid #1769aa' : '2px solid transparent'; }}
-                                >Services</Link>
-                                <Link href="/contact" style={{
-                                    color: pathname.startsWith("/contact") ? '#1769aa' : '#222',
-                                    fontWeight: 600,
-                                    fontSize: 16,
-                                    padding: '0 18px',
-                                    height: 40,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    borderBottom: pathname.startsWith("/contact") ? '2px solid #1769aa' : '2px solid transparent',
-                                    background: 'none',
-                                    textDecoration: 'none',
-                                    transition: 'color 0.18s, border-bottom 0.18s',
-                                }}
-                                    onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '2px solid #1769aa'; }}
-                                    onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/contact") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/contact") ? '2px solid #1769aa' : '2px solid transparent'; }}
-                                >Contact Us</Link>
-                                <Link href="/login" style={{
-                                    color: pathname.startsWith("/login") ? '#1769aa' : '#222',
-                                    fontWeight: 600,
-                                    fontSize: 16,
-                                    padding: '0 18px',
-                                    height: 40,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    borderBottom: pathname.startsWith("/login") ? '2px solid #1769aa' : '2px solid transparent',
-                                    background: 'none',
-                                    textDecoration: 'none',
-                                    transition: 'color 0.18s, border-bottom 0.18s',
-                                    marginLeft: 12
-                                }}
-                                    onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '2px solid #1769aa'; }}
-                                    onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/login") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/login") ? '2px solid #1769aa' : '2px solid transparent'; }}
-                                >Login</Link>
-                            </>}
                             {isLoggedIn && (
-                                <>
-                                    <Link href="/projects" style={{
-                                        color: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '#1769aa' : '#222',
-                                        fontWeight: 600,
-                                        fontSize: 16,
-                                        padding: '0 18px',
-                                        height: 40,
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        borderBottom: pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '2px solid #1769aa' : '2px solid transparent',
-                                        background: 'none',
-                                        textDecoration: 'none',
-                                        transition: 'color 0.18s, border-bottom 0.18s',
-                                    }}
-                                        onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '2px solid #1769aa'; }}
-                                        onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/projects") && !pathname.includes("showStats=1") ? '2px solid #1769aa' : '2px solid transparent'; }}
-                                    >Projects</Link>
-                                </>
+                                <Link href="/projects" style={{
+                                    color: pathname.startsWith("/projects") ? '#1769aa' : '#222',
+                                    fontWeight: 600,
+                                    fontSize: 16,
+                                    padding: '0 18px',
+                                    height: 40,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    borderBottom: pathname.startsWith("/projects") ? '2px solid #1769aa' : '2px solid transparent',
+                                    background: 'none',
+                                    textDecoration: 'none',
+                                    transition: 'color 0.18s, border-bottom 0.18s',
+                                }}
+                                    onMouseOver={e => { e.currentTarget.style.color = '#124c7c'; e.currentTarget.style.borderBottom = '2px solid #1769aa'; }}
+                                    onMouseOut={e => { e.currentTarget.style.color = pathname.startsWith("/projects") ? '#1769aa' : '#222'; e.currentTarget.style.borderBottom = pathname.startsWith("/projects") ? '2px solid #1769aa' : '2px solid transparent'; }}
+                                >Projects</Link>
                             )}
                         </Group>
                     )}
@@ -660,6 +575,14 @@ export function NavigationBar({ userName, onLogout, showBackButton = false }: Na
                         <Button fullWidth variant="light" leftSection={<IconLock size={16} />} onClick={() => { setModalOpened(true); setDrawerOpened(false); }}>Change Password</Button>
                         <Button fullWidth variant="light" color="red" leftSection={<IconLogout size={16} />} onClick={() => { handleLogout(); setDrawerOpened(false); }}>Logout</Button>
                     </>}
+                    {isLoggedIn && (
+                        <Group gap={8} align="center">
+                            <Link href="/directives/inbox"><IconInbox size={16} style={{ marginRight: 6 }} />My Directives Inbox</Link>
+                            <Link href="/directives/broadcast-logs"><IconBroadcast size={16} style={{ marginRight: 6 }} />Broadcast Logs</Link>
+                            <Link href="/directives/target-groups"><IconUsersGroup size={16} style={{ marginRight: 6 }} />Target Groups</Link>
+                            <Link href="/directives"><IconListDetails size={16} style={{ marginRight: 6 }} />Directives Hub</Link>
+                        </Group>
+                    )}
                 </Stack>
             </Drawer>
 

@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import { ActionIcon, Avatar, Box, Button, Group, Loader, Paper, Stack, Text, TextInput, rem, Transition } from '@mantine/core';
 import { IconRobot, IconSend, IconX, IconMessage2 } from '@tabler/icons-react';
 import { getGeminiClient } from '@/utils/gemini';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface FloatingAssistantProps {
   currentTab?: string;
@@ -15,6 +17,12 @@ interface FloatingAssistantProps {
    * Callback to add a new task from an action item
    */
   onAddTask?: (title: string) => void;
+  docTabs?: { id: string; title: string; tags?: string[] }[];
+  docRows?: { [docId: string]: string[] };
+  setDocTabs?: (tabs: { id: string; title: string; tags?: string[] }[]) => void;
+  setDocRows?: (rows: { [docId: string]: string[] }) => void;
+  projects?: any[];
+  setProjects?: (projects: any[]) => void;
 }
 
 const tabSuggestions: Record<string, { greeting: string; actions: { label: string; prompt: string }[] }> = {
@@ -65,7 +73,7 @@ const tabSuggestions: Record<string, { greeting: string; actions: { label: strin
   },
 };
 
-export default function FloatingAssistant({ currentTab, userName, projectContext, onAddTask }: FloatingAssistantProps) {
+export default function FloatingAssistant({ currentTab, userName, projectContext, onAddTask, docTabs, docRows, setDocTabs, setDocRows, projects, setProjects }: FloatingAssistantProps) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<any[]>([]);
   const [input, setInput] = useState('');
@@ -107,11 +115,77 @@ export default function FloatingAssistant({ currentTab, userName, projectContext
     setLoading(true);
     setShowSuggestions(false);
     try {
-      const gemini = getGeminiClient();
-      const model = gemini.getGenerativeModel({ model: 'gemini-1.5-flash' });
-      let contextString = messages.map((m) => `${m.sender === 'ai' ? 'AI:' : 'User:'} ${m.content}`).join('\n');
-      if (projectContext) contextString = `${projectContext}\n${contextString}`;
+      // Intent detection for project creation
+      if (setProjects && projects) {
+        const createProjectMatch = content.match(/create (a |new )?project (called|named|titled)?\s*['"]?([\w\s-]+)['"]?/i);
+        if (createProjectMatch) {
+          const projectName = createProjectMatch[3]?.trim() || 'Untitled Project';
+          const newProject = {
+            id: Date.now().toString(),
+            name: projectName,
+            members: [userName || 'anonymous'],
+            status: 'active',
+            createdAt: new Date().toISOString(),
+            tasks: [],
+            files: [],
+            budget: 0,
+            currency: 'USD',
+            expenses: [],
+            directives: [],
+            targetGroups: [],
+          };
+          setProjects([...projects, newProject]);
+          setMessages((msgs: any[]) => [...msgs, { sender: 'ai', content: `Created a new project: **${projectName}**.` }]);
+          setLoading(false);
+          return;
+        }
+      }
+      // Intent detection for document creation
+      if (setDocTabs && setDocRows && docTabs && docRows) {
+        // Create document intent
+        const createDocMatch = content.match(/create (a |new )?document (called|named|titled)?\s*['"]?([\w\s-]+)['"]?/i);
+        if (createDocMatch) {
+          const docTitle = createDocMatch[3]?.trim() || 'Untitled Document';
+          const newId = `doc-${Date.now()}`;
+          const newTabs = [...docTabs, { id: newId, title: docTitle, tags: [] }];
+          setDocTabs(newTabs);
+          setDocRows({ ...docRows, [newId]: [] });
+          setMessages((msgs: any[]) => [...msgs, { sender: 'ai', content: `Created a new document: **${docTitle}**.` }]);
+          setLoading(false);
+          return;
+        }
+        // Add row intent
+        const addRowMatch = content.match(/add (a |new )?row to ['"]?([\w\s-]+)['"]? with[:]?\s*['"]?(.+)['"]?/i);
+        if (addRowMatch) {
+          const docTitle = addRowMatch[2]?.trim();
+          const rowContent = addRowMatch[3]?.trim();
+          const doc = docTabs.find(t => t.title.toLowerCase() === docTitle.toLowerCase());
+          if (doc && rowContent) {
+            const newRows = { ...docRows, [doc.id]: [...(docRows[doc.id] || []), rowContent] };
+            setDocRows(newRows);
+            setMessages((msgs: any[]) => [...msgs, { sender: 'ai', content: `Added a new row to **${doc.title}**: ${rowContent}` }]);
+            setLoading(false);
+            return;
+          }
+        }
+      }
+      // Build context string with all docs/rows
+      let contextString = '';
+      if (docTabs && docRows) {
+        contextString += 'Project Documents:\n';
+        for (const tab of docTabs) {
+          contextString += `- ${tab.title}:\n`;
+          (docRows[tab.id] || []).forEach((row, idx) => {
+            contextString += `  [${idx + 1}] ${row}\n`;
+          });
+        }
+      }
+      if (projectContext) contextString += `\n${projectContext}`;
+      contextString += '\n';
+      contextString += messages.map((m) => `${m.sender === 'ai' ? 'AI:' : 'User:'} ${m.content}`).join('\n');
       const promptText = `${contextString}\nUser: ${content}\nAI:`;
+      const gemini = getGeminiClient();
+      const model = gemini.getGenerativeModel({ model: 'gemini-2.0-flash' });
       const result = await model.generateContent(promptText);
       const aiText = result.response.text().trim();
       setMessages((msgs: any[]) => [...msgs, { sender: 'ai', content: aiText }]);
@@ -133,7 +207,7 @@ export default function FloatingAssistant({ currentTab, userName, projectContext
       const lastMessages = messages.slice(-20).map((m) => `${m.sender === 'ai' ? 'AI:' : 'User:'} ${m.content}`).join('\n');
       const prompt = `${projectContext ? projectContext + '\n' : ''}Here are the recent project chat messages:\n${lastMessages}\n\nSummarize this discussion in a few sentences and extract any action items or decisions. Format action items as a bullet list if possible.`;
       const gemini = getGeminiClient();
-      const model = gemini.getGenerativeModel({ model: 'gemini-1.5-flash' });
+      const model = gemini.getGenerativeModel({ model: 'gemini-2.0-flash' });
       const result = await model.generateContent(prompt);
       const aiText = result.response.text().trim();
       setMessages((msgs: any[]) => [...msgs, { sender: 'ai', content: aiText }]);
@@ -238,7 +312,11 @@ export default function FloatingAssistant({ currentTab, userName, projectContext
                     fontSize: 14,
                   }}
                 >
-                  {msg.content}
+                  {msg.sender === 'ai' ? (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                  ) : (
+                    msg.content
+                  )}
                 </Paper>
                 {msg.sender === 'user' && <Avatar color="gray" radius="xl" size={28}><IconMessage2 size={16} /></Avatar>}
               </Group>

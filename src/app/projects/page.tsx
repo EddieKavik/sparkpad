@@ -1,12 +1,13 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Container, Title, Text, Button, Group, Card, Stack, TextInput, ActionIcon, Menu, Badge, Tooltip, Modal, Textarea, Select, MultiSelect, SegmentedControl, Paper, Input, SimpleGrid, RingProgress, Center, Box } from "@mantine/core";
+import { Container, Title, Text, Button, Group, Card, Stack, TextInput, ActionIcon, Menu, Badge, Tooltip, Modal, Textarea, Select, MultiSelect, SegmentedControl, Paper, Input, SimpleGrid, RingProgress, Center, Box, TagsInput } from "@mantine/core";
 import { IconPlus, IconDotsVertical, IconEdit, IconTrash, IconShare, IconUsers, IconCalendar, IconTag, IconSearch, IconFilter, IconSortAscending, IconSortDescending, IconChartBar, IconChartPie, IconChartLine } from "@tabler/icons-react";
 import { showNotification } from "@mantine/notifications";
 import { useTheme } from '@/contexts/ThemeContext';
 import { getGeminiClient } from '@/utils/gemini';
 import Link from "next/link";
+import { parseISO, format } from 'date-fns';
 
 // Expense type for budgeting/finance
 export interface Expense {
@@ -200,6 +201,8 @@ export default function ProjectsPage() {
                 members: [userEmail],
                 goals: newProjectGoals,
                 timeline: newProjectTimeline,
+                budget: newProjectBudget,
+                currency: newProjectCurrency,
             };
             projects.push(newProject);
             const saveRes = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`, {
@@ -504,7 +507,7 @@ export default function ProjectsPage() {
         setBudgetSuggestError('');
         try {
             const gemini = getGeminiClient();
-            const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const model = gemini.getGenerativeModel({ model: "gemini-2.0-flash" });
             const prompt = `Suggest a reasonable total budget (in ${newProjectCurrency || 'USD'}) for a project with the following details. Only return a number (no currency symbol or text).\nName: ${newProjectName}\nDescription: ${newProjectDescription}\nGoals: ${newProjectGoals}\nTeam size: 1`;
             const result = await model.generateContent(prompt);
             const suggestion = parseFloat(result.response.text().replace(/[^\d.]/g, ''));
@@ -545,6 +548,7 @@ export default function ProjectsPage() {
                             {showStats ? 'Hide Statistics' : 'Show Statistics'}
                         </Button>
                         <Button
+                            className="no-hover"
                             leftSection={<IconPlus size={16} />}
                             variant={theme === 'futuristic' ? 'gradient' : 'filled'}
                             gradient={theme === 'futuristic' ? styles.buttonGradient : undefined}
@@ -860,13 +864,13 @@ export default function ProjectsPage() {
                                 </Group>
                                 <Text size="sm" c={styles.secondaryTextColor} mb="md" lineClamp={2}>{project.description}</Text>
                                 {project.timeline && project.timeline.start && (
-                                    <Text size="xs" c="dimmed" mb="xs"><b>Start date:</b> {new Date(project.timeline.start).toLocaleDateString()}</Text>
+                                    <Text size="xs" c="dimmed" mb="xs"><b>Start date:</b> {format(parseISO(project.timeline.start), 'PPP')}</Text>
                                 )}
                                 {project.goals && (
                                     <Text size="xs" c="dimmed" mb="xs"><b>Goals:</b> {project.goals}</Text>
                                 )}
                                 {project.timeline && project.timeline.start && project.timeline.end && (
-                                    <Text size="xs" c="dimmed" mb="xs"><b>Timeline:</b> {new Date(project.timeline.start).toLocaleDateString()} - {new Date(project.timeline.end).toLocaleDateString()}</Text>
+                                    <Text size="xs" c="dimmed" mb="xs"><b>Timeline:</b> {format(parseISO(project.timeline.start), 'PPP')} - {format(parseISO(project.timeline.end), 'PPP')}</Text>
                                 )}
                                 <Group gap="xs" mb="md">
                                     {(project.tags || []).map((tag: string, index: number) => (
@@ -990,14 +994,25 @@ export default function ProjectsPage() {
                                 { value: 'completed', label: 'Completed' },
                             ]}
                         />
-                        <TextInput
-                            label="Tags (comma-separated)"
-                            value={newProjectTags}
-                            onChange={(e) => setNewProjectTags(e.currentTarget.value)}
-                            placeholder="e.g. web, design, marketing"
+                        <TagsInput
+                            label="Tags"
+                            data={allTags}
+                            value={newProjectTags ? newProjectTags.split(',').map(tag => tag.trim()).filter(Boolean) : []}
+                            onChange={values => setNewProjectTags(values.join(','))}
+                            placeholder="Select or type to add tags"
+                            clearable
                         />
                         <Group align="flex-end" gap="xs">
-                            <TextInput label="Budget" type="number" value={newProjectBudget || ''} onChange={e => setNewProjectBudget(Number(e.currentTarget.value))} min={0} style={{ flex: 1 }} />
+                            <TextInput label="Budget" type="number" value={newProjectBudget || ''} onChange={e => setNewProjectBudget(Number(e.currentTarget.value))} min={0} style={{ width: 120 }} />
+                            <Select
+                                label="Currency"
+                                value={newProjectCurrency}
+                                onChange={value => setNewProjectCurrency(value || 'BTC')}
+                                data={['BTC', 'USD', 'EUR', 'GBP', 'JPY', 'ZMW', 'MWK']}
+                                style={{ width: 120 }}
+                                searchable
+                                allowDeselect={false}
+                            />
                             <Button variant="light" loading={budgetSuggesting} onClick={handleSuggestBudget}>
                                 Suggest Budget
                             </Button>

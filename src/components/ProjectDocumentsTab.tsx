@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Paper, Group, TextInput, Button, ActionIcon, Stack, Textarea, Menu, Text, Loader, MultiSelect, Select, Notification, Popover, Drawer, Modal, Switch, Badge, Tooltip } from '@mantine/core';
-import { IconEdit, IconTrash, IconDots, IconRobot, IconWorld, IconArrowBack, IconMessagePlus, IconMessageCircle } from '@tabler/icons-react';
+import { IconEdit, IconTrash, IconDots, IconRobot, IconWorld, IconArrowBack, IconMessagePlus, IconMessageCircle, IconSearch, IconPlus } from '@tabler/icons-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { RefObject } from 'react';
 import { getGeminiClient } from '@/utils/gemini';
-import { MultiSelect as MantineMultiSelect, MultiSelectProps } from '@mantine/core';
 
 // Define the props type
 interface ProjectDocumentsTabProps {
@@ -48,6 +48,8 @@ interface ProjectDocumentsTabProps {
   DOCS_PER_PAGE: number;
   styles: any;
   showNotification: (opts: any) => void;
+  tagFilter: string[];
+  setTagFilter: (tags: string[]) => void;
 }
 
 // Add annotation types
@@ -114,14 +116,13 @@ const ProjectDocumentsTab = ({
   DOCS_PER_PAGE,
   styles,
   showNotification,
+  tagFilter,
+  setTagFilter,
 }: ProjectDocumentsTabProps) => {
   // Add state for renaming document
   const [renamingDocId, setRenamingDocId] = useState<string | null>(null);
   const [renameDocValue, setRenameDocValue] = useState("");
   
-  // Add state for tag filtering
-  const [tagFilter, setTagFilter] = useState<string[]>([]);
-
   // Add state for translation feature
   const [translating, setTranslating] = useState(false);
   const [translatedRows, setTranslatedRows] = useState<string[] | null>(null);
@@ -157,6 +158,10 @@ const ProjectDocumentsTab = ({
   // Add after other useState hooks
   const [showResolved, setShowResolved] = useState(false);
 
+  // Add state for AI Prompt dropdown
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiPromptProcessing, setAiPromptProcessing] = useState(false);
+
   // List of supported languages
   const languageOptions = [
     { value: 'en', label: 'English' },
@@ -185,49 +190,51 @@ const ProjectDocumentsTab = ({
     setTranslationLang(targetLang);
     try {
       const gemini = getGeminiClient();
-      const model = gemini.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const model = gemini.getGenerativeModel({ model: "gemini-2.0-flash" });
       const rows = (docRows[docId] || []).filter(row => typeof row === "string");
-      
       if (rows.length === 0) {
         showNotification({ color: 'blue', message: 'No content to translate.' });
         setTranslating(false);
         return;
       }
-      
-      // First translate the document title
+      // Translate the document title
       const docTab = docTabs.find(tab => tab.id === docId);
+      let translatedTitle = '';
       if (docTab) {
         const titlePrompt = `Translate the following text to ${languageOptions.find(l => l.value === targetLang)?.label || targetLang}. Only return the translated text.\n\nText: ${docTab.title}`;
         try {
           const titleResult = await model.generateContent(titlePrompt);
-          const translatedTitle = titleResult.response.text().trim();
-          // Update the document title
-          await handleRenameDoc(docId, translatedTitle, docTab.tags);
-          showNotification({ color: 'green', message: 'Document title translated.' });
+          translatedTitle = titleResult.response.text().trim();
         } catch (err: any) {
           showNotification({ color: 'red', message: 'Failed to translate document title.' });
+          translatedTitle = docTab.title + ' (translated)';
         }
       }
-      
-      // Then translate all rows
+      // Translate all rows and create new rows
       const translated: string[] = [];
       for (let i = 0; i < rows.length; ++i) {
         const prompt = `Translate the following text to ${languageOptions.find(l => l.value === targetLang)?.label || targetLang}. Only return the translated text.\n\nText: ${rows[i]}`;
         try {
           const result = await model.generateContent(prompt);
           const aiText = result.response.text().trim();
+          // Insert original row, then translated row
+          translated.push(rows[i]);
           translated.push(aiText);
         } catch (err: any) {
           showNotification({ color: 'red', message: `Translation failed for row ${i + 1}.` });
-          translated.push(rows[i]); // Fallback to original
+          translated.push(rows[i]);
         }
       }
-      
-      // Update the document rows
-      const updatedRows = { ...docRows };
-      updatedRows[docId] = translated;
-      setDocRows(updatedRows);
-      showNotification({ color: 'green', message: 'Document content translated successfully!' });
+      // Create a new document tab and rows
+      const newDocId = `doc-${Date.now()}`;
+      const newTabs = [
+        ...docTabs,
+        { id: newDocId, title: translatedTitle || 'Translated Document', tags: docTab?.tags || [] }
+      ];
+      setDocTabs(newTabs);
+      setActiveDocTab(newDocId);
+      setDocRows({ ...docRows, [newDocId]: translated });
+      showNotification({ color: 'green', message: 'Translated document created!' });
     } catch (err: any) {
       showNotification({ color: 'red', message: 'Translation failed.' });
     }
@@ -393,20 +400,128 @@ const ProjectDocumentsTab = ({
     </div>
   );
 
+  // Handler for running AI for each row
+  const runAiForEachRow = async () => {
+    if (!aiPrompt.trim() || aiPromptProcessing) return;
+    setAiPromptProcessing(true);
+    try {
+      const gemini = getGeminiClient();
+      const model = gemini.getGenerativeModel({ model: "gemini-2.0-flash" });
+      const rows = docRows[activeDocTab] || [];
+      const updatedRows = await Promise.all(rows.map(async (row) => {
+        let prompt = aiPrompt;
+        if (prompt.includes("____")) {
+          prompt = prompt.replace(/____/g, row);
+        } else {
+          prompt = `${prompt} ${row}`;
+        }
+        try {
+          const result = await model.generateContent(prompt);
+          const aiText = result.response.text().trim();
+          // Insert original row, then AI result as a new row
+          return [row, aiText];
+        } catch {
+          showNotification({ color: 'red', message: 'AI failed for a row.' });
+          return [row];
+        }
+      }));
+      // Flatten the array and update rows
+      setDocRows({ ...docRows, [activeDocTab]: updatedRows.flat() });
+      showNotification({ color: 'green', message: 'AI results added as new rows.' });
+    } finally {
+      setAiPromptProcessing(false);
+    }
+  };
+
   return (
     <Box style={{ flex: 1, padding: 24, overflowY: 'auto' }}>
-      {/* Banner for translated view */}
-      {translatedRows && (
-        <Paper p="xs" mb="md" radius="md" withBorder style={{ background: '#e3f6fd', border: '1px solid #90caf9', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <IconWorld size={18} color="#1976d2" />
-          <Text fw={600} style={{ flex: 1 }}>
-            Viewing translation to {languageOptions.find(l => l.value === translationLang)?.label || translationLang}
-          </Text>
-          <Button size="xs" leftSection={<IconArrowBack size={14} />} onClick={() => { setTranslatedRows(null); setTranslationLang(null); }}>
-            Revert to Original
+      {/* AI Prompt Section */}
+      <Paper withBorder p="md" mb="md" radius="md" style={{ background: '#f8fafd' }}>
+        <Text fw={600} mb={8}>AI Prompt</Text>
+        <Group align="flex-end" wrap="nowrap">
+          <TextInput
+            label="AI Prompt (use ____ for row value)"
+            placeholder="e.g. 'Summarize ____ in one sentence.'"
+            value={aiPrompt}
+            onChange={e => setAiPrompt(e.currentTarget.value)}
+            style={{ flex: 1 }}
+            disabled={aiPromptProcessing}
+          />
+          <Button
+            onClick={runAiForEachRow}
+            loading={aiPromptProcessing}
+            disabled={!aiPrompt.trim() || aiPromptProcessing}
+            style={{ minWidth: 160 }}
+          >
+            Run AI for Each Row
           </Button>
-        </Paper>
-      )}
+        </Group>
+      </Paper>
+      {/* Header: Add Document, Search, Pagination */}
+      <Group mb="md" align="center" justify="space-between">
+        {/* Document Tabs List (as buttons or pills) */}
+        <Group gap={8} style={{ flexWrap: 'wrap', maxWidth: '60vw', overflowX: 'auto' }}>
+          {paginatedTabs.map(tab => (
+            <Group key={tab.id} gap={4}>
+              <Button
+                size="xs"
+                variant={tab.id === activeDocTab ? 'filled' : 'light'}
+                color={tab.id === activeDocTab ? styles.accentColor : 'gray'}
+                onClick={() => setActiveDocTab(tab.id)}
+                style={{ borderRadius: 12, fontWeight: 600, marginRight: 0, marginBottom: 4 }}
+              >
+                {tab.title}
+          </Button>
+              <Menu shadow="md" width={140} position="bottom-end" withinPortal>
+                <Menu.Target>
+                  <ActionIcon variant="subtle" size="xs" style={{ marginLeft: 0, marginBottom: 4 }}>
+                    <IconDots size={14} />
+                  </ActionIcon>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  <Menu.Item
+                    leftSection={<IconEdit size={14} />}
+                    onClick={() => {
+                      setRenamingDocId(tab.id);
+                      setRenameDocValue(tab.title);
+                    }}
+                  >
+                    Rename
+                  </Menu.Item>
+                  <Menu.Item
+                    color="red"
+                    leftSection={<IconTrash size={14} />}
+                    onClick={() => handleDeleteDoc(tab.id)}
+                    disabled={docTabs.length === 1}
+                  >
+                    Delete
+                  </Menu.Item>
+                </Menu.Dropdown>
+              </Menu>
+            </Group>
+          ))}
+        </Group>
+        <Group gap={8}>
+          {/* Search Input */}
+          <TextInput
+            placeholder="Search documents..."
+            value={docSearch}
+            onChange={e => setDocSearch(e.currentTarget.value)}
+            size="xs"
+            leftSection={<IconSearch size={16} />}
+            style={{ minWidth: 180 }}
+          />
+          {/* Add Document Button */}
+          <Button
+            size="xs"
+            leftSection={<IconPlus size={16} />}
+            onClick={handleAddDocument}
+            style={{ borderRadius: 12, fontWeight: 700 }}
+          >
+            Add Document
+          </Button>
+        </Group>
+      </Group>
       {/* Document Title and Language Selector */}
       <Group mb="md" align="center" justify="space-between">
         <Text fw={700} size="lg" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -506,28 +621,27 @@ const ProjectDocumentsTab = ({
                     title="Click to edit"
                     onMouseUp={(e) => handleRowTextSelection(e, row, idx)}
                   >
-                    {/* 1. Find all annotations for this row (by row_id and not resolved)
-                        2. For each annotation, wrap the annotated text in a <span> with highlight styles and icon on hover
-                        3. Render the row as a sequence of plain and highlighted spans */}
-                    {row.split('').map((char, charIdx) => {
-                      const annotation = annotations.find(a => a.row_id === `${idx}` && a.start_offset <= charIdx && a.end_offset > charIdx);
-                      if (annotation) {
-                        return (
-                          <span
-                            key={`${idx}-${charIdx}`}
-                            style={{
-                              backgroundColor: styles.highlightColor,
-                              borderBottom: '1px dashed #1976d2',
-                            }}
-                            onClick={() => { setSidebarOpen(true); setActiveAnnotationId(annotation.annotation_id); }}
-                          >
-                            {char}
-                          </span>
-                        );
-                      } else {
-                        return <span key={`${idx}-${charIdx}`}>{char}</span>;
-                      }
-                    })}
+                    {/* Render row as Markdown, with annotation highlighting if present */}
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        a: ({node, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer" style={{ color: '#1769aa', textDecoration: 'underline' }} />,
+                        code: (props: any) => {
+                          const { inline = false, className, children, ...rest } = props;
+                          if (inline) {
+                            return <code style={{ background: '#f4f4f4', borderRadius: 4, padding: '2px 6px', fontSize: 13 }}>{children}</code>;
+                          }
+                          return <pre style={{ background: '#23243a', color: '#fff', borderRadius: 8, padding: 12, overflowX: 'auto' }}><code>{children}</code></pre>;
+                        },
+                        ul: ({node, ...props}) => <ul style={{ marginLeft: 20, marginBottom: 8 }} {...props} />,
+                        ol: ({node, ...props}) => <ol style={{ marginLeft: 20, marginBottom: 8 }} {...props} />,
+                        li: ({node, ...props}) => <li style={{ marginBottom: 4 }} {...props} />,
+                        p: ({node, ...props}) => <p style={{ marginBottom: 8 }} {...props} />,
+                        blockquote: ({node, ...props}) => <blockquote style={{ borderLeft: '3px solid #1769aa', margin: '8px 0', padding: '4px 12px', color: '#555', background: '#f5f7fa' }} {...props} />,
+                      }}
+                    >
+                      {row}
+                    </ReactMarkdown>
                   </Paper>
                 )}
                 {/* Row comment marker and comment button */}
@@ -612,9 +726,21 @@ const ProjectDocumentsTab = ({
                 {false && (
                   <Paper p="xs" mt={4} radius="sm" withBorder style={{ background: styles.tabBackground, border: styles.cardBorder }}>
                     <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
                       components={{
-                        p: ({node, ...props}) => <Text size="sm" color="blue" {...props} />,
-                        li: ({node, ...props}) => <li style={{ marginLeft: 16 }} {...props} />,
+                        a: ({node, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer" style={{ color: '#1769aa', textDecoration: 'underline' }} />,
+                        code: (props: any) => {
+                          const { inline = false, className, children, ...rest } = props;
+                          if (inline) {
+                            return <code style={{ background: '#f4f4f4', borderRadius: 4, padding: '2px 6px', fontSize: 13 }}>{children}</code>;
+                          }
+                          return <pre style={{ background: '#23243a', color: '#fff', borderRadius: 8, padding: 12, overflowX: 'auto' }}><code>{children}</code></pre>;
+                        },
+                        ul: ({node, ...props}) => <ul style={{ marginLeft: 20, marginBottom: 8 }} {...props} />,
+                        ol: ({node, ...props}) => <ol style={{ marginLeft: 20, marginBottom: 8 }} {...props} />,
+                        li: ({node, ...props}) => <li style={{ marginBottom: 4 }} {...props} />,
+                        p: ({node, ...props}) => <p style={{ marginBottom: 8 }} {...props} />,
+                        blockquote: ({node, ...props}) => <blockquote style={{ borderLeft: '3px solid #1769aa', margin: '8px 0', padding: '4px 12px', color: '#555', background: '#f5f7fa' }} {...props} />,
                       }}
                     >
                       {""}
@@ -665,6 +791,26 @@ const ProjectDocumentsTab = ({
           </Button>
         )}
       </Stack>
+      {/* Pagination Controls (moved to bottom) */}
+      {totalPages > 1 && (
+        <Group mt="md" mb="md" justify="center" gap={4}>
+          <Button size="xs" variant="subtle" onClick={() => setDocPage(p => Math.max(1, p - 1))} disabled={docPage === 1}>Prev</Button>
+          <Text size="sm" style={{ minWidth: 60, textAlign: 'center' }}>Page {docPage} of {totalPages}</Text>
+          <Button size="xs" variant="subtle" onClick={() => setDocPage(p => Math.min(totalPages, p + 1))} disabled={docPage === totalPages}>Next</Button>
+        </Group>
+      )}
+      {/* Banner for translated view */}
+      {translatedRows && (
+        <Paper p="xs" mb="md" radius="md" withBorder style={{ background: '#e3f6fd', border: '1px solid #90caf9', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <IconWorld size={18} color="#1976d2" />
+          <Text fw={600} style={{ flex: 1 }}>
+            Viewing translation to {languageOptions.find(l => l.value === translationLang)?.label || translationLang}
+          </Text>
+          <Button size="xs" leftSection={<IconArrowBack size={14} />} onClick={() => { setTranslatedRows(null); setTranslationLang(null); }}>
+            Revert to Original
+          </Button>
+        </Paper>
+      )}
       {/* Floating annotation toolbar */}
       {toolbarPosition && selectedText && (
         <div
@@ -834,6 +980,29 @@ const ProjectDocumentsTab = ({
             setDeleteConfirmOpen(false);
             setAnnotationToDelete(null);
           }}>Delete</Button>
+        </Group>
+      </Modal>
+      {/* Rename Document Modal */}
+      <Modal opened={!!renamingDocId} onClose={() => setRenamingDocId(null)} title="Rename Document" centered>
+        <TextInput
+          value={renameDocValue}
+          onChange={e => setRenameDocValue(e.currentTarget.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && renamingDocId) {
+              handleRenameDoc(renamingDocId, renameDocValue);
+              setRenamingDocId(null);
+            }
+          }}
+          autoFocus
+        />
+        <Group mt="md" justify="flex-end">
+          <Button variant="default" onClick={() => setRenamingDocId(null)}>Cancel</Button>
+          <Button onClick={() => {
+            if (renamingDocId) {
+              handleRenameDoc(renamingDocId, renameDocValue);
+              setRenamingDocId(null);
+            }
+          }}>Save</Button>
         </Group>
       </Modal>
     </Box>

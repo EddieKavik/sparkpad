@@ -81,12 +81,6 @@ button,
   box-shadow: none;
 }
 
-button:hover,
-.mantine-Button-root:hover {
-  background: var(--primary-hover);
-  color: #fff;
-}
-
 button:active,
 .mantine-Button-root:active {
   background: #0d3c5e;
@@ -223,4 +217,29 @@ tr:nth-child(even) {
 .futuristic-float-3d {
   all: unset !important;
   display: revert !important;
+}
+
+.no-hover:hover, .no-hover.mantine-Button-root:hover {
+  background: inherit !important;
+  color: inherit !important;
+  box-shadow: inherit !important;
+}
+
+.no-hover.mantine-Button-root[data-variant="gradient"]:hover,
+.no-hover.mantine-Button-root[data-variant="filled"]:hover {
+  background: inherit !important;
+  color: inherit !important;
+  box-shadow: inherit !important;
+  filter: none !important;
+}
+
+.no-hover .mantine-Button-label,
+.no-hover .mantine-Button-label:hover,
+.no-hover .mantine-Button-label:focus,
+.no-hover .mantine-Button-label:active {
+  background: inherit !important;
+  color: inherit !important;
+  box-shadow: inherit !important;
+  filter: none !important;
+  transition: none !important;
 }
