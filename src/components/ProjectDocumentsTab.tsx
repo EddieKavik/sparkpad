@@ -1,20 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Paper, Group, TextInput, Button, ActionIcon, Stack, Textarea, Menu, Text, Loader, MultiSelect, Select, Notification, Popover, Drawer, Modal, Switch, Badge, Tooltip } from '@mantine/core';
+import { Box, Paper, Group, TextInput, Button, ActionIcon, Stack, Textarea, Menu, Text, Loader, MultiSelect, Select, Notification, Popover, Drawer, Modal, Switch, Badge, Tooltip, Title, Table } from '@mantine/core';
 import { IconEdit, IconTrash, IconDots, IconRobot, IconWorld, IconArrowBack, IconMessagePlus, IconMessageCircle, IconSearch, IconPlus } from '@tabler/icons-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { RefObject } from 'react';
 import { getGeminiClient } from '@/utils/gemini';
+import { io, Socket } from 'socket.io-client';
+import { useDisclosure } from '@mantine/hooks';
+import { listDocuments, createDocument, type CivilMemoryDocument } from '@/utils/civilMemoryDocuments';
 
 // Define the props type
 interface ProjectDocumentsTabProps {
   projectId?: string;
   docTabs: { id: string; title: string; tags?: string[] }[];
-  setDocTabs: (tabs: { id: string; title: string; tags?: string[] }[]) => void;
+  setDocTabs: React.Dispatch<React.SetStateAction<{ id: string; title: string; tags?: string[] }[]>>;
   activeDocTab: string;
   setActiveDocTab: (id: string) => void;
   docRows: { [docId: string]: string[] };
-  setDocRows: (rows: { [docId: string]: string[] }) => void;
+  setDocRows: React.Dispatch<React.SetStateAction<{ [docId: string]: string[] }>>;
   addingRowFor: string | null;
   setAddingRowFor: (id: string | null) => void;
   newRowValue: string;
@@ -50,6 +53,7 @@ interface ProjectDocumentsTabProps {
   showNotification: (opts: any) => void;
   tagFilter: string[];
   setTagFilter: (tags: string[]) => void;
+  refetchDocuments: () => void;
 }
 
 // Add annotation types
@@ -118,11 +122,16 @@ const ProjectDocumentsTab = ({
   showNotification,
   tagFilter,
   setTagFilter,
+  refetchDocuments,
 }: ProjectDocumentsTabProps) => {
+  const [socket, setSocket] = useState<Socket | null>(null);
   // Add state for renaming document
   const [renamingDocId, setRenamingDocId] = useState<string | null>(null);
   const [renameDocValue, setRenameDocValue] = useState("");
-  
+
+  // Add state for remote cursors
+  const [activeCursors, setActiveCursors] = useState<any[]>([]);
+
   // Add state for translation feature
   const [translating, setTranslating] = useState(false);
   const [translatedRows, setTranslatedRows] = useState<string[] | null>(null);
@@ -161,6 +170,184 @@ const ProjectDocumentsTab = ({
   // Add state for AI Prompt dropdown
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiPromptProcessing, setAiPromptProcessing] = useState(false);
+
+  // Add state for Document Transition AI
+  const [sourceTransitionDoc, setSourceTransitionDoc] = useState<string | null>(null);
+  const [targetTransitionDoc, setTargetTransitionDoc] = useState<string | null>(null);
+  const [transitionGenerating, setTransitionGenerating] = useState(false);
+
+  // Advanced Document Workflow state
+  const [advDocs, setAdvDocs] = useState<CivilMemoryDocument[]>([]);
+  const [advUsers, setAdvUsers] = useState([]);
+  const [showAdvCreate, setShowAdvCreate] = useState(false);
+  const [advOwner, setAdvOwner] = useState('');
+  const [advReviewer, setAdvReviewer] = useState('');
+  const [advContent, setAdvContent] = useState('');
+  const [advCreating, setAdvCreating] = useState(false);
+  const [activeAdvDoc, setActiveAdvDoc] = useState(null);
+  const [advDocDetail, setAdvDocDetail] = useState(null);
+  const [advHistory, setAdvHistory] = useState([]);
+  const [advStatus, setAdvStatus] = useState('');
+  const [advVersion, setAdvVersion] = useState(1);
+  const [advShowHistory, setAdvShowHistory] = useState(false);
+  const [advCompareModal, setAdvCompareModal] = useState(false);
+  const [advCompareA, setAdvCompareA] = useState(null);
+  const [advCompareB, setAdvCompareB] = useState(null);
+  const [advDiff, setAdvDiff] = useState(null);
+
+  useEffect(() => {
+    if (!projectId) return;
+
+    const socketInstance = io('http://localhost:3001');
+    setSocket(socketInstance);
+
+    socketInstance.emit('project:join', projectId);
+
+    socketInstance.on('document:created', () => {
+      showNotification({ color: 'blue', message: `A new document was added. Refreshing...` });
+      refetchDocuments();
+    });
+
+    socketInstance.on('document:renamed', ({ docId, newTitle, newTags }: { docId: string; newTitle: string; newTags?: string[] }) => {
+      setDocTabs(prevTabs =>
+        prevTabs.map(tab => (tab.id === docId ? { ...tab, title: newTitle, tags: newTags } : tab))
+      );
+    });
+
+    socketInstance.on('document:deleted', (docId: string) => {
+      setDocTabs(prevTabs => {
+        const newTabs = prevTabs.filter(tab => tab.id !== docId);
+        if (activeDocTab === docId && newTabs.length > 0) {
+          setActiveDocTab(newTabs[0].id);
+        }
+        return newTabs;
+      });
+    });
+
+    socketInstance.on('row:added', ({ docId, newRow }: { docId: string; newRow: string }) => {
+      setDocRows(prevRows => ({
+        ...prevRows,
+        [docId]: [...(prevRows[docId] || []), newRow],
+      }));
+    });
+
+    socketInstance.on('row:updated', ({ docId, rowIdx, updatedRow }: { docId: string; rowIdx: number; updatedRow: string }) => {
+      setDocRows(prevRows => ({
+        ...prevRows,
+        [docId]: (prevRows[docId] || []).map((row, idx) => (idx === rowIdx ? updatedRow : row)),
+      }));
+    });
+
+    socketInstance.on('row:deleted', ({ docId, rowIdx }: { docId: string; rowIdx: number }) => {
+      setDocRows(prevRows => ({
+        ...prevRows,
+        [docId]: (prevRows[docId] || []).filter((_, idx) => idx !== rowIdx),
+      }));
+    });
+
+    socketInstance.on('cursor:update', (data) => {
+      setActiveCursors(prev => {
+        const existing = prev.find(c => c.userId === data.userId);
+        if (existing) {
+          return prev.map(c => c.userId === data.userId ? { ...c, ...data } : c);
+        }
+        return [...prev, { ...data, color: getRandomColor() }];
+      });
+    });
+
+    socketInstance.on('cursor:left', ({ userId }: { userId: string }) => {
+      setActiveCursors(prev => prev.filter(c => c.userId !== userId));
+    });
+
+    return () => {
+      socketInstance.emit('project:leave', projectId);
+      socketInstance.disconnect();
+      setSocket(null);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (socket && projectId) {
+        socket.emit('cursor:leave', { projectId, userId: socket.id });
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [socket, projectId]);
+
+  const getRandomColor = () => {
+    const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#F7D842', '#F9A825'];
+    return colors[Math.floor(Math.random() * colors.length)];
+  };
+
+  const handleRealtimeEditChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newValue = e.currentTarget.value;
+    const cursorPosition = e.target.selectionStart;
+    setEditRowValue(newValue); // Update local input for the typist
+
+    // Emit change to everyone else
+    if (socket && projectId && editingRow) {
+      socket.emit('row:update', {
+        projectId,
+        docId: editingRow.docId,
+        rowIdx: editingRow.idx,
+        updatedRow: newValue,
+      });
+      socket.emit('cursor:update', {
+        projectId,
+        docId: editingRow.docId,
+        rowIdx: editingRow.idx,
+        cursorPosition,
+        userId: socket.id, // Or a more persistent user ID
+      });
+    }
+  };
+
+  const handleBlurAndSave = async () => {
+    // Persist the final state to the database
+    await handleSaveEditRow();
+    // Exit editing mode
+    handleCancelEditRow();
+  };
+
+  const handleAddDocumentAndEmit = async () => {
+    await handleAddDocument();
+    if (socket && projectId) {
+      socket.emit('document:create', { projectId });
+    }
+  };
+
+  const handleRenameDocAndEmit = async (docId: string, newTitle: string, newTags?: string[]) => {
+    await handleRenameDoc(docId, newTitle, newTags);
+    if (socket && projectId) {
+      socket.emit('document:rename', { projectId, docId, newTitle, newTags });
+    }
+  };
+
+  const handleDeleteDocAndEmit = async (docId: string) => {
+    await handleDeleteDoc(docId);
+    if (socket && projectId) {
+      socket.emit('document:delete', { projectId, docId });
+    }
+  };
+
+  const handleSaveRowAndEmit = async (docId: string) => {
+    await handleSaveRow(docId);
+    if (socket && projectId) {
+      socket.emit('row:add', { projectId, docId, newRow: newRowValue });
+    }
+  };
+
+  const handleDeleteRowAndEmit = async (docId: string, rowIdx: number) => {
+    await handleDeleteRow(docId, rowIdx);
+    if (socket && projectId) {
+      socket.emit('row:delete', { projectId, docId, rowIdx });
+    }
+  };
 
   // List of supported languages
   const languageOptions = [
@@ -433,30 +620,182 @@ const ProjectDocumentsTab = ({
     }
   };
 
+  // Fetch users and project-specific documents
+  useEffect(() => {
+    fetch('/api/users')
+      .then(res => res.json())
+      .then(u => {
+        // Get project members from props or context
+        let projectMembers = [];
+        if (typeof docTabs !== 'undefined' && docTabs.length > 0 && docTabs[0].projectMembers) {
+          projectMembers = docTabs[0].projectMembers;
+        } else if (typeof window !== 'undefined' && window.currentProjectMembers) {
+          projectMembers = window.currentProjectMembers;
+        } else if (typeof projectId !== 'undefined' && window.projectsById) {
+          const p = window.projectsById[projectId];
+          if (p && Array.isArray(p.members)) projectMembers = p.members;
+        }
+        // Fallback: try to get from localStorage
+        if (!projectMembers.length && typeof localStorage !== 'undefined') {
+          try {
+            const projects = JSON.parse(localStorage.getItem('projects:backup') || '[]');
+            const p = projects.find((proj: any) => String(proj.id) === String(projectId));
+            if (p && Array.isArray(p.members)) projectMembers = p.members;
+          } catch {}
+        }
+        // Normalize projectMembers to array of emails
+        projectMembers = projectMembers.map((m: any) => typeof m === 'string' ? m : m.email);
+        setAdvUsers(u.filter((user: any) => projectMembers.includes(user.email)).map((user: any) => ({ value: user.email, label: user.email })));
+      });
+    if (projectId) {
+      fetch(`/api/documents?projectId=${projectId}`)
+        .then(res => res.json())
+        .then(setAdvDocs);
+    }
+  }, [projectId, advCreating, docTabs]);
+
+  // Fetch document detail when selected
+  useEffect(() => {
+    if (!activeAdvDoc) return;
+    fetch(`/api/documents/${activeAdvDoc}`)
+      .then(res => res.json())
+      .then(d => {
+        setAdvDocDetail(d);
+        setAdvStatus(d.status);
+        setAdvVersion(d.version);
+      });
+    fetch(`/api/documents/${activeAdvDoc}/history`)
+      .then(res => res.json())
+      .then(h => setAdvHistory(h));
+  }, [activeAdvDoc]);
+
+  // Create new document
+  const handleAdvCreate = async () => {
+    setAdvCreating(true);
+    const res = await fetch('/api/documents', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: advContent, owner: advOwner, reviewer: advReviewer, projectId }),
+    });
+    const doc = await res.json();
+    setAdvCreating(false);
+    setShowAdvCreate(false);
+    setActiveAdvDoc(doc.id);
+  };
+
+  // Save draft
+  const handleAdvSaveDraft = async () => {
+    await fetch(`/api/documents/${activeAdvDoc}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: advDocDetail.content, editor: advDocDetail.owner }),
+    });
+    window.location.reload();
+  };
+
+  // Submit for approval
+  const handleAdvSubmitForApproval = async () => {
+    await fetch(`/api/documents/${activeAdvDoc}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'submit_for_approval', reviewer: advDocDetail.reviewer }),
+    });
+    window.location.reload();
+  };
+
+  // Approve
+  const handleAdvApprove = async () => {
+    await fetch(`/api/documents/${activeAdvDoc}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'approve', reviewer: advDocDetail.reviewer }),
+    });
+    window.location.reload();
+  };
+
+  // Reject
+  const handleAdvReject = async () => {
+    await fetch(`/api/documents/${activeAdvDoc}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'reject', reviewer: advDocDetail.reviewer }),
+    });
+    window.location.reload();
+  };
+
+  // Compare versions
+  const handleAdvCompare = async () => {
+    if (!advCompareA || !advCompareB) return;
+    const res = await fetch(`/api/documents/${activeAdvDoc}/compare?versionA=${advCompareA}&versionB=${advCompareB}`);
+    const data = await res.json();
+    setAdvDiff(data.diff);
+    setAdvCompareModal(true);
+  };
+
+  const handleGenerateTransition = async () => {
+    if (!sourceTransitionDoc || !targetTransitionDoc) {
+        showNotification({ color: 'red', message: 'Please select a source and target document.' });
+        return;
+    }
+    if (sourceTransitionDoc === targetTransitionDoc) {
+        showNotification({ color: 'red', message: 'Source and target documents cannot be the same.' });
+        return;
+    }
+    setTransitionGenerating(true);
+    try {
+        const gemini = getGeminiClient();
+        const model = gemini.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+        const sourceRows = docRows[sourceTransitionDoc] || [];
+        const targetRows = docRows[targetTransitionDoc] || [];
+
+        const prompt = `
+Given the following source document and target document, generate guidance on how to transition the content from the source to the target.
+Analyze the differences and provide actionable steps or suggestions for merging/updating the content.
+
+Source Document Content:
+---
+${sourceRows.join('\n')}
+---
+
+Target Document Content:
+---
+${targetRows.join('\n')}
+---
+
+Transition Guidance:
+`;
+        const result = await model.generateContent(prompt);
+        const guidance = result.response.text().trim();
+        
+        const newDocId = `doc-transition-${Date.now()}`;
+        const sourceDocTitle = docTabs.find(t => t.id === sourceTransitionDoc)?.title || 'Source';
+        const targetDocTitle = docTabs.find(t => t.id === targetTransitionDoc)?.title || 'Target';
+        const newDocTitle = `Transition: ${sourceDocTitle} to ${targetDocTitle}`;
+        
+        const newTabs = [
+            ...docTabs,
+            { id: newDocId, title: newDocTitle, tags: ['transition-guidance'] }
+        ];
+        setDocTabs(newTabs);
+        setDocRows({ ...docRows, [newDocId]: guidance.split('\n') });
+        setActiveDocTab(newDocId);
+        if (socket && projectId) {
+            socket.emit('document:create', { projectId });
+        }
+
+        showNotification({ color: 'green', message: 'Transition guidance document created.' });
+
+    } catch (error) {
+        console.error("Transition generation failed:", error);
+        showNotification({ color: 'red', message: 'Failed to generate transition guidance.' });
+    } finally {
+        setTransitionGenerating(false);
+    }
+  };
+
   return (
     <Box style={{ flex: 1, padding: 24, overflowY: 'auto' }}>
-      {/* AI Prompt Section */}
-      <Paper withBorder p="md" mb="md" radius="md" style={{ background: '#f8fafd' }}>
-        <Text fw={600} mb={8}>AI Prompt</Text>
-        <Group align="flex-end" wrap="nowrap">
-          <TextInput
-            label="AI Prompt (use ____ for row value)"
-            placeholder="e.g. 'Summarize ____ in one sentence.'"
-            value={aiPrompt}
-            onChange={e => setAiPrompt(e.currentTarget.value)}
-            style={{ flex: 1 }}
-            disabled={aiPromptProcessing}
-          />
-          <Button
-            onClick={runAiForEachRow}
-            loading={aiPromptProcessing}
-            disabled={!aiPrompt.trim() || aiPromptProcessing}
-            style={{ minWidth: 160 }}
-          >
-            Run AI for Each Row
-          </Button>
-        </Group>
-      </Paper>
       {/* Header: Add Document, Search, Pagination */}
       <Group mb="md" align="center" justify="space-between">
         {/* Document Tabs List (as buttons or pills) */}
@@ -471,7 +810,7 @@ const ProjectDocumentsTab = ({
                 style={{ borderRadius: 12, fontWeight: 600, marginRight: 0, marginBottom: 4 }}
               >
                 {tab.title}
-          </Button>
+              </Button>
               <Menu shadow="md" width={140} position="bottom-end" withinPortal>
                 <Menu.Target>
                   <ActionIcon variant="subtle" size="xs" style={{ marginLeft: 0, marginBottom: 4 }}>
@@ -491,7 +830,7 @@ const ProjectDocumentsTab = ({
                   <Menu.Item
                     color="red"
                     leftSection={<IconTrash size={14} />}
-                    onClick={() => handleDeleteDoc(tab.id)}
+                    onClick={() => handleDeleteDocAndEmit(tab.id)}
                     disabled={docTabs.length === 1}
                   >
                     Delete
@@ -515,7 +854,7 @@ const ProjectDocumentsTab = ({
           <Button
             size="xs"
             leftSection={<IconPlus size={16} />}
-            onClick={handleAddDocument}
+            onClick={handleAddDocumentAndEmit}
             style={{ borderRadius: 12, fontWeight: 700 }}
           >
             Add Document
@@ -579,26 +918,48 @@ const ProjectDocumentsTab = ({
                   <>
                     <Textarea
                       value={editRowValue}
-                      onChange={e => setEditRowValue(e.currentTarget.value)}
+                      onChange={handleRealtimeEditChange}
+                      onBlur={handleBlurAndSave}
                       autoFocus
-                      style={{ flex: 1 }}
+                      style={{ flex: 1, position: 'relative' }}
                       minRows={2}
                       disabled={!!isAI}
-                      onKeyDown={e => {
-                        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                          handleSaveEditRow();
-                        }
-                      }}
-                      placeholder="Type your Markdown here... (Ctrl+Enter to save)"
+                      placeholder="Type your Markdown here..."
                       ref={addRowInputRef}
                       onMouseUp={(e) => handleRowTextSelection(e, row, idx)}
                     />
-                    <Button size="xs" color={styles.accentColor} onClick={handleSaveEditRow} loading={savingEdit || !!isAI} disabled={!!isAI} style={{ background: styles.buttonGradient, color: '#fff', fontWeight: 700, borderRadius: 12 }}>
-                      Save
-                    </Button>
-                    <Button size="xs" variant="default" onClick={handleCancelEditRow} disabled={savingEdit || !!isAI} style={{ background: styles.tabBackground, color: styles.secondaryTextColor, fontWeight: 600, borderRadius: 12 }}>
-                      Cancel
-                    </Button>
+                    {activeCursors
+                      .filter(c => c.docId === activeDocTab && c.rowIdx === idx && c.userId !== socket?.id)
+                      .map(cursor => (
+                        <div
+                          key={cursor.userId}
+                          style={{
+                            position: 'absolute',
+                            top: '4px',
+                            left: `${cursor.cursorPosition * 7.5 + 12}px`, // Adjust multiplier based on font size/char width + padding
+                            width: '2px',
+                            height: '20px',
+                            backgroundColor: cursor.color,
+                            zIndex: 10,
+                          }}
+                        >
+                          <div
+                            style={{
+                              position: 'absolute',
+                              top: '-22px',
+                              left: '-2px',
+                              background: cursor.color,
+                              color: 'white',
+                              padding: '1px 4px',
+                              borderRadius: '3px',
+                              fontSize: '10px',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {cursor.userId.slice(0, 6)}
+                          </div>
+                        </div>
+                      ))}
                     <ActionIcon
                       size={28}
                       color={styles.accentColor}
@@ -716,7 +1077,7 @@ const ProjectDocumentsTab = ({
                     <Menu.Item
                       color="red"
                       leftSection={<IconTrash size={16} />}
-                      onClick={() => handleDeleteRow(activeDocTab, idx)}
+                      onClick={() => handleDeleteRowAndEmit(activeDocTab, idx)}
                     >
                       Delete
                     </Menu.Item>
@@ -761,12 +1122,12 @@ const ProjectDocumentsTab = ({
               minRows={2}
               onKeyDown={e => {
                 if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                  handleSaveRow(activeDocTab);
+                  handleSaveRowAndEmit(activeDocTab);
                 }
               }}
               ref={addRowInputRef}
             />
-            <Button size="xs" color={styles.accentColor} onClick={() => handleSaveRow(activeDocTab)} loading={savingRow} style={{ background: styles.buttonGradient, color: '#fff', fontWeight: 700, borderRadius: 12 }}>
+            <Button size="xs" color={styles.accentColor} onClick={() => handleSaveRowAndEmit(activeDocTab)} loading={savingRow} style={{ background: styles.buttonGradient, color: '#fff', fontWeight: 700, borderRadius: 12 }}>
               Save
             </Button>
             <Button size="xs" variant="default" onClick={handleCancelRow} disabled={savingRow} style={{ background: styles.tabBackground, color: styles.secondaryTextColor, fontWeight: 600, borderRadius: 12 }}>
@@ -989,7 +1350,7 @@ const ProjectDocumentsTab = ({
           onChange={e => setRenameDocValue(e.currentTarget.value)}
           onKeyDown={e => {
             if (e.key === 'Enter' && renamingDocId) {
-              handleRenameDoc(renamingDocId, renameDocValue);
+              handleRenameDocAndEmit(renamingDocId, renameDocValue);
               setRenamingDocId(null);
             }
           }}
@@ -999,12 +1360,212 @@ const ProjectDocumentsTab = ({
           <Button variant="default" onClick={() => setRenamingDocId(null)}>Cancel</Button>
           <Button onClick={() => {
             if (renamingDocId) {
-              handleRenameDoc(renamingDocId, renameDocValue);
+              handleRenameDocAndEmit(renamingDocId, renameDocValue);
               setRenamingDocId(null);
             }
           }}>Save</Button>
         </Group>
       </Modal>
+      <Paper shadow="xs" p="md" mt="xl">
+        <Title order={4}>Advanced Document Workflow</Title>
+        <Group mb="md">
+          <Button onClick={() => setShowAdvCreate(true)}>Create New Document</Button>
+        </Group>
+        <Table striped highlightOnHover>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Status</th>
+              <th>Version</th>
+              <th>Owner</th>
+              <th>Reviewer</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {advDocs.map(doc => (
+              <tr key={doc.id}>
+                <td>{doc.id}</td>
+                <td>{doc.status}</td>
+                <td>{doc.version}</td>
+                <td>{doc.owner}</td>
+                <td>{doc.reviewer}</td>
+                <td>
+                  <Button size="xs" onClick={() => setActiveAdvDoc(doc.id)}>
+                    Open
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+        <Modal opened={showAdvCreate} onClose={() => setShowAdvCreate(false)} title="Create New Document" size="md">
+          <TextInput
+            label="Initial Content"
+            value={advContent}
+            onChange={e => setAdvContent(e.target.value)}
+            placeholder="Enter document content..."
+            mb="md"
+          />
+          <Select
+            label="Owner"
+            data={advUsers}
+            value={advOwner}
+            onChange={setAdvOwner}
+            placeholder="Select owner"
+            searchable
+            mb="md"
+          />
+          <Select
+            label="Reviewer"
+            data={advUsers}
+            value={advReviewer}
+            onChange={setAdvReviewer}
+            placeholder="Select reviewer"
+            searchable
+            mb="md"
+          />
+          <Group mt="md">
+            <Button onClick={handleAdvCreate} loading={advCreating} disabled={!advOwner || !advReviewer}>
+              Create
+            </Button>
+            <Button variant="outline" onClick={() => setShowAdvCreate(false)}>
+              Cancel
+            </Button>
+          </Group>
+        </Modal>
+        {activeAdvDoc && advDocDetail && (
+          <Modal opened={!!activeAdvDoc} onClose={() => setActiveAdvDoc(null)} title={`Document: ${activeAdvDoc}`} size="xl">
+            <Text>Status: {advStatus} | Version: {advVersion}</Text>
+            <Textarea
+              value={advDocDetail ? advDocDetail.content : ''}
+              onChange={e => advDocDetail && setAdvDocDetail({ ...advDocDetail, content: e.target.value })}
+              minRows={15}
+              autosize
+              mt="md"
+              placeholder="Start typing..."
+              styles={{ input: { fontFamily: 'monospace', fontSize: 16 } }}
+              disabled={advStatus === 'pending_approval' || advStatus === 'approved'}
+            />
+            <Group mt="md">
+              <Button onClick={handleAdvSaveDraft} disabled={advStatus === 'pending_approval' || advStatus === 'approved'}>Save Draft</Button>
+              <Button onClick={handleAdvSubmitForApproval} disabled={advStatus !== 'draft'}>Submit for Approval</Button>
+              <Button onClick={handleAdvApprove} disabled={advStatus !== 'pending_approval'}>Approve</Button>
+              <Button onClick={handleAdvReject} disabled={advStatus !== 'pending_approval'} color="red">Reject</Button>
+              <Button onClick={() => setAdvShowHistory(true)}>Version History</Button>
+            </Group>
+            <Modal opened={advShowHistory} onClose={() => setAdvShowHistory(false)} title="Version History" size="lg">
+              {advHistory && advHistory.length > 0 ? (
+                <>
+                  <ul>
+                    {advHistory.map((v) => (
+                      <li key={v.version}>
+                        Version {v.version} ({v.status}) - {v.timestamp}
+                      </li>
+                    ))}
+                  </ul>
+                  <Group mt="md">
+                    <Select
+                      label="Compare A"
+                      data={advHistory.map((v) => ({ value: v.version.toString(), label: `v${v.version}` }))}
+                      value={advCompareA}
+                      onChange={setAdvCompareA}
+                    />
+                    <Select
+                      label="Compare B"
+                      data={advHistory.map((v) => ({ value: v.version.toString(), label: `v${v.version}` }))}
+                      value={advCompareB}
+                      onChange={setAdvCompareB}
+                    />
+                    <Button onClick={handleAdvCompare} disabled={!advCompareA || !advCompareB}>Compare</Button>
+                  </Group>
+                </>
+              ) : (
+                <Text>No history available.</Text>
+              )}
+            </Modal>
+            <Modal opened={advCompareModal} onClose={() => setAdvCompareModal(false)} title="Version Diff" size="lg">
+              {advDiff ? (
+                <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
+                  {advDiff.map((part, idx) => (
+                    <span
+                      key={idx}
+                      style={{ background: part.added ? '#d4fcdc' : part.removed ? '#ffd6d6' : 'none' }}
+                    >
+                      {part.value}
+                    </span>
+                  ))}
+                </pre>
+              ) : (
+                <Text>No diff available.</Text>
+              )}
+            </Modal>
+          </Modal>
+        )}
+      </Paper>
+      {/* AI Tools Section */}
+      <Paper shadow="xs" p="md" mt="xl">
+        <Title order={3} mb="lg">AI Tools</Title>
+        <Stack>
+            {/* AI Prompt Section (moved from top) */}
+            <Paper withBorder p="md" radius="md" style={{ background: '#f8fafd' }}>
+              <Title order={4}>AI Prompt for Each Row</Title>
+              <Text size="sm" c="dimmed" mb="md">
+                Run a custom prompt on each row of the current document. Use `____` as a placeholder for the row's content.
+              </Text>
+              <Group align="flex-end" wrap="nowrap">
+                <TextInput
+                  label="AI Prompt (use ____ for row value)"
+                  placeholder="e.g. 'Summarize ____ in one sentence.'"
+                  value={aiPrompt}
+                  onChange={e => setAiPrompt(e.currentTarget.value)}
+                  style={{ flex: 1 }}
+                  disabled={aiPromptProcessing}
+                />
+                <Button
+                  onClick={runAiForEachRow}
+                  loading={aiPromptProcessing}
+                  disabled={!aiPrompt.trim() || aiPromptProcessing}
+                >
+                  Run AI for Each Row
+                </Button>
+              </Group>
+            </Paper>
+
+            {/* Document Transition AI Section (re-created from screenshot) */}
+            <Paper withBorder p="md" radius="md" mt="md" style={{ background: '#f8fafd' }}>
+                <Title order={4}>Document Transition AI</Title>
+                <Text size="sm" c="dimmed" mb="md">
+                    Use AI to help transition content from one document to another. Select a source document and a target document.
+                </Text>
+                <Group grow align="flex-end">
+                    <Select
+                        label="Source Document"
+                        placeholder="Select source"
+                        data={docTabs.map(t => ({ value: t.id, label: t.title }))}
+                        value={sourceTransitionDoc}
+                        onChange={setSourceTransitionDoc}
+                        searchable
+                    />
+                    <Select
+                        label="Target Document"
+                        placeholder="Select target"
+                        data={docTabs.map(t => ({ value: t.id, label: t.title }))}
+                        value={targetTransitionDoc}
+                        onChange={setTargetTransitionDoc}
+                        searchable
+                    />
+                    <Button
+                        onClick={handleGenerateTransition}
+                        loading={transitionGenerating}
+                        disabled={!sourceTransitionDoc || !targetTransitionDoc || sourceTransitionDoc === targetTransitionDoc}
+                    >
+                        Generate Transition Guidance
+                    </Button>
+                </Group>
+            </Paper>
+        </Stack>
+      </Paper>
     </Box>
   );
 };

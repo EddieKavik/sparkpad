@@ -1,7 +1,7 @@
 "use client";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState, useRef } from "react";
-import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack, Modal, ActionIcon, rem, Menu, Avatar, Paper, MultiSelect, Textarea, Badge, Divider, Select, Accordion, Popover } from "@mantine/core";
+import { useEffect, useState, useRef, useCallback } from "react";
+import { Container, Title, Tabs, Box, Text, Loader, Center, Group, TextInput, Button, Stack, Modal, ActionIcon, rem, Menu, Avatar, Paper, MultiSelect, Textarea, Badge, Divider, Select, Accordion, Popover, Table } from "@mantine/core";
 import { showNotification } from "@mantine/notifications";
 import { IconSettings, IconDots, IconTrash, IconArrowLeft, IconSend, IconFile, IconMoodSmile, IconRobot, IconEdit, IconSparkles, IconChevronDown, IconChevronUp, IconDownload, IconUpload, IconWorld, IconSearch, IconCalendarEvent, IconCurrencyDollar, IconUsersGroup, IconPlus, IconMicrophone, IconMicrophoneOff } from "@tabler/icons-react";
 import { getGeminiClient } from "@/utils/gemini";
@@ -441,6 +441,8 @@ export default function ProjectViewPage() {
 
     const [audioURLs, setAudioURLs] = useState<{ [key: string]: string }>({});
 
+    const [newMemberRole, setNewMemberRole] = useState<string>("");
+
     useEffect(() => {
         const user = localStorage.getItem("user");
         if (user) {
@@ -454,44 +456,45 @@ export default function ProjectViewPage() {
         fetchProject(projectId, setProject, setRenameValue, router, setLoading);
     }, [projectId, router]);
 
+    const fetchDocRowsAndTabs = useCallback(async () => {
+        if (!projectId || Array.isArray(projectId)) return;
+        try {
+            const userEmail = localStorage.getItem("user:username");
+            if (!userEmail) {
+                router.replace("/login");
+                return;
+            }
+            // Load docRows
+            const res = await fetch(`http://localhost:3333/docs?mode=disk&key=${encodeURIComponent(userEmail)}`);
+            if (res.ok) {
+                let data = await res.json();
+                // MIGRATION: If data is an array, convert to object keyed by the first docTab or default
+                if (Array.isArray(data)) {
+                    // Find the first docTab id, or fallback to 'default'
+                    let docId = 'default';
+                    if (docTabs && docTabs.length > 0) docId = docTabs[0].id;
+                    data = { [docId]: data };
+                    // Save migrated data
+                    await fetch(`http://localhost:3333/docs?mode=disk&key=${encodeURIComponent(userEmail)}`, {
+                        method: "POST",
+                        body: JSON.stringify(data),
+                    });
+                }
+                setDocRows(typeof data === "object" && data ? data : {});
+            }
+            // Load docTabs
+            const tabs = await loadDocTabsFromCivilMemory(projectId);
+            if (tabs && Array.isArray(tabs) && tabs.length > 0) {
+                setDocTabs(tabs);
+                setActiveDocTab(tabs[0].id);
+            }
+        } catch { }
+    }, [projectId, router, docTabs]);
+
     // Load document rows from Civil Memory on mount or when projectId changes
     useEffect(() => {
-        const fetchDocRowsAndTabs = async () => {
-            if (!projectId || Array.isArray(projectId)) return;
-            try {
-                const userEmail = localStorage.getItem("user:username");
-                if (!userEmail) {
-                    router.replace("/login");
-                    return;
-                }
-                // Load docRows
-                const res = await fetch(`http://localhost:3333/docs?mode=disk&key=${encodeURIComponent(userEmail)}`);
-                if (res.ok) {
-                    let data = await res.json();
-                    // MIGRATION: If data is an array, convert to object keyed by the first docTab or default
-                    if (Array.isArray(data)) {
-                        // Find the first docTab id, or fallback to 'default'
-                        let docId = 'default';
-                        if (docTabs && docTabs.length > 0) docId = docTabs[0].id;
-                        data = { [docId]: data };
-                        // Save migrated data
-                        await fetch(`http://localhost:3333/docs?mode=disk&key=${encodeURIComponent(userEmail)}`, {
-                            method: "POST",
-                            body: JSON.stringify(data),
-                        });
-                    }
-                    setDocRows(typeof data === "object" && data ? data : {});
-                }
-                // Load docTabs
-                const tabs = await loadDocTabsFromCivilMemory(projectId);
-                if (tabs && Array.isArray(tabs) && tabs.length > 0) {
-                    setDocTabs(tabs);
-                    setActiveDocTab(tabs[0].id);
-                }
-            } catch { }
-        };
         fetchDocRowsAndTabs();
-    }, [projectId, router]);
+    }, [fetchDocRowsAndTabs]);
 
     // Save document rows to Civil Memory
     const saveDocRows = async (updated: { [docId: string]: string[] }) => {
@@ -508,19 +511,24 @@ export default function ProjectViewPage() {
     };
 
     const handleAddMember = async () => {
-        if (!project || !newMemberEmail) return;
-        if (project.members && project.members.includes(newMemberEmail)) {
+        if (!project || !newMemberEmail || !newMemberRole) return;
+        // MIGRATION: convert string members to { email, role }
+        let currentMembers = Array.isArray(project.members) ? project.members : [];
+        currentMembers = currentMembers.map((m: any) =>
+          typeof m === 'string' ? { email: m, role: 'reviewer' } : m
+        );
+        if (currentMembers.some((m: any) => m.email === newMemberEmail)) {
             showNotification({ title: "Already a member", message: "This user is already a member.", color: "yellow" });
             return;
         }
         setAdding(true);
         try {
-            // Fetch all projects for current user
             const userEmail = localStorage.getItem("user:username");
             if (!userEmail) {
                 router.replace("/login");
                 return;
             }
+            // Fetch all projects for current user
             const res = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`);
             let projects = [];
             if (res.ok) {
@@ -532,18 +540,18 @@ export default function ProjectViewPage() {
             const idx = projects.findIndex((p: any) => String(p.id) === String(projectId));
             if (idx === -1) throw new Error("Project not found");
             const updatedProject = { ...projects[idx] };
-            // Ensure members is a unique array of valid emails
+            // MIGRATION: convert string members to objects
             updatedProject.members = Array.isArray(updatedProject.members) ? updatedProject.members : [];
-            updatedProject.members = Array.from(new Set([...updatedProject.members, newMemberEmail].filter(Boolean)));
+            updatedProject.members = updatedProject.members.map((m: any) =>
+              typeof m === 'string' ? { email: m, role: 'reviewer' } : m
+            );
+            // Add new member
+            updatedProject.members.push({ email: newMemberEmail, role: newMemberRole });
             projects[idx] = updatedProject;
-
             // Save back to current user's storage
-            const saveRes = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`, {
-                method: "POST",
-                body: JSON.stringify(projects),
-            });
+            const saveRes = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`,
+                { method: "POST", body: JSON.stringify(projects) });
             if (!saveRes.ok) throw new Error("Failed to add member");
-
             // Fetch and update new member's projects
             const newMemberRes = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(newMemberEmail)}`);
             let newMemberProjects = [];
@@ -561,15 +569,32 @@ export default function ProjectViewPage() {
                     String(p.id) === String(updatedProject.id) ? updatedProject : p
                 );
             }
-            const saveNewMemberRes = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(newMemberEmail)}`, {
-                method: "POST",
-                body: JSON.stringify(newMemberProjects),
-            });
+            const saveNewMemberRes = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(newMemberEmail)}`,
+                { method: "POST", body: JSON.stringify(newMemberProjects) });
             if (!saveNewMemberRes.ok) throw new Error("Failed to update new member's projects");
-
+            // Update all other members' project lists
+            for (const member of updatedProject.members) {
+                if (member.email === userEmail || member.email === newMemberEmail) continue;
+                const memberRes = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(member.email)}`);
+                let memberProjects = [];
+                if (memberRes.ok) {
+                    const text = await memberRes.text();
+                    memberProjects = text ? JSON.parse(text) : [];
+                    if (!Array.isArray(memberProjects)) memberProjects = [];
+                }
+                if (!memberProjects.some((p: any) => String(p.id) === String(updatedProject.id))) {
+                    memberProjects.push(updatedProject);
+                } else {
+                    memberProjects = memberProjects.map((p: any) =>
+                        String(p.id) === String(updatedProject.id) ? updatedProject : p
+                    );
+                }
+                await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(member.email)}`,
+                    { method: "POST", body: JSON.stringify(memberProjects) });
+            }
             setNewMemberEmail("");
+            setNewMemberRole("");
             showNotification({ title: "Success", message: "Member added!", color: "green" });
-            // Refresh project data so UI updates
             await fetchProject(projectId, setProject, setRenameValue, router, setLoading);
         } catch (err: any) {
             showNotification({ title: "Error", message: err.message || "Failed to add member", color: "red" });
@@ -617,7 +642,12 @@ export default function ProjectViewPage() {
 
     const handleRemoveMember = async (emailToRemove: string) => {
         if (!project) return;
-        if (!Array.isArray(project.members) || project.members.length <= 1) {
+        // MIGRATION: convert string members to { email, role }
+        let currentMembers = Array.isArray(project.members) ? project.members : [];
+        currentMembers = currentMembers.map((m: any) =>
+          typeof m === 'string' ? { email: m, role: 'reviewer' } : m
+        );
+        if (currentMembers.length <= 1) {
             showNotification({ title: "Error", message: "A project must have at least one member.", color: "red" });
             return;
         }
@@ -628,18 +658,51 @@ export default function ProjectViewPage() {
                 return;
             }
             const res = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`);
-            if (!res.ok) throw new Error("Failed to fetch projects");
-            const projects = await res.json();
+            let projects = [];
+            if (res.ok) {
+                const text = await res.text();
+                projects = text ? JSON.parse(text) : [];
+                if (!Array.isArray(projects)) projects = [];
+            }
             const idx = projects.findIndex((p: any) => String(p.id) === String(projectId));
             if (idx === -1) throw new Error("Project not found");
             const updatedProject = { ...projects[idx] };
-            updatedProject.members = updatedProject.members.filter((email: string) => email !== emailToRemove);
+            updatedProject.members = Array.isArray(updatedProject.members) ? updatedProject.members : [];
+            updatedProject.members = updatedProject.members.map((m: any) =>
+              typeof m === 'string' ? { email: m, role: 'reviewer' } : m
+            );
+            updatedProject.members = updatedProject.members.filter((m: any) => m.email !== emailToRemove);
             projects[idx] = updatedProject;
-            const saveRes = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`, {
-                method: "POST",
-                body: JSON.stringify(projects),
-            });
+            const saveRes = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`,
+                { method: "POST", body: JSON.stringify(projects) });
             if (!saveRes.ok) throw new Error("Failed to remove member");
+            // Remove project from removed member's project list
+            const removedMemberRes = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(emailToRemove)}`);
+            let removedMemberProjects = [];
+            if (removedMemberRes.ok) {
+                const text = await removedMemberRes.text();
+                removedMemberProjects = text ? JSON.parse(text) : [];
+                if (!Array.isArray(removedMemberProjects)) removedMemberProjects = [];
+            }
+            removedMemberProjects = removedMemberProjects.filter((p: any) => String(p.id) !== String(updatedProject.id));
+            await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(emailToRemove)}`,
+                { method: "POST", body: JSON.stringify(removedMemberProjects) });
+            // Update all other members' project lists
+            for (const member of updatedProject.members) {
+                if (member.email === userEmail) continue;
+                const memberRes = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(member.email)}`);
+                let memberProjects = [];
+                if (memberRes.ok) {
+                    const text = await memberRes.text();
+                    memberProjects = text ? JSON.parse(text) : [];
+                    if (!Array.isArray(memberProjects)) memberProjects = [];
+                }
+                memberProjects = memberProjects.map((p: any) =>
+                    String(p.id) === String(updatedProject.id) ? updatedProject : p
+                );
+                await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(member.email)}`,
+                    { method: "POST", body: JSON.stringify(memberProjects) });
+            }
             setProject(updatedProject);
             showNotification({ title: "Success", message: "Member removed!", color: "green" });
         } catch (err: any) {
@@ -1882,6 +1945,20 @@ export default function ProjectViewPage() {
         return '';
     }
 
+    const aiContext = {
+        projectName: project?.name,
+        projectStatus: project?.status,
+        documents: Object.values(docRows).flat().join('\n\n'),
+        tasks,
+        chat: chatMessages,
+        finance: {
+            budget: financeBudget,
+            currency: financeCurrency,
+            expenses: financeExpenses,
+        },
+        research: researchItems,
+    };
+
     if (loading) {
         return (
             <Center style={{ height: '100vh' }}>
@@ -1906,6 +1983,45 @@ export default function ProjectViewPage() {
     const endIndex = startIndex + DOCS_PER_PAGE;
     const paginatedDocRows = currentDocRows.slice(startIndex, endIndex);
     const totalDocPages = Math.ceil(currentDocRows.length / DOCS_PER_PAGE);
+
+    // Handler to change a member's role
+    const handleChangeMemberRole = async (email: string, newRole: string | null) => {
+      if (!project || !newRole) return;
+      try {
+        const userEmail = localStorage.getItem("user:username");
+        if (!userEmail) {
+          router.replace("/login");
+          return;
+        }
+        // Fetch all projects for current user
+        const res = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`);
+        let projects = [];
+        if (res.ok) {
+          const text = await res.text();
+          projects = text ? JSON.parse(text) : [];
+          if (!Array.isArray(projects)) projects = [];
+        }
+        // Find and update the project
+        const idx = projects.findIndex((p: any) => String(p.id) === String(projectId));
+        if (idx === -1) throw new Error("Project not found");
+        const updatedProject = { ...projects[idx] };
+        updatedProject.members = Array.isArray(updatedProject.members) ? updatedProject.members : [];
+        updatedProject.members = updatedProject.members.map((m: any) =>
+          typeof m === 'string'
+            ? (m === email ? { email, role: newRole } : { email: m, role: 'member' })
+            : (m.email === email ? { ...m, role: newRole } : m)
+        );
+        projects[idx] = updatedProject;
+        // Save back to current user's storage
+        const saveRes = await fetch(`http://localhost:3333/?mode=disk&key=projects:${encodeURIComponent(userEmail)}`,
+          { method: "POST", body: JSON.stringify(projects) });
+        if (!saveRes.ok) throw new Error("Failed to update member role");
+        setProject(updatedProject);
+        showNotification({ title: "Success", message: "Member role updated!", color: "green" });
+      } catch (err: any) {
+        showNotification({ title: "Error", message: err.message || "Failed to update member role", color: "red" });
+      }
+    };
 
     return (
         <>
@@ -2049,6 +2165,7 @@ export default function ProjectViewPage() {
                                 showNotification={showNotification}
                                 tagFilter={tagFilter}
                                 setTagFilter={setTagFilter}
+                                refetchDocuments={() => fetchDocRowsAndTabs()}
                             />
                             {/* Document Transition AI Section */}
                             <Divider my="xl" />
@@ -2166,7 +2283,7 @@ export default function ProjectViewPage() {
                             </Modal>
 
                             <Modal opened={!!editingTaskId} onClose={() => setEditingTaskId(null)} title="Edit Task">
-                                <Stack>
+                                <Stack gap="md">
                                     <TextInput
                                         label="Title"
                                         placeholder="Task title"
@@ -2209,7 +2326,7 @@ export default function ProjectViewPage() {
                             </Modal>
 
                             {taskView === 'list' ? (
-                                <Stack>
+                                <Stack gap="lg">
                                     {tasks.length === 0 ? (
                                         <Text color="dimmed">No tasks yet. Add one to get started!</Text>
                                     ) : (
@@ -2352,32 +2469,36 @@ export default function ProjectViewPage() {
                                 </Avatar>
                                 <Text size="sm" fw={chatContext === 'group' ? 700 : 400}>Boardroom</Text>
                               </Group>
-                              {project.members && project.members.filter((member: string) => member !== localStorage.getItem("user:username")).map((member: string) => {
+                              {project.members && project.members.filter((member: any) => {
+                                const m = typeof member === 'string' ? { email: member, role: 'reviewer' } : member;
+                                return m.email !== localStorage.getItem("user:username");
+                              }).map((member: any) => {
+                                const m = typeof member === 'string' ? { email: member, role: 'reviewer' } : member;
                                 let online = false;
                                 try {
-                                  const lastActive = localStorage.getItem(`user:lastActive:${member}`);
+                                  const lastActive = localStorage.getItem(`user:lastActive:${m.email}`);
                                   if (lastActive && Date.now() - parseInt(lastActive, 10) < 5 * 60 * 1000) online = true;
                                 } catch { }
                                 return (
                                   <Group
-                                    key={member}
+                                    key={m.email}
                                     gap={8}
                                     align="center"
                                     style={{
-                                      background: chatContext === member ? '#e3f2fd' : 'transparent',
+                                      background: chatContext === m.email ? '#e3f2fd' : 'transparent',
                                       borderRadius: 8,
                                       padding: '4px 8px',
                                       cursor: 'pointer',
                                     }}
-                                    onClick={() => setChatContext(member)}
+                                    onClick={() => setChatContext(m.email)}
                                   >
                                     <Avatar size={28} radius="xl" color="blue">
-                                      {getInitials(member)}
+                                      {getInitials(m.email)}
                                     </Avatar>
                                     <Box style={{ width: 8, height: 8, borderRadius: 4, background: '#4caf50', marginRight: 4 }} />
-                                    <Text size="sm" fw={chatContext === member ? 700 : 400}>{getDisplayName(member)}</Text>
-                                    {unreadCounts[member] > 0 && (
-                                      <Badge color="red" size="sm" ml={4}>{unreadCounts[member]}</Badge>
+                                    <Text size="sm" fw={chatContext === m.email ? 700 : 400}>{getDisplayName(m.email)}</Text>
+                                    {unreadCounts[m.email] > 0 && (
+                                      <Badge color="red" size="sm" ml={4}>{unreadCounts[m.email]}</Badge>
                                     )}
                                   </Group>
                                 );
@@ -2652,7 +2773,7 @@ export default function ProjectViewPage() {
                                 {sortedResearchItems.map((item: any) => (
                                     <Paper key={item.id} p="lg" shadow="sm" withBorder radius="md" style={{ borderColor: styles.cardBorder }}>
                                         {editResearch && editResearch.id === item.id ? (
-                                            <Stack spacing="md">
+                                            <Stack gap="md">
                                                 <TextInput
                                                     label="Title"
                                                     value={editResearch.title}
@@ -2738,7 +2859,7 @@ export default function ProjectViewPage() {
                                                         </Box>
                                                     )}
                                                     <Divider my="xs" />
-                                                    <Stack spacing="xs">
+                                                    <Stack gap="xs">
                                                         <Text fw={500} style={{ color: styles.textColor }}>Comments:</Text>
                                                         {item.annotations && item.annotations.length > 0 ? (
                                                             item.annotations.map((comment: any) => (
@@ -3240,30 +3361,70 @@ export default function ProjectViewPage() {
             <Modal opened={settingsOpened} onClose={() => setSettingsOpened(false)} title="Project Settings" centered>
               <Stack>
                 <Title order={4}>Add Member</Title>
-                <TextInput
-                  label="Username or Email"
-                  placeholder="Enter username or email"
-                  value={newMemberEmail}
-                  onChange={e => setNewMemberEmail(e.currentTarget.value)}
-                  disabled={adding}
-                />
-                <Button onClick={handleAddMember} loading={adding} disabled={!newMemberEmail.trim()}>
-                  Add Member
-                </Button>
+                <Group>
+                  <TextInput
+                    label="Username or Email"
+                    placeholder="Enter username or email"
+                    value={newMemberEmail}
+                    onChange={e => setNewMemberEmail(e.currentTarget.value)}
+                    disabled={adding}
+                  />
+                  <Select
+                    label="Role"
+                    placeholder="Select role"
+                    data={[
+                      { value: 'owner', label: 'Owner' },
+                      { value: 'reviewer', label: 'Reviewer' },
+                      { value: 'admin', label: 'Admin' },
+                    ]}
+                    value={newMemberRole}
+                    onChange={setNewMemberRole}
+                    disabled={adding}
+                  />
+                  <Button onClick={handleAddMember} loading={adding} disabled={!newMemberEmail.trim() || !newMemberRole}>
+                    Add Member
+                  </Button>
+                </Group>
                 <Divider my="md" />
                 <Title order={5} mb="xs">Current Members</Title>
-                <Stack gap={4}>
-                  {project?.members?.map((member: string) => (
-                    <Group key={member} justify="space-between">
-                      <Text>{member}</Text>
-                      {project.members.length > 1 && member !== localStorage.getItem("user:username") && (
-                        <ActionIcon color="red" variant="light" onClick={() => handleRemoveMember(member)} size={24}>
-                          <IconTrash size={16} />
-                        </ActionIcon>
-                      )}
-                    </Group>
-                  ))}
-                </Stack>
+                <Table striped highlightOnHover>
+                  <thead>
+                    <tr>
+                      <th>Email</th>
+                      <th>Role</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {project?.members?.map((member: any, idx: number) => {
+                      const m = typeof member === 'string' ? { email: member, role: 'reviewer' } : member;
+                      return (
+                        <tr key={m.email || idx}>
+                          <td>{m.email}</td>
+                          <td>
+                            <Select
+                              data={[
+                                { value: 'owner', label: 'Owner' },
+                                { value: 'reviewer', label: 'Reviewer' },
+                                { value: 'admin', label: 'Admin' },
+                              ]}
+                              value={m.role}
+                              onChange={role => handleChangeMemberRole(m.email, role)}
+                              disabled={m.email === localStorage.getItem("user:username")}
+                            />
+                          </td>
+                          <td>
+                            {project.members.length > 1 && m.email !== localStorage.getItem("user:username") && (
+                              <ActionIcon color="red" variant="light" onClick={() => handleRemoveMember(m.email)} size={24}>
+                                <IconTrash size={16} />
+                              </ActionIcon>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </Table>
               </Stack>
             </Modal>
         </>

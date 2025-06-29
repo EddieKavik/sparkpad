@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "concurrently \"npm:dev:next\" \"npm:dev:socket\"",
+    "dev:next": "npx next dev --turbopack",
+    "dev:socket": "node socket-server.js",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
@@ -16,11 +18,13 @@
     "@mantine/charts": "^8.1.0",
     "@mantine/core": "^8.1.0",
     "@mantine/dates": "^8.1.0",
+    "@mantine/form": "^8.1.1",
     "@mantine/hooks": "^8.1.0",
     "@mantine/modals": "^8.1.0",
     "@mantine/notifications": "^8.1.0",
     "@tabler/icons-react": "^3.31.0",
     "date-fns": "^4.1.0",
+    "diff": "^8.0.2",
     "embla-carousel-react": "^8.6.0",
     "file-saver": "^2.0.5",
     "framer-motion": "^12.11.0",
@@ -31,13 +35,16 @@
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
     "recharts": "^2.15.3",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "socket.io": "^4.7.5",
+    "socket.io-client": "^4.7.5"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^8.2.2",
     "eslint": "^9",
     "eslint-config-next": "15.3.1",
     "playwright": "^1.53.0",
